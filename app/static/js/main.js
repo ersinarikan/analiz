@@ -1319,14 +1319,16 @@ function displayAnalysisResults(fileId, results) {
         (results.age_analysis && results.age_analysis.length > 0)) {
         
         try {
-            // Her yüz için en güvenilir skorları bul
-            const faceConfidenceMap = new Map();
-            
             // Backend'in döndüğü veri yapısına göre uygun değişkeni seç
             const ageData = results.age_estimations || results.age_analysis || [];
             
             console.log('Yaş tahmini işlenen veriler:', ageData.length, 'kayıt bulundu');
             
+            // GÜNCELLEME: Kişi bazlı en yüksek güven skorlu tahminleri takip etmek için geliştirilmiş harita
+            const faceConfidenceMap = new Map();
+            const faceFrames = new Map(); // Her yüz için ilgili kareleri saklayacak harita
+            
+            // İlk geçiş: Tüm yüzleri ID bazlı gruplandır
             ageData.forEach(analysis => {
                 // Her analiz için yüz ID'si ve güvenilirlik skorunu al
                 const faceId = analysis.person_id || analysis.face_id || 'unknown';
@@ -1334,6 +1336,21 @@ function displayAnalysisResults(fileId, results) {
                 const age = analysis.estimated_age || 'Bilinmiyor';
                 const timestamp = analysis.frame_timestamp || analysis.timestamp || null;
                 const frame_path = analysis.frame_path || null;
+                const face_location = analysis.face_location || null;
+                
+                // Bu yüz ID için kareleri takip et
+                if (!faceFrames.has(faceId)) {
+                    faceFrames.set(faceId, []);
+                }
+                
+                // Kare bilgisini sakla
+                faceFrames.get(faceId).push({
+                    confidence,
+                    age,
+                    timestamp,
+                    frame_path,
+                    face_location
+                });
                 
                 // Eğer bu yüz daha önce görülmediyse veya bu analiz daha güvenilirse güncelle
                 if (!faceConfidenceMap.has(faceId) || confidence > faceConfidenceMap.get(faceId).confidence) {
@@ -1341,16 +1358,20 @@ function displayAnalysisResults(fileId, results) {
                         confidence,
                         age,
                         timestamp,
-                        frame_path
+                        frame_path,
+                        face_location
                     });
                 }
             });
             
-            // Yaş tahminleri bölümü
+            // Geliştirilmiş yaş tahminleri bölümü
             const ageEstimationSection = document.createElement('div');
             ageEstimationSection.classList.add('age-estimations', 'mt-4');
             ageEstimationSection.innerHTML = `
                 <h5 class="mb-3"><i class="fas fa-user-alt me-2"></i>Yaş Tahminleri</h5>
+                <div class="alert alert-info mb-3">
+                    <i class="fas fa-info-circle me-2"></i> Her tespit edilen benzersiz yüz için en yüksek güven skorlu tahmin gösterilmektedir.
+                </div>
                 <div class="row" id="ageEstimationList-${uniqueSuffix}"></div>
             `;
             detailsTab.appendChild(ageEstimationSection);
@@ -1365,6 +1386,9 @@ function displayAnalysisResults(fileId, results) {
             let faceCount = 0;
             for (const [faceId, data] of faceConfidenceMap.entries()) {
                 faceCount++;
+                
+                // Bu ID için toplam kare sayısını al
+                const frameCount = faceFrames.has(faceId) ? faceFrames.get(faceId).length : 0;
                 
                 // Karşılık gelen görseli yükle
                 let frameUrl = '';
@@ -1418,7 +1442,7 @@ function displayAnalysisResults(fileId, results) {
                 let faceLocationHtml = '';
                 if (data.face_location) {
                     const faceLocation = data.face_location;
-                    // Kare üzerinde yüzü dikdörtgen ile işaretle
+                    // Kare üzerinde yüzü dikdörtgen ile işaretle, numaralandırma ekle
                     faceLocationHtml = `
                         <div class="face-highlight" style="
                             position: absolute;
@@ -1430,15 +1454,34 @@ function displayAnalysisResults(fileId, results) {
                             border-radius: 4px;
                             z-index: 10;
                             box-shadow: 0 0 5px rgba(0,0,0,0.5);
-                        "></div>
+                        ">
+                            <span style="
+                                position: absolute;
+                                top: -25px;
+                                left: -5px;
+                                background-color: #00e676;
+                                color: white;
+                                border-radius: 50%;
+                                width: 24px;
+                                height: 24px;
+                                display: flex;
+                                align-items: center;
+                                justify-content: center;
+                                font-weight: bold;
+                                font-size: 14px;
+                                box-shadow: 0 0 3px rgba(0,0,0,0.3);
+                            ">${faceCount}</span>
+                        </div>
                     `;
                 }
 
                 // Birden fazla kişi olduğunda hangi yüzün analiz edildiğini belirtmek için
                 const faceIndicatorHTML = `
                     <div class="alert alert-info py-1 mb-2">
-                        <small><i class="fas fa-info-circle me-1"></i> 
-                        Bu karede ${person_count > 1 ? `<b>${person_count} kişi</b> tespit edildi. Yüz <b>#${faceCount}</b> görüntüleniyor.` : '1 kişi tespit edildi.'}
+                        <small>
+                            <i class="fas fa-info-circle me-1"></i> 
+                            <strong>Yüz #${faceCount}</strong> - Bu kişi videoda ${frameCount} karede görüntülendi.
+                            ${person_count > 1 ? `Toplam <strong>${person_count} farklı kişi</strong> tespit edildi.` : ''}
                         </small>
                     </div>
                 `;
@@ -1450,8 +1493,9 @@ function displayAnalysisResults(fileId, results) {
                                 <img src="${frameUrl}" class="card-img-top face-img" alt="Yüz ${faceCount}" 
                                     style="width: 100%; height: 100%; object-fit: cover;"
                                     onerror="this.onerror=null;this.src='/static/img/image-not-found.svg';">
+                                ${faceLocationHtml}
                             </div>
-                            <span class="position-absolute top-0 end-0 m-2 badge bg-info">Yüz ${faceCount}</span>
+                            <span class="position-absolute top-0 end-0 m-2 badge bg-info">Yüz #${faceCount}</span>
                             ${timeText ? `<span class="position-absolute bottom-0 start-0 m-2 badge bg-dark">${timeText}</span>` : ''}
                         </div>
                         <div class="card-body">
