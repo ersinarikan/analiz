@@ -1293,6 +1293,18 @@ function displayAnalysisResults(fileId, results) {
     
     // ===== DETAY TAB - YAŞ TAHMİNİ =====
     // Yaş tahmini varsa göster
+    console.log('YAŞ TAHMİNİ - API YANITI İNCELEME:', results);
+    
+    // API yanıtındaki yaş verilerini detaylı incele
+    if (results.age_estimations) {
+        console.log('YAŞ TAHMİNİ - age_estimations mevcut:', results.age_estimations);
+    } else if (results.age_analysis) {
+        console.log('YAŞ TAHMİNİ - age_analysis mevcut:', results.age_analysis);
+    } else {
+        console.warn('YAŞ TAHMİNİ - Yaş verisi bulunamadı. API yanıtı:', results);
+    }
+    
+    // Yaş tahmini verilerini uygun şekilde işlemeye çalış
     if ((results.age_estimations && results.age_estimations.length > 0) || 
         (results.age_analysis && results.age_analysis.length > 0)) {
         
@@ -1303,7 +1315,7 @@ function displayAnalysisResults(fileId, results) {
             // Backend'in döndüğü veri yapısına göre uygun değişkeni seç
             const ageData = results.age_estimations || results.age_analysis || [];
             
-            console.log('Yaş tahmini verileri:', ageData);
+            console.log('Yaş tahmini işlenen veriler:', ageData.length, 'kayıt bulundu');
             
             ageData.forEach(analysis => {
                 // Her analiz için yüz ID'si ve güvenilirlik skorunu al
@@ -1334,6 +1346,10 @@ function displayAnalysisResults(fileId, results) {
             detailsTab.appendChild(ageEstimationSection);
             
             const ageEstimationList = ageEstimationSection.querySelector(`#ageEstimationList-${uniqueSuffix}`);
+            
+            // Tespit edilen toplam yüz sayısı
+            const person_count = faceConfidenceMap.size;
+            console.log(`Tespit edilen toplam benzersiz yüz sayısı: ${person_count}`);
             
             // Her yüz için en güvenilir tahmini göster
             let faceCount = 0;
@@ -1388,6 +1404,35 @@ function displayAnalysisResults(fileId, results) {
                     displayAge = Math.round(displayAge);
                 }
                 
+                // Yüz konumu bilgisi varsa
+                let faceLocationHtml = '';
+                if (analysis.face_location || data.face_location) {
+                    const faceLocation = analysis.face_location || data.face_location;
+                    // Kare üzerinde yüzü dikdörtgen ile işaretle
+                    faceLocationHtml = `
+                        <div class="face-highlight" style="
+                            position: absolute;
+                            top: ${faceLocation ? faceLocation[1] / 4 : 0}px;
+                            left: ${faceLocation ? faceLocation[0] / 4 : 0}px;
+                            width: ${faceLocation ? faceLocation[2] / 4 : 0}px;
+                            height: ${faceLocation ? faceLocation[3] / 4 : 0}px;
+                            border: 3px solid #00e676;
+                            border-radius: 4px;
+                            z-index: 10;
+                            box-shadow: 0 0 5px rgba(0,0,0,0.5);
+                        "></div>
+                    `;
+                }
+
+                // Birden fazla kişi olduğunda hangi yüzün analiz edildiğini belirtmek için
+                const faceIndicatorHTML = `
+                    <div class="alert alert-info py-1 mb-2">
+                        <small><i class="fas fa-info-circle me-1"></i> 
+                        Bu karede ${person_count > 1 ? `<b>${person_count} kişi</b> tespit edildi. Yüz <b>#${faceCount}</b> görüntüleniyor.` : '1 kişi tespit edildi.'}
+                        </small>
+                    </div>
+                `;
+
                 faceCard.innerHTML = `
                     <div class="card h-100">
                         <div class="position-relative">
@@ -1400,6 +1445,7 @@ function displayAnalysisResults(fileId, results) {
                             ${timeText ? `<span class="position-absolute bottom-0 start-0 m-2 badge bg-dark">${timeText}</span>` : ''}
                         </div>
                         <div class="card-body">
+                            ${faceIndicatorHTML}
                             <h6 class="card-title">Yaş Tahmini: <strong>${displayAge}</strong></h6>
                             <div class="d-flex justify-content-between mb-1">
                                 <span>Güvenilirlik:</span>
