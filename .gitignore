@@ -1,0 +1,70 @@
+# Python bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Dağıtım paketleri
+*.so
+.Python
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Birim test ve kapsam raporları
+htmlcov/
+.tox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*,cover
+.hypothesis/
+
+# Flask
+instance/
+.webassets-cache
+
+# Ortam dosyaları
+.env
+.venv
+venv/
+ENV/
+
+# IDE dosyaları
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# SQLite veritabanları
+*.db
+*.sqlite3
+
+# Yüklenen dosyalar ve işlenmiş veriler
+storage/uploads/*
+storage/processed/*
+!storage/uploads/.gitkeep
+!storage/processed/.gitkeep
+
+# Yapay zeka modelleri
+storage/models/*
+!storage/models/.gitkeep
+app/static/models/*
+!app/static/models/.gitkeep
+
+# Logs
+logs/
+*.log 

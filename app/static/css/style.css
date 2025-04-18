@@ -1,0 +1,542 @@
+/* Main Layout Styles */
+:root {
+    --primary-color: #4361ee;
+    --secondary-color: #3f37c9;
+    --success-color: #4cc9f0;
+    --danger-color: #f72585;
+    --warning-color: #f8961e;
+    --light-color: #f8f9fa;
+    --dark-color: #212529;
+    --gray-color: #6c757d;
+    --border-radius: 10px;
+    --box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    --transition: all 0.3s ease;
+}
+
+body {
+    font-family: 'Poppins', 'Roboto', sans-serif;
+    background-color: #f8f9fa;
+    color: var(--dark-color);
+    line-height: 1.6;
+}
+
+.container-fluid {
+    padding: 20px;
+    max-width: 1400px;
+    margin: 0 auto;
+}
+
+/* Header Styles */
+.navbar {
+    background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+    padding: 15px 0;
+}
+
+.navbar-brand {
+    font-weight: 700;
+    color: #fff !important;
+    font-size: 1.5rem;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+.navbar-brand span {
+    color: var(--success-color);
+}
+
+/* Card Styles */
+.card {
+    border-radius: var(--border-radius);
+    box-shadow: var(--box-shadow);
+    margin-bottom: 25px;
+    overflow: hidden;
+    border: none;
+    transition: var(--transition);
+}
+
+.card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 8px 15px rgba(0, 0, 0, 0.1);
+}
+
+.card-header {
+    background-color: #fff;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+    font-weight: 600;
+    padding: 15px 20px;
+    font-size: 1.1rem;
+}
+
+/* Upload Area Styles */
+.upload-area {
+    border: 2px dashed var(--primary-color);
+    border-radius: var(--border-radius);
+    padding: 40px;
+    text-align: center;
+    margin-bottom: 30px;
+    background-color: rgba(67, 97, 238, 0.05);
+    transition: var(--transition);
+}
+
+.upload-area:hover, .upload-area.drag-over {
+    border-color: var(--success-color);
+    background-color: rgba(76, 201, 240, 0.1);
+}
+
+.upload-area i {
+    font-size: 60px;
+    margin-bottom: 20px;
+    color: var(--primary-color);
+}
+
+.upload-area h4 {
+    margin-bottom: 15px;
+    color: var(--dark-color);
+}
+
+.upload-area p {
+    color: var(--gray-color);
+    max-width: 80%;
+    margin: 0 auto 20px;
+}
+
+/* File Preview Card Styles */
+.file-preview-card {
+    border-radius: var(--border-radius);
+    overflow: hidden;
+    position: relative;
+    height: 220px;
+    background-color: #000;
+    box-shadow: var(--box-shadow);
+}
+
+.file-preview-card img, .file-preview-card video {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    transition: var(--transition);
+}
+
+.file-preview-card:hover img, .file-preview-card:hover video {
+    transform: scale(1.05);
+}
+
+.file-preview-card .file-info {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: rgba(0, 0, 0, 0.7);
+    color: white;
+    padding: 10px 15px;
+    backdrop-filter: blur(4px);
+}
+
+.file-preview-card .file-info .filename {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-weight: 500;
+}
+
+.file-status {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    color: white;
+    padding: 5px 12px;
+    border-radius: 20px;
+    font-size: 0.8rem;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+}
+
+.bg-success {
+    background-color: var(--success-color) !important;
+}
+
+.bg-primary {
+    background-color: var(--primary-color) !important;
+}
+
+.bg-danger {
+    background-color: var(--danger-color) !important;
+}
+
+.bg-warning {
+    background-color: var(--warning-color) !important;
+}
+
+/* Progress Bar Styles */
+.progress {
+    height: 10px;
+    border-radius: 5px;
+    margin-bottom: 10px;
+    overflow: hidden;
+    background-color: #e9ecef;
+}
+
+.progress-bar {
+    background: linear-gradient(to right, var(--primary-color), var(--success-color));
+}
+
+.progress-sm {
+    height: 5px;
+    border-radius: 5px;
+}
+
+/* Button Styles */
+.btn {
+    border-radius: 5px;
+    font-weight: 500;
+    padding: 8px 16px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    transition: var(--transition);
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+}
+
+.btn-primary {
+    background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+    border: none;
+}
+
+.btn-primary:hover {
+    background: linear-gradient(135deg, var(--secondary-color), var(--primary-color));
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+}
+
+.btn-success {
+    background: linear-gradient(135deg, #4cc9f0, #4895ef);
+    border: none;
+}
+
+.btn-danger {
+    background: linear-gradient(135deg, #f72585, #b5179e);
+    border: none;
+}
+
+.btn-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.btn-icon i {
+    margin-right: 8px;
+}
+
+/* Tab Styles */
+.nav-tabs {
+    border-bottom: none;
+    margin-bottom: 20px;
+}
+
+.nav-tabs .nav-link {
+    border-radius: var(--border-radius);
+    margin-right: 10px;
+    padding: 10px 20px;
+    border: 1px solid transparent;
+    color: var(--gray-color);
+    font-weight: 500;
+    transition: var(--transition);
+}
+
+.nav-tabs .nav-link.active {
+    color: var(--primary-color);
+    background-color: rgba(67, 97, 238, 0.1);
+    border-color: rgba(67, 97, 238, 0.2);
+    font-weight: 600;
+}
+
+/* Analysis Results Styles */
+.risk-score {
+    font-size: 1.2rem;
+    font-weight: 700;
+    padding: 4px 10px;
+    border-radius: 20px;
+}
+
+.risk-level-high {
+    color: white;
+    background-color: var(--danger-color);
+}
+
+.risk-level-medium {
+    color: white;
+    background-color: var(--warning-color);
+}
+
+.risk-level-low {
+    color: white;
+    background-color: var(--success-color);
+}
+
+.detection-item {
+    border-left: 3px solid var(--primary-color);
+    padding: 15px;
+    margin-bottom: 20px;
+    border-radius: 0 var(--border-radius) var(--border-radius) 0;
+    background-color: rgba(67, 97, 238, 0.05);
+    transition: var(--transition);
+}
+
+.detection-item:hover {
+    transform: translateX(5px);
+    box-shadow: var(--box-shadow);
+}
+
+.detection-timestamp {
+    color: var(--gray-color);
+    font-size: 0.85rem;
+    margin-bottom: 8px;
+    display: inline-block;
+    background-color: rgba(0, 0, 0, 0.05);
+    padding: 3px 8px;
+    border-radius: 4px;
+}
+
+/* Feedback Form Styles */
+.feedback-form label {
+    font-weight: 500;
+    color: var(--dark-color);
+    margin-bottom: 8px;
+}
+
+.feedback-section {
+    background-color: rgba(67, 97, 238, 0.05);
+    border-radius: var(--border-radius);
+    padding: 20px;
+    margin-bottom: 20px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+}
+
+/* Modal Styles */
+.modal-content {
+    border-radius: var(--border-radius);
+    overflow: hidden;
+    border: none;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+}
+
+.modal-header {
+    background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+    color: white;
+    border-bottom: none;
+    padding: 20px;
+}
+
+.modal-title {
+    font-weight: 600;
+    letter-spacing: 0.5px;
+}
+
+.modal-body {
+    padding: 25px;
+}
+
+.modal-footer {
+    border-top: 1px solid rgba(0, 0, 0, 0.05);
+    padding: 15px 25px;
+}
+
+/* AI Training Status Styles */
+.training-info {
+    background-color: rgba(67, 97, 238, 0.05);
+    border-radius: var(--border-radius);
+    padding: 20px;
+    margin-bottom: 20px;
+    box-shadow: var(--box-shadow);
+}
+
+.metrics-card {
+    height: 100%;
+    transition: var(--transition);
+}
+
+.metrics-card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 8px 15px rgba(0, 0, 0, 0.1);
+}
+
+.metrics-card .card-body {
+    padding: 20px;
+}
+
+.metrics-value {
+    font-size: 28px;
+    font-weight: 700;
+    color: var(--primary-color);
+    margin-bottom: 10px;
+    display: block;
+}
+
+/* Toast Styles */
+.toast-container {
+    z-index: 9999;
+}
+
+.toast {
+    opacity: 1 !important;
+    border-radius: var(--border-radius);
+    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+    backdrop-filter: blur(10px);
+}
+
+/* Responsive Adjustments */
+@media (max-width: 992px) {
+    .container-fluid {
+        padding: 15px;
+    }
+    
+    .file-preview-card {
+        height: 180px;
+    }
+    
+    .card-header {
+        padding: 12px 15px;
+    }
+}
+
+@media (max-width: 768px) {
+    .file-preview-card {
+        height: 160px;
+    }
+    
+    .navbar-brand {
+        font-size: 1.2rem;
+    }
+    
+    .upload-area {
+        padding: 20px;
+    }
+    
+    .upload-area p {
+        max-width: 100%;
+    }
+    
+    .btn {
+        padding: 6px 12px;
+        font-size: 0.9rem;
+    }
+}
+
+/* Dosya kartları */
+.file-card {
+    margin-bottom: 15px;
+    border-radius: 8px;
+    overflow: hidden;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    background-color: #fff;
+    position: relative;
+}
+
+.file-preview-card {
+    position: relative;
+    height: 180px;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background-color: #f8f9fa;
+}
+
+.file-preview {
+    object-fit: cover;
+    width: 100%;
+    height: 100%;
+    display: block;
+}
+
+.file-status {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    font-weight: bold;
+    color: white;
+}
+
+.file-info {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: rgba(0, 0, 0, 0.7);
+    color: white;
+    padding: 5px 10px;
+}
+
+.filename {
+    font-size: 0.9rem;
+    font-weight: bold;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.filesize {
+    font-size: 0.8rem;
+    color: rgba(255, 255, 255, 0.8);
+}
+
+/* Yeni ön izleme düzeni için eklenen CSS */
+.file-preview-container {
+    display: flex;
+    align-items: center;
+    padding: 10px;
+}
+
+.file-preview-wrapper {
+    width: 180px;
+    height: 135px;
+    overflow: hidden;
+    border-radius: 5px;
+    flex-shrink: 0;
+    position: relative;
+}
+
+.file-info-progress {
+    flex-grow: 1;
+    padding-left: 15px;
+}
+
+/* CSS değişikliği: Sabit boyutlu ön izleme ve yanında durum bilgisi */
+.file-list-layout {
+    display: flex;
+    align-items: center;
+    padding: 15px;
+    border-bottom: 1px solid #eee;
+}
+
+.file-preview-area {
+    width: 180px;
+    height: 135px;
+    position: relative;
+    flex-shrink: 0;
+    margin-right: 15px;
+    border-radius: 6px;
+    overflow: hidden;
+}
+
+.file-details-area {
+    flex-grow: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    height: 100%;
+}
+
+.file-status-area {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 10px;
+    min-height: 24px;
+} 

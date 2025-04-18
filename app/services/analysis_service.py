@@ -1,0 +1,1138 @@
+import os
+import time
+from datetime import datetime
+import threading
+import logging
+import numpy as np
+import traceback
+from flask import current_app
+from app import db
+# Import the real analyzers
+from app.ai.content_analyzer import ContentAnalyzer
+from app.ai.age_estimator import AgeEstimator
+from app.models.analysis import Analysis, ContentDetection, AgeEstimation
+from app.models.file import File
+from app.utils.video_utils import extract_frames
+from app.utils.image_utils import load_image
+from config import Config
+import json
+import uuid
+from app.models.content import Content, ContentType, AnalysisResult, ContentCategory
+from app.services.file_service import get_file_info, create_thumbnail
+from app.services.db_service import save_to_db, query_db
+from app.services.model_service import load_model, run_image_analysis, run_video_analysis
+from app.utils.content_utils import detect_content_type
+from app.json_encoder import json_dumps_numpy, NumPyJSONEncoder
+
+logger = logging.getLogger(__name__)
+
+# NumPy değerlerini Python standart türlerine dönüştürmek için yardımcı fonksiyon
+def ensure_serializable(obj):
+    """NumPy türleri dahil tüm verileri JSON serileştirilebilir hale getirir."""
+    if obj is None:
+        return None
+    elif isinstance(obj, (str, bool, int, float)):
+        return obj  # zaten Python tipi
+    elif isinstance(obj, np.ndarray):
+        return ensure_serializable(obj.tolist())
+    elif isinstance(obj, (np.integer, np.int8, np.int16, np.int32, np.int64)):
+        return int(obj)
+    elif isinstance(obj, (np.floating, np.float16, np.float32, np.float64)):
+        return float(obj)
+    elif isinstance(obj, np.bool_):
+        return bool(obj)
+    elif hasattr(obj, 'dtype') and hasattr(obj, 'item'):
+        # Genel NumPy skaler tipi için item() metodunu kullan
+        return obj.item()
+    elif isinstance(obj, (list, tuple)):
+        return [ensure_serializable(x) for x in obj]
+    elif isinstance(obj, dict):
+        return {str(k): ensure_serializable(v) for k, v in obj.items()}
+    try:
+        # Son çare: metin temsiline dönüştür
+        return str(obj)
+    except:
+        logger.error(f"Serileştirilemeyen veri tipi: {type(obj)}")
+        return None
+
+# Mock analizör sınıflarını kaldırıyoruz, gerçek analizörleri kullanacağız
+
+class AnalysisService:
+    """
+    İçerik analiz servis sınıfı, yüklenen dosyaların analiz işlemlerini yönetir.
+    Bu sınıf, farklı kategorilerde (şiddet, taciz, yetişkin içeriği, vb.) 
+    içerik analizi gerçekleştirmek için gerekli tüm metotları içerir.
+    """
+    
+    def __init__(self, app=None):
+        """
+        Servis sınıfını başlatır ve gerekli modelleri yükler.
+        
+        Args:
+            app: Flask uygulama nesnesi (opsiyonel)
+        """
+        self.models = {}
+        
+        if app:
+            self.init_app(app)
+    
+    def init_app(self, app):
+        """
+        Flask uygulamasına servis sınıfını entegre eder ve gerekli modelleri yükler.
+        Flask contextinde çalışarak modellerin doğru şekilde yüklenmesini sağlar.
+        
+        Args:
+            app: Flask uygulama nesnesi
+        """
+        # Analiz modellerini yükle
+        with app.app_context():
+            self._load_models()
+    
+    def _load_models(self):
+        """
+        Gerekli analiz modellerini yükler. Her kategori için ayrı model kullanılır.
+        Şiddet, taciz, yetişkin içeriği, silah ve madde kullanımı için
+        ayrı modeller yüklenir ve hatalar loglama sistemi ile kaydedilir.
+        """
+        try:
+            # Şiddet içeriği için model
+            self.models['violence'] = load_model('violence_detection')
+            
+            # Taciz, hakaret içeriği için model
+            self.models['harassment'] = load_model('harassment_detection')
+            
+            # Yetişkin içeriği için model
+            self.models['adult'] = load_model('adult_content_detection')
+            
+            # Silah kullanımı için model
+            self.models['weapon'] = load_model('weapon_detection')
+            
+            # Madde kullanımı için model
+            self.models['substance'] = load_model('substance_detection')
+            
+            current_app.logger.info("Analiz modelleri başarıyla yüklendi")
+        except Exception as e:
+            current_app.logger.error(f"Model yükleme hatası: {str(e)}")
+    
+    def start_analysis(self, file_id, frames_per_second=None, include_age_analysis=False):
+        """
+        Verilen dosya ID'si için analiz işlemini başlatır.
+        
+        Args:
+            file_id: Analiz edilecek dosyanın veritabanı ID'si
+            frames_per_second: Video analizi için saniyede işlenecek kare sayısı
+            include_age_analysis: Yaş analizi yapılsın mı?
+            
+        Returns:
+            Analysis: Oluşturulan analiz nesnesi veya None
+        """
+        try:
+            # Dosyayı veritabanından al
+            file = File.query.get(file_id)
+            if not file:
+                logger.error(f"Dosya bulunamadı: {file_id}")
+                return None
+                
+            # Yeni bir analiz oluştur
+            analysis = Analysis(
+                file_id=file_id,
+                frames_per_second=frames_per_second,
+                include_age_analysis=include_age_analysis,
+                status='pending',
+                status_message='Analiz başlatılıyor, dosya hazırlanıyor...',
+                progress=5
+            )
+            
+            db.session.add(analysis)
+            db.session.commit()
+            
+            logger.info(f"Analiz oluşturuldu: #{analysis.id} - Dosya: {file.original_filename}, Durum: pending")
+            
+            # Socket.io üzerinden bildirim gönder
+            try:
+                from app import socketio
+                socketio.emit('analysis_started', {
+                    'analysis_id': analysis.id,
+                    'file_id': file_id,
+                    'file_name': file.original_filename,
+                    'file_type': file.file_type,
+                    'status': 'pending'
+                })
+            except Exception as socket_err:
+                logger.warning(f"Socket.io analiz başlangıç bildirimi hatası: {str(socket_err)}")
+            
+            # Analizi doğrudan başlat (Thread oluştur)
+            thread = threading.Thread(target=self._process_analysis, args=(analysis.id,))
+            thread.daemon = True  # Daemon thread olarak işaretle
+            thread.start()
+            
+            logger.info(f"Analiz thread başlatıldı: #{analysis.id}")
+            
+            return analysis
+                
+        except Exception as e:
+            logger.error(f"Analiz başlatma hatası: {str(e)}")
+            db.session.rollback()
+            return None
+    
+    def _process_analysis(self, analysis_id):
+        """
+        Analiz işlemini gerçekleştirir (Celery task yerine doğrudan çalışır)
+        
+        Args:
+            analysis_id: Analiz edilecek analizin ID'si
+        """
+        import traceback
+        import time
+        from flask import current_app
+        
+        start_time = time.time()
+        logger.info(f"Analiz işlemi başlatılıyor: #{analysis_id}")
+        
+        # Flask uygulama bağlamını al
+        from app import create_app
+        app = create_app()
+        
+        # Thread içinde app_context kullanarak veritabanı işlemlerini yap
+        with app.app_context():
+            try:
+                from app import db
+                from app.models.analysis import Analysis
+                
+                # Analiz nesnesini al
+                analysis = Analysis.query.get(analysis_id)
+                if not analysis:
+                    logger.error(f"Thread içinde analiz bulunamadı: {analysis_id}")
+                    return
+                
+                # Dosya bilgilerini logla
+                try:
+                    file = analysis.file
+                    if not file:
+                        # File ilişkisi bulunamadı, manuel olarak dosya bilgisini al
+                        file = File.query.get(analysis.file_id)
+                        if not file:
+                            logger.error(f"Dosya bulunamadı: {analysis.file_id} (Analiz #{analysis_id})")
+                            raise ValueError(f"Analiz için dosya bulunamadı: #{analysis_id}")
+                    
+                    logger.info(f"Analiz #{analysis_id} başlıyor - Dosya: {file.original_filename}, Tip: {file.file_type}, "
+                               f"Boyut: {file.file_size/1024/1024:.2f} MB")
+                except Exception as file_error:
+                    logger.error(f"Dosya bilgisi hatası: {str(file_error)}")
+                    # WebSocket üzerinden hata bildirimi gönder
+                    try:
+                        from app import socketio
+                        socketio.emit('analysis_failed', {
+                            'analysis_id': analysis_id,
+                            'file_id': analysis.file_id,
+                            'error': f"Dosya bilgisi alınamadı: {str(file_error)}"
+                        })
+                    except Exception:
+                        pass
+                    
+                    # Analizi başarısız olarak işaretle
+                    try:
+                        analysis.status = 'failed'
+                        analysis.status_message = f"Dosya bilgisi alınamadı: {str(file_error)}"
+                        db.session.commit()
+                    except Exception:
+                        db.session.rollback()
+                    
+                    return
+                
+                # Analizi başlat
+                try:
+                    analysis.status = 'processing'
+                    analysis.progress = 10
+                    analysis.status_message = 'Analiz başlatıldı, dosya hazırlanıyor...'
+                    db.session.commit()
+                    logger.info(f"Analiz #{analysis_id} işleniyor - Durum: processing, İlerleme: %10")
+                    
+                    # Frontend'e analiz başlangıç bilgisini socket ile gönder
+                    try:
+                        from app import socketio
+                        socketio.emit('analysis_started', {
+                            'analysis_id': analysis_id,
+                            'file_id': analysis.file_id,
+                            'file_name': file.original_filename,
+                            'file_type': file.file_type
+                        })
+                    except Exception as socket_err:
+                        logger.warning(f"Socket.io analiz başlangıç bildirimi hatası: {str(socket_err)}")
+                    
+                except Exception as commit_error:
+                    logger.error(f"Analiz başlatma hatası: {str(commit_error)}")
+                    db.session.rollback()
+                    return
+                
+                # Analizi gerçekleştir
+                try:
+                    success, message = analyze_file(analysis_id)
+                    
+                    # Analiz tamamlandı, geçen süreyi hesapla
+                    elapsed_time = time.time() - start_time
+                    logger.info(f"Analiz #{analysis_id} tamamlandı - Sonuç: {'Başarılı' if success else 'Başarısız'}, "
+                               f"Süre: {elapsed_time:.2f} saniye, Mesaj: {message}")
+                    
+                    # WebSocket üzerinden bildirim gönder (tamamlandı/başarısız)
+                    from app import socketio
+                    if success:
+                        socketio.emit('analysis_completed', {
+                            'analysis_id': analysis_id,
+                            'file_id': analysis.file_id,
+                            'elapsed_time': elapsed_time,
+                            'message': message
+                        })
+                    else:
+                        socketio.emit('analysis_failed', {
+                            'analysis_id': analysis_id,
+                            'file_id': analysis.file_id,
+                            'elapsed_time': elapsed_time,
+                            'error': message
+                        })
+                except Exception as analysis_error:
+                    elapsed_time = time.time() - start_time
+                    error_message = f"Analiz işleme hatası: {str(analysis_error)}"
+                    logger.error(f"{error_message}\n{traceback.format_exc()}")
+                    logger.error(f"Analiz #{analysis_id} başarısız oldu - Süre: {elapsed_time:.2f} saniye")
+                    
+                    # Analizi başarısız olarak işaretle
+                    try:
+                        analysis = Analysis.query.get(analysis_id)
+                        if analysis:
+                            analysis.status = 'failed'
+                            analysis.status_message = error_message[:250]  # 250 karakter sınırı
+                            db.session.commit()
+                            logger.info(f"Analiz #{analysis_id} 'failed' olarak işaretlendi")
+                    except Exception as update_error:
+                        logger.error(f"Başarısız analizi işaretlerken hata: {str(update_error)}")
+                        db.session.rollback()
+                    
+                    # WebSocket üzerinden hata bildirimi gönder
+                    try:
+                        from app import socketio
+                        socketio.emit('analysis_failed', {
+                            'analysis_id': analysis_id,
+                            'file_id': analysis.file_id if analysis else None,
+                            'elapsed_time': elapsed_time,
+                            'error': error_message
+                        })
+                    except Exception as ws_error:
+                        logger.error(f"WebSocket hata bildirimi hatası: {str(ws_error)}")
+                        
+            except Exception as e:
+                elapsed_time = time.time() - start_time
+                logger.critical(f"_process_analysis kritik hatası: {str(e)}\n{traceback.format_exc()}")
+                logger.critical(f"Analiz #{analysis_id} kritik hata - Süre: {elapsed_time:.2f} saniye")
+    
+    def cancel_analysis(self, analysis_id):
+        """
+        Devam eden bir analizi iptal eder.
+        
+        Args:
+            analysis_id: İptal edilecek analizin ID'si
+            
+        Returns:
+            bool: İptal başarılı mı?
+        """
+        try:
+            analysis = Analysis.query.get(analysis_id)
+            if not analysis:
+                return False
+                
+            # Analiz durumunu iptal edildi olarak işaretle
+            analysis.status = 'cancelled'
+            analysis.status_message = 'Analiz kullanıcı tarafından iptal edildi'
+            analysis.updated_at = datetime.now()
+            db.session.commit()
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"Analiz iptal hatası: {str(e)}")
+            return False
+    
+    def retry_analysis(self, analysis_id):
+        """
+        Başarısız bir analizi tekrar dener.
+        
+        Args:
+            analysis_id: Tekrar denenecek analizin ID'si
+            
+        Returns:
+            Analysis: Yeni analiz nesnesi veya None
+        """
+        try:
+            # Önceki analizi al
+            prev_analysis = Analysis.query.get(analysis_id)
+            if not prev_analysis:
+                return None
+                
+            # Aynı parametrelerle yeni analiz oluştur
+            new_analysis = Analysis(
+                file_id=prev_analysis.file_id,
+                frames_per_second=prev_analysis.frames_per_second,
+                include_age_analysis=prev_analysis.include_age_analysis
+            )
+            
+            db.session.add(new_analysis)
+            db.session.commit()
+            
+            # Analizi doğrudan başlat (Celery yerine)
+            threading.Thread(target=self._process_analysis, args=(new_analysis.id,)).start()
+            
+            return new_analysis
+            
+        except Exception as e:
+            logger.error(f"Analiz tekrar deneme hatası: {str(e)}")
+            db.session.rollback()
+            return None
+    
+    def start_analysis_original(self, file_path, original_filename, user_id=None):
+        """
+        Verilen dosya için analiz işlemini başlatır ve sonuçları veritabanına kaydeder.
+        Bu metot analiz sürecinin giriş noktasıdır ve tüm analiz işlemini koordine eder.
+        
+        Args:
+            file_path: Analiz edilecek dosyanın tam yolu
+            original_filename: Orijinal dosya adı
+            user_id: İçeriği yükleyen kullanıcı ID'si (opsiyonel)
+            
+        Returns:
+            dict: Analiz sonuçlarını içeren veri yapısı
+            
+        Raises:
+            Exception: Dosya analizi sırasında oluşan hatalar
+        """
+        try:
+            # Dosya bilgilerini al
+            file_info = get_file_info(file_path)
+            if not file_info:
+                raise Exception("Dosya bilgileri alınamadı")
+            
+            # Dosya türünü belirle
+            content_type = detect_content_type(file_info['mime_type'])
+            
+            # Analiz işlemini gerçekleştir
+            analysis_results = self._analyze_file(file_path, content_type, file_info['mime_type'])
+            
+            # Küçük resim oluştur
+            thumbnail_data = create_thumbnail(file_path, file_info['mime_type'])
+            
+            # Benzersiz içerik ID'si oluştur
+            content_id = str(uuid.uuid4())
+            
+            # Sonuçları modele dönüştür
+            content = Content(
+                id=content_id,
+                filename=original_filename,
+                file_path=file_path,
+                file_size=file_info['size'],
+                mime_type=file_info['mime_type'],
+                content_type=content_type,
+                user_id=user_id,
+                upload_date=datetime.now(),
+                thumbnail=thumbnail_data
+            )
+            
+            # Analiz sonuçlarını ekle
+            for category, result in analysis_results.items():
+                content.add_analysis_result(
+                    category=category,
+                    score=result['score'],
+                    details=result.get('details', None)
+                )
+            
+            # Veritabanına kaydet
+            save_to_db(content)
+            
+            return {
+                'content_id': content_id,
+                'analysis_results': analysis_results,
+                'content_type': content_type.value
+            }
+            
+        except Exception as e:
+            current_app.logger.error(f"İçerik analiz hatası: {str(e)}")
+            raise
+    
+    def _analyze_file(self, file_path, content_type, mime_type):
+        """
+        Dosya türüne göre uygun analiz yöntemini çağırır.
+        Resim ve video dosyaları için farklı analiz yöntemleri kullanılır.
+        
+        Args:
+            file_path: Analiz edilecek dosyanın tam yolu
+            content_type: İçerik türü (IMAGE, VIDEO, vb.)
+            mime_type: Dosyanın MIME tipi
+            
+        Returns:
+            dict: Kategorilere göre analiz sonuçları
+        """
+        if content_type == ContentType.IMAGE:
+            return self._analyze_content(file_path, run_image_analysis)
+        elif content_type == ContentType.VIDEO:
+            return self._analyze_content(file_path, run_video_analysis)
+        else:
+            raise ValueError(f"Desteklenmeyen içerik türü: {content_type}")
+    
+    def _analyze_content(self, file_path, analysis_function):
+        """
+        Belirtilen analiz fonksiyonunu kullanarak içeriği tüm kategoriler için analiz eder.
+        Her analiz kategorisi için ayrı model çalıştırılır ve sonuçlar birleştirilir.
+        
+        Args:
+            file_path: Analiz edilecek dosyanın tam yolu
+            analysis_function: Kullanılacak analiz fonksiyonu
+            
+        Returns:
+            dict: Kategorilere göre analiz sonuçları
+        """
+        results = {}
+        
+        # Her kategori için analiz gerçekleştir
+        for category, model in self.models.items():
+            try:
+                category_result = analysis_function(model, file_path)
+                results[category] = category_result
+            except Exception as e:
+                current_app.logger.error(f"{category} analizi sırasında hata: {str(e)}")
+                # Hata durumunda varsayılan sonuçlar
+                results[category] = {
+                    'score': 0.0,
+                    'details': {"error": str(e)}
+                }
+        
+        return results
+    
+    def get_analysis_result(self, content_id):
+        """
+        Belirli bir içerik ID'si için analiz sonuçlarını veritabanından getirir.
+        Bu metot, önceden yapılmış analizlerin sonuçlarını görüntülemek için kullanılır.
+        
+        Args:
+            content_id: İçerik benzersiz tanımlayıcısı
+            
+        Returns:
+            dict: İçerik ve analiz sonuçlarını içeren veri yapısı veya None
+        """
+        try:
+            # Veritabanından içeriği sorgula
+            content = query_db(Content, id=content_id)
+            
+            if not content:
+                return None
+            
+            # Yanıt formatını oluştur
+            response = {
+                'content_id': content.id,
+                'filename': content.filename,
+                'file_size': content.file_size,
+                'mime_type': content.mime_type,
+                'content_type': content.content_type.value,
+                'upload_date': content.upload_date.isoformat(),
+                'analysis_results': {}
+            }
+            
+            # Analiz sonuçlarını ekle
+            for result in content.analysis_results:
+                response['analysis_results'][result.category] = {
+                    'score': result.score,
+                    'details': result.details
+                }
+            
+            return response
+            
+        except Exception as e:
+            current_app.logger.error(f"Analiz sonucu getirme hatası: {str(e)}")
+            return None
+
+def analyze_file(analysis_id):
+    """
+    Dosya analizi gerçekleştirir.
+    Bu fonksiyon analiz işleminin başlangıç noktasıdır ve verilen ID'ye göre analizi başlatır.
+    
+    Args:
+        analysis_id: Analiz edilecek dosyanın ID'si
+        
+    Returns:
+        tuple: (başarı durumu, mesaj)
+    """
+    analysis = Analysis.query.get(analysis_id)
+    
+    if not analysis:
+        current_app.logger.error(f"Analiz bulunamadı: {analysis_id}")
+        return False, "Analiz bulunamadı"
+    
+    try:
+        # Analizi başlat
+        analysis.start_analysis()
+        
+        # Dosyayı al
+        file = analysis.file
+        
+        # Dosya türüne göre uygun analiz metodunu çağır
+        if file.file_type == 'image':
+            success, message = analyze_image(analysis)
+        elif file.file_type == 'video':
+            success, message = analyze_video(analysis)
+        else:
+            analysis.fail_analysis("Desteklenmeyen dosya türü")
+            return False, "Desteklenmeyen dosya türü"
+        
+        if success:
+            # Analiz sonuçlarını hesapla
+            calculate_overall_scores(analysis)
+            analysis.complete_analysis()
+            return True, "Analiz başarıyla tamamlandı"
+        else:
+            analysis.fail_analysis(message)
+            return False, message
+    
+    except Exception as e:
+        error_message = f"Analiz hatası: {str(e)}"
+        current_app.logger.error(error_message)
+        analysis.fail_analysis(error_message)
+        return False, error_message
+
+
+def analyze_image(analysis):
+    """
+    Bir resmi analiz eder.
+    Bu fonksiyon resim dosyaları için içerik analizi yapar ve sonuçları veritabanına kaydeder.
+    Şiddet, yetişkin içeriği, taciz, silah ve madde kullanımı gibi kategorileri değerlendirir.
+    
+    Args:
+        analysis: Analiz nesnesi
+        
+    Returns:
+        tuple: (başarı durumu, mesaj)
+    """
+    file = analysis.file
+    
+    try:
+        # Resmi yükle
+        image = load_image(file.file_path)
+        if image is None:
+            return False, "Resim yüklenemedi"
+        
+        # İçerik analizi yap (şiddet, yetişkin içeriği, taciz, silah, madde kullanımı)
+        # Mock analizöre geri dönüşü kaldırıyoruz, gerçek analizörün çalışması gerekiyor
+        content_analyzer = ContentAnalyzer()
+        violence_score, adult_content_score, harassment_score, weapon_score, drug_score, detected_objects = content_analyzer.analyze_image(file.file_path)
+        
+        # Her skor ve nesneyi ayrı ayrı dönüştür
+        violence_score = float(violence_score)
+        adult_content_score = float(adult_content_score)
+        harassment_score = float(harassment_score)
+        weapon_score = float(weapon_score)
+        drug_score = float(drug_score)
+        
+        # Nesneleri manuel olarak güvenli hale getir
+        safe_objects = []
+        try:
+            # Her bir nesneyi doğrudan Python tiplerine dönüştür
+            for obj in detected_objects:
+                safe_obj = {}
+                # Box değerlerini kontrol et ve dönüştür
+                if 'box' in obj and isinstance(obj['box'], (list, tuple, np.ndarray)):
+                    box_vals = []
+                    for val in obj['box']:
+                        if isinstance(val, (np.integer, np.int8, np.int16, np.int32, np.int64)):
+                            box_vals.append(int(val))  # NumPy int -> Python int
+                        elif isinstance(val, (np.floating, np.float16, np.float32, np.float64)):
+                            box_vals.append(float(val))  # NumPy float -> Python float
+                        else:
+                            box_vals.append(val)  # Diğer tipler
+                    safe_obj['box'] = box_vals
+                else:
+                    # Box değeri yoksa veya beklenen tipte değilse, boş bir liste kullan
+                    safe_obj['box'] = []
+                
+                # Label değerini doğrudan kopyala
+                if 'label' in obj:
+                    safe_obj['label'] = str(obj['label'])  # Her ihtimale karşı string'e dönüştür
+                else:
+                    safe_obj['label'] = "unknown"
+                
+                # Confidence değerini dönüştür
+                if 'confidence' in obj:
+                    if isinstance(obj['confidence'], (np.floating, np.float16, np.float32, np.float64)):
+                        safe_obj['confidence'] = float(obj['confidence'])
+                    elif isinstance(obj['confidence'], (np.integer, np.int8, np.int16, np.int32, np.int64)):
+                        safe_obj['confidence'] = float(int(obj['confidence']))  # Önce int'e, sonra float'a dönüştür
+                    else:
+                        safe_obj['confidence'] = float(obj['confidence'])  # Doğrudan float'a dönüştürmeyi dene
+                else:
+                    safe_obj['confidence'] = 0.0
+                
+                # Güvenlik kontrolü
+                for key, value in safe_obj.items():
+                    if isinstance(value, (np.integer, np.int8, np.int16, np.int32, np.int64)):
+                        safe_obj[key] = int(value)
+                    elif isinstance(value, (np.floating, np.float16, np.float32, np.float64)):
+                        safe_obj[key] = float(value)
+                
+                safe_objects.append(safe_obj)
+            
+            # JSON uyumluluğu için test JSON düzeyinde
+            json_text = json.dumps(safe_objects)
+        except Exception as ser_err:
+            logger.error(f"Nesneleri dönüştürme hatası: {str(ser_err)}")
+            logger.error(f"Hata izi: {traceback.format_exc()}")
+            logger.error(f"Orjinal nesne: {detected_objects[:2] if detected_objects else []}")
+            safe_objects = []
+        
+        # Analiz sonuçlarını veritabanına kaydet
+        detection = ContentDetection(
+            analysis_id=analysis.id,
+            frame_path=file.file_path
+        )
+        
+        # NumPy türlerini Python türlerine dönüştürdüğümüzden emin olalım
+        detection.violence_score = float(violence_score)
+        detection.adult_content_score = float(adult_content_score)
+        detection.harassment_score = float(harassment_score)
+        detection.weapon_score = float(weapon_score)
+        detection.drug_score = float(drug_score)
+        
+        # Tespit edilen nesneleri manuel olarak güvenli hale getir
+        safe_objects = []
+        try:
+            # Derin kontrol
+            for obj in detected_objects:
+                safe_obj = {}
+                for k, v in obj.items():
+                    if k == 'box' and isinstance(v, (list, tuple, np.ndarray)):
+                        safe_obj[k] = [int(x) if isinstance(x, (np.integer, np.int32, np.int64)) else
+                                    (float(x) if isinstance(x, (np.floating, np.float32, np.float64)) else x)
+                                    for x in v]
+                    elif isinstance(v, (np.integer, np.int32, np.int64)):
+                        safe_obj[k] = int(v)
+                    elif isinstance(v, (np.floating, np.float32, np.float64)):
+                        safe_obj[k] = float(v)
+                    elif isinstance(v, np.bool_):
+                        safe_obj[k] = bool(v)
+                    elif isinstance(v, np.ndarray):
+                        safe_obj[k] = v.tolist()
+                    else:
+                        safe_obj[k] = v
+                safe_objects.append(safe_obj)
+            
+            # Dönüştürülmüş objeleri kontrol et
+            json_text = json.dumps(safe_objects)
+            if not json_text:
+                logger.warning(f"Serileştirilen JSON geçersiz veya boş: {safe_objects}")
+                safe_objects = []
+        except Exception as ser_err:
+            # Serileştirilemiyorsa, hata bilgisini logla
+            logger.error(f"Nesneler serileştirilemedi: {str(ser_err)}")
+            logger.error(f"Nesne tipi: {type(safe_objects)}")
+            logger.error(f"Nesne içeriği (kısmi): {str(safe_objects)[:500]}")
+            safe_objects = []
+        
+        # JSON uyumlu nesneyi kaydet
+        try:
+            detection.set_detected_objects(safe_objects)
+        except Exception as e:
+            logger.error(f"set_detected_objects hatası: {str(e)}")
+            logger.error(f"Hata izi: {traceback.format_exc()}")
+            detection._detected_objects = "[]"  # Boş liste olarak ayarla
+        
+        db.session.add(detection)
+        
+        # Eğer yaş analizi isteniyorsa, yüzleri tespit et ve yaşları tahmin et
+        if analysis.include_age_analysis:
+            # Mock analizöre geri dönüşü kaldırıyoruz
+            age_estimator = AgeEstimator()
+            faces = age_estimator.detect_faces(image)
+            
+            for i, face in enumerate(faces):
+                x, y, w, h = face['location']
+                
+                # Yüz bölgesini kırp
+                if x >= 0 and y >= 0 and w > 0 and h > 0 and x+w <= image.shape[1] and y+h <= image.shape[0]:
+                    face_img = image[y:y+h, x:x+w]
+                    age, confidence = age_estimator.estimate_age(face_img)
+                    
+                    # Kişi için benzersiz ID oluştur
+                    person_id = f"{analysis.id}_{i}"
+                    
+                    # Yaş tahminini veritabanına kaydet
+                    age_estimation = AgeEstimation(
+                        analysis_id=analysis.id,
+                        person_id=person_id,
+                        frame_path=file.file_path,
+                        estimated_age=float(age),  # Float'a dönüştür
+                        confidence_score=float(confidence)  # Float'a dönüştür
+                    )
+                    
+                    # Koordinatları int tipine dönüştür
+                    x_int, y_int, w_int, h_int = int(x), int(y), int(w), int(h)
+                    age_estimation.set_face_location(x_int, y_int, w_int, h_int)
+                    db.session.add(age_estimation)
+        
+        # Değişiklikleri veritabanına kaydet
+        db.session.commit()
+        analysis.update_progress(100)  # İlerleme durumunu %100 olarak güncelle
+        
+        return True, "Resim analizi tamamlandı"
+    
+    except Exception as e:
+        db.session.rollback()  # Hata durumunda değişiklikleri geri al
+        return False, f"Resim analizi hatası: {str(e)}"
+
+
+def analyze_video(analysis):
+    """
+    Bir videoyu analiz eder.
+    Bu fonksiyon video dosyaları için içerik analizi yapar, video karelerini çıkararak 
+    her kare için şiddet, yetişkin içeriği, taciz, silah ve madde kullanımı analizi yapar.
+    Ayrıca istenirse yüz tespiti ve yaş tahmini de gerçekleştirir.
+    
+    Args:
+        analysis: Analiz nesnesi
+        
+    Returns:
+        tuple: (başarı durumu, mesaj)
+    """
+    file = analysis.file
+    frames_per_second = analysis.frames_per_second or 1  # Varsayılan saniyede 1 kare
+    
+    try:
+        # Video karelerini çıkar ve geçici klasöre kaydet
+        frames_folder = os.path.join(current_app.config['PROCESSED_FOLDER'], f"frames_{analysis.id}")
+        os.makedirs(frames_folder, exist_ok=True)
+        
+        logger.info(f"Video analizi başlıyor: Analiz #{analysis.id}, Dosya: {file.original_filename}, FPS: {frames_per_second}")
+        frame_paths, total_frames, duration = extract_frames(file.file_path, frames_folder, frames_per_second)
+        
+        if not frame_paths:
+            logger.error(f"Video kareleri çıkarılamadı: Analiz #{analysis.id}")
+            return False, "Video kareleri çıkarılamadı"
+        
+        logger.info(f"Video analizi: Toplam {len(frame_paths)} kare çıkarıldı, Video süresi: {duration:.2f} saniye")
+        
+        # İlerleme veritabanına kaydedilirken mesaj güncelle
+        analysis.status_message = f"Video analizi: {len(frame_paths)} kare işlenecek"
+        db.session.commit()
+        
+        # İçerik analizörü hazırla - Mock analizöre geri dönüşü kaldırıyoruz
+        content_analyzer = ContentAnalyzer()
+        logger.info(f"ContentAnalyzer başarıyla yüklendi: Analiz #{analysis.id}")
+        
+        # Yaş tahmini için estimator hazırla
+        if analysis.include_age_analysis:
+            age_estimator = AgeEstimator()
+            logger.info(f"AgeEstimator başarıyla yüklendi: Analiz #{analysis.id}")
+        else:
+            age_estimator = None
+            logger.info(f"Yaş analizi atlandı: Analiz #{analysis.id}")
+        
+        # Kişi takibi için yardımcı sözlük (aynı kişinin farklı karelerde izlenmesi için)
+        person_tracker = {}
+        
+        # İşlenecek toplam kare sayısı ve diğer istatistikleri logla
+        detected_faces_count = 0
+        high_risk_frames_count = 0
+        risk_threshold = 0.7  # Yüksek risk eşiği
+        
+        for i, (frame_path, timestamp) in enumerate(frame_paths):
+            # Önceki için durum mesajını ve ilerlemeyi güncelle
+            progress = (i / len(frame_paths)) * 100
+            status_message = f"Kare {i+1}/{len(frame_paths)} analiz ediliyor ({progress:.1f}%)"
+            
+            if i % 5 == 0 or i == len(frame_paths) - 1:  # Her 5 karede bir veya son kare
+                analysis.status_message = status_message
+                analysis.update_progress(progress)
+                
+                # Her 10 karede bir ilerleme durumunu logla
+                if i % 10 == 0 or i == len(frame_paths) - 1:
+                    logger.info(f"Video analizi ilerliyor: Analiz #{analysis.id}, Kare {i+1}/{len(frame_paths)}, "
+                               f"Zaman {timestamp:.2f}s, İlerleme: %{progress:.1f}")
+            
+            # Kareyi yükle
+            image = load_image(frame_path)
+            if image is None:
+                logger.warning(f"Kare yüklenemedi: {frame_path}")
+                continue
+            
+            # İçerik analizi yap - Mock analizöre geri dönüşü kaldırıyoruz
+            violence_score, adult_content_score, harassment_score, weapon_score, drug_score, detected_objects = content_analyzer.analyze_image(frame_path)
+            
+            # Her skor ve nesneyi ayrı ayrı dönüştür
+            violence_score = float(violence_score)
+            adult_content_score = float(adult_content_score)
+            harassment_score = float(harassment_score)
+            weapon_score = float(weapon_score)
+            drug_score = float(drug_score)
+            
+            # Yüksek risk skorlu kareleri say
+            max_score = max(violence_score, adult_content_score, harassment_score, weapon_score, drug_score)
+            if max_score >= risk_threshold:
+                high_risk_frames_count += 1
+                score_str = f"Şiddet: {violence_score:.2f}, Yetişkin: {adult_content_score:.2f}, Taciz: {harassment_score:.2f}, Silah: {weapon_score:.2f}, Madde: {drug_score:.2f}"
+                logger.info(f"Yüksek riskli kare tespit edildi: Analiz #{analysis.id}, Kare {i+1}, Zaman {timestamp:.2f}s, Skorlar: {score_str}")
+            
+            # Nesneleri manuel olarak güvenli hale getir
+            safe_objects = ensure_serializable(detected_objects)
+            
+            try:
+                # Test et - Serileştirilebilir mi?
+                json_text = json.dumps(safe_objects)
+                if not json_text:
+                    # Boş dize ise, None veya geçersiz JSON olabilir
+                    logger.warning(f"Serileştirilen JSON geçersiz veya boş: {safe_objects}")
+                    safe_objects = []
+            except Exception as ser_err:
+                # Serileştirilemiyorsa, boş liste kullan
+                logger.error(f"Nesneler serileştirilemedi: {str(ser_err)}")
+                logger.error(f"Nesne tipi: {type(safe_objects)}")
+                logger.error(f"Nesne içeriği (kısmi): {str(safe_objects)[:500]}")
+                safe_objects = []
+                
+            # Analiz sonuçlarını veritabanına kaydet
+            detection = ContentDetection(
+                analysis_id=analysis.id,
+                frame_path=frame_path,
+                frame_timestamp=timestamp
+            )
+            
+            detection.violence_score = float(violence_score)
+            detection.adult_content_score = float(adult_content_score)
+            detection.harassment_score = float(harassment_score)
+            detection.weapon_score = float(weapon_score)
+            detection.drug_score = float(drug_score)
+            detection.set_detected_objects(safe_objects)
+            
+            # Nesnenin serileştirilebilir olup olmadığını kontrol et
+            try:
+                detection_dict = detection.to_dict()
+                json.dumps(detection_dict)
+            except Exception as json_err:
+                logger.error(f"ContentDetection to_dict serileştirilemedi: {str(json_err)}")
+                # Sorun detected_objects'de ise onu temizle
+                detection._detected_objects = '[]'
+            
+            db.session.add(detection)
+            
+            # Yaş analizi yapılacaksa yüz tespiti ve yaş tahmini yap
+            if age_estimator:
+                faces = age_estimator.detect_faces(image)
+                detected_faces_count += len(faces)
+                
+                if faces and (i % 10 == 0 or len(faces) > 2):  # Her 10 karede bir veya çok sayıda yüz tespit edildiğinde
+                    logger.info(f"Yüz tespiti: Analiz #{analysis.id}, Kare {i+1}, "
+                               f"{len(faces)} yüz tespit edildi, Toplam {detected_faces_count} yüz")
+                    
+                for face in faces:
+                    x, y, w, h = face['location']
+                    
+                    # Yüz bölgesini kırp
+                    if x >= 0 and y >= 0 and w > 0 and h > 0 and x+w <= image.shape[1] and y+h <= image.shape[0]:
+                        face_img = image[y:y+h, x:x+w]
+                        
+                        # Yüz vektörünü hesapla ve Python listesine dönüştür
+                        face_encoding = age_estimator.compute_face_encoding(face_img)
+                        if isinstance(face_encoding, np.ndarray):
+                            face_encoding = face_encoding.tolist()  # NumPy dizisini listeye dönüştür
+                        
+                        # Bu yüz daha önce görülmüş mü kontrol et (kişi takibi)
+                        person_id = None
+                        for pid, encodings in person_tracker.items():
+                            # Yüz benzerliğini kontrol et
+                            for enc in encodings:
+                                if age_estimator.compare_faces(enc, face_encoding):
+                                    person_id = pid
+                                    break
+                            if person_id:
+                                break
+                        
+                        # Yeni kişi ise yeni ID oluştur
+                        if not person_id:
+                            person_id = f"{analysis.id}_person_{len(person_tracker) + 1}"
+                            person_tracker[person_id] = []
+                        
+                        # Yüz kodlamasını kişi takibine ekle
+                        person_tracker[person_id].append(face_encoding)
+                        
+                        # Yaş tahmini yap
+                        age, confidence = age_estimator.estimate_age(face_img)
+                        
+                        # Yaş tahminini veritabanına kaydet
+                        age_estimation = AgeEstimation(
+                            analysis_id=analysis.id,
+                            person_id=person_id,
+                            frame_path=frame_path,
+                            frame_timestamp=timestamp,
+                            estimated_age=float(age),  # Float'a dönüştür
+                            confidence_score=float(confidence)  # Float'a dönüştür
+                        )
+                        
+                        # Koordinatları int tipine dönüştür
+                        x_int, y_int, w_int, h_int = int(x), int(y), int(w), int(h)
+                        age_estimation.set_face_location(x_int, y_int, w_int, h_int)
+                        db.session.add(age_estimation)
+            
+            # Belirli aralıklarla işlemleri veritabanına kaydet (her 10 karede bir)
+            if i % 10 == 0:
+                db.session.commit()
+                
+                # Socket.io ile anlık ilerleme bilgisi gönder
+                try:
+                    from app import socketio
+                    socketio.emit('analysis_progress', {
+                        'analysis_id': analysis.id,
+                        'file_id': analysis.file_id,
+                        'current_frame': i + 1,
+                        'total_frames': len(frame_paths),
+                        'progress': progress,
+                        'timestamp': timestamp,
+                        'detected_faces': detected_faces_count,
+                        'high_risk_frames': high_risk_frames_count,
+                        'status': status_message
+                    })
+                except Exception as socket_err:
+                    logger.warning(f"Socket.io ilerleme bildirimi hatası: {str(socket_err)}")
+        
+        # Tüm değişiklikleri veritabanına kaydet
+        db.session.commit()
+        
+        # Analiz tamamlandı, istatistikleri logla
+        unique_persons = len(person_tracker) if person_tracker else 0
+        logger.info(f"Video analizi tamamlandı: Analiz #{analysis.id}, Dosya: {file.original_filename}")
+        logger.info(f"  - Toplam {len(frame_paths)} kare analiz edildi")
+        logger.info(f"  - {detected_faces_count} yüz tespiti, {unique_persons} benzersiz kişi")
+        logger.info(f"  - {high_risk_frames_count} yüksek riskli kare tespit edildi")
+        
+        return True, "Video analizi tamamlandı"
+    
+    except Exception as e:
+        logger.error(f"Video analizi başarısız oldu: Analiz #{analysis.id}, Hata: {str(e)}")
+        db.session.rollback()  # Hata durumunda değişiklikleri geri al
+        return False, f"Video analizi hatası: {str(e)}"
+
+
+def calculate_overall_scores(analysis):
+    """
+    Bir analiz için genel skorları hesaplar.
+    Tüm tespit edilen kareler için ortalama skorları hesaplar ve 
+    en yüksek risk içeren kareyi belirler.
+    
+    Args:
+        analysis: Skorları hesaplanacak analiz nesnesi
+    """
+    try:
+        # Tüm içerik tespitlerini veritabanından al
+        detections = ContentDetection.query.filter_by(analysis_id=analysis.id).all()
+        
+        if not detections:
+            return
+        
+        # Her kategori için tüm skorları topla
+        violence_scores = [d.violence_score for d in detections]
+        adult_content_scores = [d.adult_content_score for d in detections]
+        harassment_scores = [d.harassment_score for d in detections]
+        weapon_scores = [d.weapon_score for d in detections]
+        drug_scores = [d.drug_score for d in detections]
+        
+        # Genel skorları ortalama alarak hesapla
+        analysis.overall_violence_score = sum(violence_scores) / len(violence_scores) if violence_scores else 0
+        analysis.overall_adult_content_score = sum(adult_content_scores) / len(adult_content_scores) if adult_content_scores else 0
+        analysis.overall_harassment_score = sum(harassment_scores) / len(harassment_scores) if harassment_scores else 0
+        analysis.overall_weapon_score = sum(weapon_scores) / len(weapon_scores) if weapon_scores else 0
+        analysis.overall_drug_score = sum(drug_scores) / len(drug_scores) if drug_scores else 0
+        
+        # En yüksek riskli kareyi bul (en yüksek skorlu kare)
+        highest_risk_score = 0
+        highest_risk_category = None
+        highest_risk_detection = None
+        
+        for detection in detections:
+            scores = {
+                'violence': detection.violence_score,
+                'adult_content': detection.adult_content_score,
+                'harassment': detection.harassment_score,
+                'weapon': detection.weapon_score,
+                'drug': detection.drug_score
+            }
+            
+            # En yüksek skora sahip kategoriyi bul
+            max_category = max(scores, key=scores.get)
+            max_score = scores[max_category]
+            
+            # Şimdiye kadarki en yüksek skordan büyükse güncelle
+            if max_score > highest_risk_score:
+                highest_risk_score = max_score
+                highest_risk_category = max_category
+                highest_risk_detection = detection
+        
+        # En riskli kare bilgilerini analiz nesnesine kaydet
+        if highest_risk_detection:
+            analysis.highest_risk_frame = highest_risk_detection.frame_path
+            analysis.highest_risk_frame_timestamp = highest_risk_detection.frame_timestamp
+            analysis.highest_risk_score = highest_risk_score
+            analysis.highest_risk_category = highest_risk_category
+        
+        # Değişiklikleri veritabanına kaydet
+        db.session.commit()
+    
+    except Exception as e:
+        current_app.logger.error(f"Genel skor hesaplama hatası: {str(e)}")
+        db.session.rollback()  # Hata durumunda değişiklikleri geri al
+
+
+def get_analysis_results(analysis_id):
+    """
+    Bir analizin tüm sonuçlarını getirir.
+    Bu fonksiyon, analiz sonuçlarını kapsamlı bir şekilde raporlamak için 
+    kullanılır ve tüm tespit ve tahminleri içerir.
+    
+    Args:
+        analysis_id: Sonuçları getirilecek analizin ID'si
+        
+    Returns:
+        dict: Analiz sonuçlarını içeren sözlük
+    """
+    analysis = Analysis.query.get(analysis_id)
+    
+    if not analysis:
+        return {'error': 'Analiz bulunamadı'}
+    
+    # Analiz henüz tamamlanmamış ise durumu bilgisini döndür
+    if analysis.status != 'completed':
+        return {
+            'status': analysis.status,
+            'progress': analysis.progress,
+            'message': 'Analiz henüz tamamlanmadı'
+        }
+    
+    # Ana analiz sonuçları
+    result = analysis.to_dict()
+    
+    # İçerik tespitlerini sonuçlara ekle
+    content_detections = ContentDetection.query.filter_by(analysis_id=analysis_id).all()
+    result['content_detections'] = [cd.to_dict() for cd in content_detections]
+    
+    # Eğer yaş analizi yapıldıysa, yaş tahminlerini sonuçlara ekle
+    if analysis.include_age_analysis:
+        age_estimations = AgeEstimation.query.filter_by(analysis_id=analysis_id).all()
+        
+        # Kişi bazlı yaş tahminlerini grupla (aynı kişinin farklı tahminleri)
+        persons = {}
+        for estimation in age_estimations:
+            person_id = estimation.person_id
+            if person_id not in persons:
+                persons[person_id] = []
+            persons[person_id].append(estimation.to_dict())
+        
+        # Her kişi için en güvenilir yaş tahminini bul
+        best_estimations = []
+        for person_id, estimations in persons.items():
+            # Güvenilirlik skoru en yüksek tahmini seç
+            best_estimation = max(estimations, key=lambda e: e['confidence_score'])
+            best_estimations.append(best_estimation)
+        
+        result['age_estimations'] = best_estimations
+    
+    return result 

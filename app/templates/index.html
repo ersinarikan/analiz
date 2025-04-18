@@ -1,0 +1,659 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WS Analiz - İçerik Analiz Platformu</title>
+    
+    <!-- Favicon -->
+    <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}" type="image/x-icon">
+    <link rel="shortcut icon" href="{{ url_for('static', filename='favicon.ico') }}" type="image/x-icon">
+    
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    
+    <!-- Font Awesome -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- Custom CSS -->
+    <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
+</head>
+<body>
+    <!-- Navbar -->
+    <nav class="navbar navbar-expand-lg navbar-dark mb-4">
+        <div class="container">
+            <a class="navbar-brand" href="/">
+                <i class="fas fa-shield-alt me-2"></i>
+                WS<span>Analiz</span>
+            </a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav ms-auto">
+                    <li class="nav-item">
+                        <a class="nav-link active" href="#"><i class="fas fa-home me-1"></i> Ana Sayfa</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#" id="modelMetricsBtn"><i class="fas fa-chart-line me-1"></i> Model Metrikleri</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#" id="trainModelBtn"><i class="fas fa-brain me-1"></i> Model Eğitimi</a>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+    
+    <div class="container-fluid">
+        <!-- Ana İçerik -->
+        <div class="row">
+            <!-- Dosya Yükleme Alanı -->
+            <div class="col-lg-12 mb-4">
+                <div class="card">
+                    <div class="card-header">
+                        <i class="fas fa-upload me-2"></i> İçerik Yükleme
+                    </div>
+                    <div class="card-body">
+                        <div id="uploadArea" class="upload-area">
+                            <i class="fas fa-cloud-upload-alt"></i>
+                            <h4>Dosyaları Buraya Sürükleyip Bırakın</h4>
+                            <p>veya aşağıdaki butonları kullanarak dosya/klasör seçin</p>
+                            <div class="d-flex justify-content-center">
+                                <button id="uploadFileBtn" class="btn btn-primary me-3">
+                                    <i class="fas fa-file"></i> Dosya Seç
+                                </button>
+                                <button id="uploadFolderBtn" class="btn btn-primary">
+                                    <i class="fas fa-folder"></i> Klasör Seç
+                                </button>
+                            </div>
+                            <input type="file" id="fileInput" style="display: none;" multiple accept="image/*,video/*">
+                            <input type="file" id="folderInput" style="display: none;" multiple accept="image/*,video/*" webkitdirectory directory>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Dosya Listesi Bölümü -->
+            <div class="col-lg-12 mb-4" id="fileListSection" style="display: none;">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <div>
+                            <i class="fas fa-list me-2"></i> Yüklenen Dosyalar
+                        </div>
+                        <button id="analyzeBtn" class="btn btn-success" disabled>
+                            <i class="fas fa-play me-1"></i> Analiz Et
+                        </button>
+                    </div>
+                    <div class="card-body">
+                        <div class="row" id="fileList">
+                            <!-- Dosya kartları buraya eklenecek -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Global İlerleme Bölümü -->
+            <div class="col-lg-12 mb-4" id="globalProgressSection" style="display: none;">
+                <div class="card">
+                    <div class="card-header">
+                        <i class="fas fa-tasks me-2"></i> Genel İlerleme
+                    </div>
+                    <div class="card-body">
+                        <div class="progress mb-3">
+                            <div id="globalProgressBar" class="progress-bar" role="progressbar" style="width: 0%;" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">0%</div>
+                        </div>
+                        <div id="analysisStatus" class="text-center">0 / 0 dosya analizi tamamlandı</div>
+                        <div id="completedMessage" class="alert alert-success mt-3" style="display: none;">
+                            <i class="fas fa-check-circle me-2"></i> Tüm analizler tamamlandı!
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Sonuçlar Bölümü -->
+            <div class="col-lg-12" id="resultsSection" style="display: none;">
+                <div class="card">
+                    <div class="card-header">
+                        <i class="fas fa-chart-bar me-2"></i> Analiz Sonuçları
+                    </div>
+                    <div class="card-body">
+                        <div id="resultsList">
+                            <!-- Sonuç kartları buraya eklenecek -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Dosya Kartı Template -->
+    <template id="fileCardTemplate">
+        <div class="col-12 mb-3">
+            <div class="file-card file-list-layout" id="">
+                <div class="file-preview-area">
+                    <img class="file-preview" src="" alt="Dosya önizlemesi">
+                    <div class="file-status bg-secondary">Sırada</div>
+                </div>
+                <div class="file-details-area">
+                    <div class="file-status-area">
+                        <div>
+                            <div class="filename fw-bold"></div>
+                            <small class="filesize text-muted"></small>
+                        </div>
+                        <button class="btn btn-sm btn-danger remove-file-btn">
+                            <i class="fas fa-times"></i> Kaldır
+                        </button>
+                    </div>
+                    <div class="file-status-text mb-2">Sırada</div>
+                    <div class="progress">
+                        <div class="progress-bar" role="progressbar" style="width: 0%;" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </template>
+    
+    <!-- Sonuç Kartı Template -->
+    <template id="resultCardTemplate">
+        <div class="result-card mb-4">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="result-filename mb-0"></h5>
+                </div>
+                <div class="card-body">
+                    <ul class="nav nav-tabs" role="tablist">
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link active" id="summary-tab" data-bs-toggle="tab" data-bs-target="#summary" type="button" role="tab" aria-controls="summary" aria-selected="true">
+                                <i class="fas fa-chart-pie me-1"></i> Özet
+                            </button>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link" id="details-tab" data-bs-toggle="tab" data-bs-target="#details" type="button" role="tab" aria-controls="details" aria-selected="false">
+                                <i class="fas fa-list-ul me-1"></i> Detaylar
+                            </button>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link" id="feedback-tab" data-bs-toggle="tab" data-bs-target="#feedback" type="button" role="tab" aria-controls="feedback" aria-selected="false">
+                                <i class="fas fa-comment-alt me-1"></i> Geri Bildirim
+                            </button>
+                        </li>
+                    </ul>
+                    
+                    <div class="tab-content mt-3">
+                        <!-- Özet Tab -->
+                        <div class="tab-pane fade show active" id="summary" role="tabpanel" aria-labelledby="summary-tab">
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <h5>Risk Skorları</h5>
+                                    <div class="risk-scores-container">
+                                        <!-- Risk skorları buraya eklenecek -->
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <h5>En Yüksek Riskli Kare</h5>
+                                    <div class="highest-risk-frame">
+                                        <div class="frame-container" style="width: 320px; height: 240px; position: relative; margin-bottom: 10px; overflow: hidden;">
+                                            <img src="" alt="En yüksek risk içeren kare" class="img-fluid rounded" style="width: 100%; height: 100%; object-fit: cover;">
+                                            <span class="position-absolute bottom-0 end-0 m-2 badge risk-category-badge"></span>
+                                        </div>
+                                        <div class="mt-2">
+                                            <span class="highest-risk-category badge"></span>
+                                            <span class="highest-risk-score badge bg-danger ms-2"></span>
+                                            <span class="highest-risk-timestamp badge bg-secondary ms-2"></span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Detaylar Tab -->
+                        <div class="tab-pane fade" id="details" role="tabpanel" aria-labelledby="details-tab">
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <h5>İçerik Tespitleri</h5>
+                                    <div class="content-detections">
+                                        <!-- İçerik tespitleri buraya eklenecek -->
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <h5>Yaş Tahminleri</h5>
+                                    <div class="age-estimations">
+                                        <!-- Yaş tahminleri buraya eklenecek -->
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Geri Bildirim Tab -->
+                        <div class="tab-pane fade" id="feedback" role="tabpanel" aria-labelledby="feedback-tab">
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <h5>Genel Geri Bildirim</h5>
+                                    <form class="feedback-form">
+                                        <input type="hidden" class="content-id" value="">
+                                        
+                                        <div class="mb-3">
+                                            <label for="general-rating" class="form-label">Genel Değerlendirme</label>
+                                            <select class="form-select general-rating" required>
+                                                <option value="">Seçiniz</option>
+                                                <option value="5">Mükemmel - Tam Doğru</option>
+                                                <option value="4">İyi - Çoğunlukla Doğru</option>
+                                                <option value="3">Orta - Kısmen Doğru</option>
+                                                <option value="2">Zayıf - Çoğunlukla Yanlış</option>
+                                                <option value="1">Kötü - Tamamen Yanlış</option>
+                                            </select>
+                                        </div>
+                                        
+                                        <div class="row mb-3">
+                                            <div class="col-md-6">
+                                                <label class="form-label">Şiddet Tespiti</label>
+                                                <select class="form-select violence-feedback">
+                                                    <option value="correct">Doğru tespit</option>
+                                                    <option value="false_positive">Yanlış tespit</option>
+                                                    <option value="false_negative">Tespit edilmemiş</option>
+                                                </select>
+                                            </div>
+                                            <div class="col-md-6">
+                                                <label class="form-label">Yetişkin İçeriği</label>
+                                                <select class="form-select adult-content-feedback">
+                                                    <option value="correct">Doğru tespit</option>
+                                                    <option value="false_positive">Yanlış tespit</option>
+                                                    <option value="false_negative">Tespit edilmemiş</option>
+                                                </select>
+                                            </div>
+                                        </div>
+                                        
+                                        <div class="row mb-3">
+                                            <div class="col-md-6">
+                                                <label class="form-label">Taciz</label>
+                                                <select class="form-select harassment-feedback">
+                                                    <option value="correct">Doğru tespit</option>
+                                                    <option value="false_positive">Yanlış tespit</option>
+                                                    <option value="false_negative">Tespit edilmemiş</option>
+                                                </select>
+                                            </div>
+                                            <div class="col-md-6">
+                                                <label class="form-label">Silah</label>
+                                                <select class="form-select weapon-feedback">
+                                                    <option value="correct">Doğru tespit</option>
+                                                    <option value="false_positive">Yanlış tespit</option>
+                                                    <option value="false_negative">Tespit edilmemiş</option>
+                                                </select>
+                                            </div>
+                                        </div>
+                                        
+                                        <div class="mb-3">
+                                            <label class="form-label">Madde Kullanımı</label>
+                                            <select class="form-select drug-feedback">
+                                                <option value="correct">Doğru tespit</option>
+                                                <option value="false_positive">Yanlış tespit</option>
+                                                <option value="false_negative">Tespit edilmemiş</option>
+                                            </select>
+                                        </div>
+                                        
+                                        <div class="mb-3">
+                                            <label for="feedback-comment" class="form-label">Yorumlar</label>
+                                            <textarea class="form-control feedback-comment" rows="3" placeholder="İsterseniz buraya yorumlarınızı yazabilirsiniz..."></textarea>
+                                        </div>
+                                        
+                                        <button type="submit" class="btn btn-primary submit-feedback-btn">Geri Bildirim Gönder</button>
+                                    </form>
+                                </div>
+                                
+                                <div class="col-md-6">
+                                    <h5>Yaş Tahmin Geri Bildirimi</h5>
+                                    <div class="age-feedback-container">
+                                        <div class="alert alert-info">
+                                            Yaş tahminlerine ilişkin geri bildirimleriniz, yapay zeka modelimizin eğitimi için kullanılacaktır.
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </template>
+    
+    <!-- Yaş Geri Bildirimi Template -->
+    <template id="ageFeedbackTemplate">
+        <div class="age-feedback-item mb-3 p-3 border rounded d-flex align-items-center">
+            <div class="flex-shrink-0 me-3">
+                <img src="" alt="Yüz Görüntüsü" class="face-image rounded" style="width: 60px; height: 60px; object-fit: cover;">
+            </div>
+            <div class="flex-grow-1">
+                <div class="mb-2">
+                    <strong>Kişi #<span class="person-id"></span></strong>
+                </div>
+                <div class="mb-2">
+                    Tahmini Yaş: <span class="estimated-age"></span>
+                </div>
+                <div class="input-group">
+                    <span class="input-group-text">Gerçek Yaş:</span>
+                    <input type="number" class="form-control corrected-age" min="1" max="100">
+                    <button class="btn btn-primary age-feedback-submit">
+                        <i class="fas fa-check me-1"></i> Gönder
+                    </button>
+                </div>
+            </div>
+        </div>
+    </template>
+    
+    <!-- Analiz Parametreleri Modal -->
+    <div class="modal fade" id="analysisParamsModal" tabindex="-1" aria-labelledby="analysisParamsModalLabel" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="analysisParamsModalLabel">
+                        <i class="fas fa-cog me-2"></i> Analiz Parametreleri
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label for="framesPerSecond" class="form-label">Saniyedeki Kare Sayısı (FPS):</label>
+                        <select class="form-select" id="framesPerSecond">
+                            <option value="0.5">Düşük (0.5 FPS)</option>
+                            <option value="1" selected>Normal (1 FPS)</option>
+                            <option value="2">Yüksek (2 FPS)</option>
+                            <option value="5">Çok Yüksek (5 FPS)</option>
+                        </select>
+                        <div class="form-text">Video analizinde kaç kare işleneceğini belirler. Yüksek değerler daha doğru sonuçlar verebilir ancak analiz süresi uzar.</div>
+                    </div>
+                    <div class="mb-3 form-check">
+                        <input type="checkbox" class="form-check-input" id="includeAgeAnalysis">
+                        <label class="form-check-label" for="includeAgeAnalysis">Yaş Analizi Yap</label>
+                        <div class="form-text">İçerikteki kişilerin yaş tahminini de yapar. Bu işlem ek işlem gücü gerektirir.</div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">İptal</button>
+                    <button type="button" class="btn btn-primary" id="startAnalysisBtn">
+                        <i class="fas fa-play me-1"></i> Analizi Başlat
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Model Metrikleri Modal -->
+    <div class="modal fade" id="modelMetricsModal" tabindex="-1" aria-labelledby="modelMetricsModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-xl">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="modelMetricsModalLabel">
+                        <i class="fas fa-chart-line me-2"></i> Yapay Zeka Model Metrikleri
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <ul class="nav nav-tabs mb-3" role="tablist">
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link active" id="content-metrics-tab" data-bs-toggle="tab" data-bs-target="#content-metrics" type="button" role="tab" aria-controls="content-metrics" aria-selected="true">
+                                <i class="fas fa-eye me-1"></i> İçerik Analiz Modeli
+                            </button>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link" id="age-metrics-tab" data-bs-toggle="tab" data-bs-target="#age-metrics" type="button" role="tab" aria-controls="age-metrics" aria-selected="false">
+                                <i class="fas fa-user me-1"></i> Yaş Tahmin Modeli
+                            </button>
+                        </li>
+                    </ul>
+                    
+                    <div class="tab-content">
+                        <!-- İçerik Analiz Modeli Metrikleri -->
+                        <div class="tab-pane fade show active" id="content-metrics" role="tabpanel" aria-labelledby="content-metrics-tab">
+                            <div class="row mb-4">
+                                <div class="col-md-3">
+                                    <div class="card metrics-card">
+                                        <div class="card-body text-center">
+                                            <span class="d-block text-muted">Doğruluk</span>
+                                            <span class="metrics-value content-accuracy">-</span>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <div class="card metrics-card">
+                                        <div class="card-body text-center">
+                                            <span class="d-block text-muted">Hassasiyet</span>
+                                            <span class="metrics-value content-precision">-</span>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <div class="card metrics-card">
+                                        <div class="card-body text-center">
+                                            <span class="d-block text-muted">Geri Çağırma</span>
+                                            <span class="metrics-value content-recall">-</span>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <div class="card metrics-card">
+                                        <div class="card-body text-center">
+                                            <span class="d-block text-muted">F1 Skoru</span>
+                                            <span class="metrics-value content-f1">-</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="row mb-4">
+                                <div class="col-md-6">
+                                    <div class="card h-100">
+                                        <div class="card-header">Kategori Bazında Metrikler</div>
+                                        <div class="card-body">
+                                            <div class="table-responsive">
+                                                <table class="table table-striped">
+                                                    <thead>
+                                                        <tr>
+                                                            <th>Kategori</th>
+                                                            <th>Doğruluk</th>
+                                                            <th>Hassasiyet</th>
+                                                            <th>Geri Çağırma</th>
+                                                            <th>F1</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody id="contentCategoryMetrics">
+                                                        <tr>
+                                                            <td colspan="5" class="text-center">Yükleniyor...</td>
+                                                        </tr>
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="card h-100">
+                                        <div class="card-header">Eğitim Geçmişi</div>
+                                        <div class="card-body">
+                                            <div id="contentTrainingHistory">
+                                                <div class="text-center">Yükleniyor...</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="d-flex justify-content-end">
+                                <button id="resetContentModelBtn" class="btn btn-danger">
+                                    <i class="fas fa-undo me-1"></i> Modeli Sıfırla
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <!-- Yaş Tahmin Modeli Metrikleri -->
+                        <div class="tab-pane fade" id="age-metrics" role="tabpanel" aria-labelledby="age-metrics-tab">
+                            <div class="row mb-4">
+                                <div class="col-md-4">
+                                    <div class="card metrics-card">
+                                        <div class="card-body text-center">
+                                            <span class="d-block text-muted">Ortalama Mutlak Hata (MAE)</span>
+                                            <span class="metrics-value age-mae">-</span>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-md-4">
+                                    <div class="card metrics-card">
+                                        <div class="card-body text-center">
+                                            <span class="d-block text-muted">±3 Yaş Başarı Oranı</span>
+                                            <span class="metrics-value age-accuracy">-</span>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-md-4">
+                                    <div class="card metrics-card">
+                                        <div class="card-body text-center">
+                                            <span class="d-block text-muted">Toplam Örnek Sayısı</span>
+                                            <span class="metrics-value age-count">-</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="row mb-4">
+                                <div class="col-md-6">
+                                    <div class="card h-100">
+                                        <div class="card-header">Yaş Dağılımı</div>
+                                        <div class="card-body">
+                                            <canvas id="ageDistributionChart"></canvas>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="card h-100">
+                                        <div class="card-header">Yaş Tahmin Hata Dağılımı</div>
+                                        <div class="card-body">
+                                            <canvas id="ageErrorChart"></canvas>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="row mb-4">
+                                <div class="col-md-12">
+                                    <div class="card">
+                                        <div class="card-header">Eğitim Geçmişi</div>
+                                        <div class="card-body">
+                                            <div id="ageTrainingHistory">
+                                                <div class="text-center">Yükleniyor...</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="d-flex justify-content-end">
+                                <button id="resetAgeModelBtn" class="btn btn-danger">
+                                    <i class="fas fa-undo me-1"></i> Modeli Sıfırla
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Kapat</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Model Eğitim Modal -->
+    <div class="modal fade" id="trainModelModal" tabindex="-1" aria-labelledby="trainModelModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="trainModelModalLabel">
+                        <i class="fas fa-brain me-2"></i> Yapay Zeka Model Eğitimi
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="alert alert-info">
+                        <i class="fas fa-info-circle me-2"></i> Model eğitimi, sistem tarafından toplanan ve etiketlenen verileri kullanarak yapay zeka modellerini güncelleyecektir. Bu işlem bilgisayar kaynağı kullanımına bağlı olarak birkaç dakika sürebilir.
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="modelType" class="form-label">Eğitilecek Model:</label>
+                        <select class="form-select" id="modelType">
+                            <option value="content">İçerik Analiz Modeli</option>
+                            <option value="age">Yaş Tahmin Modeli</option>
+                        </select>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="epochCount" class="form-label">Epoch Sayısı:</label>
+                        <select class="form-select" id="epochCount">
+                            <option value="5">5 (Hızlı)</option>
+                            <option value="10" selected>10 (Normal)</option>
+                            <option value="20">20 (Kapsamlı)</option>
+                            <option value="50">50 (Detaylı)</option>
+                        </select>
+                        <div class="form-text">Daha fazla epoch, daha iyi eğitim sonuçları verebilir ancak daha uzun sürer.</div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="batchSize" class="form-label">Batch Boyutu:</label>
+                        <select class="form-select" id="batchSize">
+                            <option value="8">8 (Düşük Bellek)</option>
+                            <option value="16" selected>16 (Normal)</option>
+                            <option value="32">32 (Yüksek Bellek)</option>
+                            <option value="64">64 (Çok Yüksek Bellek)</option>
+                        </select>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="learningRate" class="form-label">Öğrenme Hızı:</label>
+                        <select class="form-select" id="learningRate">
+                            <option value="0.0001">0.0001 (Çok Yavaş)</option>
+                            <option value="0.001" selected>0.001 (Normal)</option>
+                            <option value="0.01">0.01 (Hızlı)</option>
+                        </select>
+                    </div>
+                    
+                    <div class="training-info" style="display: none;">
+                        <div class="mb-3">
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <h6 class="mb-0">Eğitim İlerlemesi</h6>
+                                <div id="trainingStatusText">Hazırlanıyor...</div>
+                            </div>
+                            <div class="progress">
+                                <div id="trainingProgressBar" class="progress-bar" role="progressbar" style="width: 0%;" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">0%</div>
+                            </div>
+                        </div>
+                        
+                        <div id="trainingResultsSection" style="display: none;">
+                            <h6>Eğitim Sonuçları</h6>
+                            <div id="trainingResults"></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Kapat</button>
+                    <button type="button" class="btn btn-primary" id="startTrainingBtn">
+                        <i class="fas fa-play me-1"></i> Eğitimi Başlat
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/js/bootstrap.bundle.min.js"></script>
+    
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <!-- Socket.io -->
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    
+    <!-- Main JS -->
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+</body>
+</html> 
