@@ -1463,14 +1463,28 @@ function displayAnalysisResults(fileId, results) {
                 let faceLocationHtml = '';
                 if (data.face_location) {
                     const faceLocation = data.face_location;
+                    
+                    // Doğru ölçeklendirme faktörleri - görüntüleme alanı boyutuna göre ayarlama
+                    const imgContainer = document.querySelector('.face-img').parentNode;
+                    const containerWidth = imgContainer ? imgContainer.offsetWidth : 240;
+                    const containerHeight = imgContainer ? imgContainer.offsetHeight : 240;
+                    
+                    // Görüntü boyutları (varsayılan 640x480)
+                    const originalWidth = 640;
+                    const originalHeight = 480;
+                    
+                    // Ölçeklendirme faktörleri hesapla
+                    const scaleX = containerWidth / originalWidth;
+                    const scaleY = containerHeight / originalHeight;
+                    
                     // Kare üzerinde yüzü dikdörtgen ile işaretle, numaralandırma ekle
                     faceLocationHtml = `
                         <div class="face-highlight" style="
                             position: absolute;
-                            top: ${faceLocation[1] / 4}px;
-                            left: ${faceLocation[0] / 4}px;
-                            width: ${faceLocation[2] / 4}px;
-                            height: ${faceLocation[3] / 4}px;
+                            top: ${faceLocation[1] * scaleY}px;
+                            left: ${faceLocation[0] * scaleX}px;
+                            width: ${(faceLocation[2] - faceLocation[0]) * scaleX}px;
+                            height: ${(faceLocation[3] - faceLocation[1]) * scaleY}px;
                             border: 3px solid #00e676;
                             border-radius: 4px;
                             z-index: 10;
@@ -1597,6 +1611,14 @@ function submitFeedback(event) {
             harassment: form.querySelector('.harassment-feedback').value,
             weapon: form.querySelector('.weapon-feedback').value,
             drug: form.querySelector('.drug-feedback').value
+        },
+        // Kategori için doğru değer geri bildirimleri ekle
+        category_correct_values: {
+            violence: form.querySelector('.violence-correct-value') ? parseFloat(form.querySelector('.violence-correct-value').value) : null,
+            adult_content: form.querySelector('.adult-content-correct-value') ? parseFloat(form.querySelector('.adult-content-correct-value').value) : null,
+            harassment: form.querySelector('.harassment-correct-value') ? parseFloat(form.querySelector('.harassment-correct-value').value) : null,
+            weapon: form.querySelector('.weapon-correct-value') ? parseFloat(form.querySelector('.weapon-correct-value').value) : null,
+            drug: form.querySelector('.drug-correct-value') ? parseFloat(form.querySelector('.drug-correct-value').value) : null
         }
     };
     
@@ -1629,9 +1651,8 @@ function submitFeedback(event) {
 }
 
 // Yaş geri bildirimi gönder
-function submitAgeFeedback(input) {
-    const personId = input.dataset.personId;
-    const correctedAge = parseInt(input.value);
+function submitAgeFeedback(personId, ageInput) {
+    const correctedAge = parseInt(ageInput.value);
     
     if (isNaN(correctedAge) || correctedAge <= 0 || correctedAge > 100) {
         showToast('Uyarı', 'Lütfen geçerli bir yaş değeri girin (1-100).', 'warning');
@@ -1659,15 +1680,47 @@ function submitAgeFeedback(input) {
         console.log('Yaş geri bildirimi başarıyla gönderildi:', data);
         showToast('Başarılı', 'Yaş geri bildirimi kaydedildi.', 'success');
         
-        // Geri bildirim butonunu pasif yap
-        const button = input.nextElementSibling;
-        button.disabled = true;
-        button.textContent = 'Kaydedildi';
+        // Geri bildirim butonunu pasif yap ve metni değiştir
+        const button = document.querySelector(`.age-feedback-btn[data-person-id="${personId}"]`);
+        if (button) {
+            button.disabled = true;
+            button.textContent = 'Kaydedildi';
+            button.classList.remove('btn-primary');
+            button.classList.add('btn-success');
+        }
     })
     .catch(error => {
         console.error('Yaş geri bildirimi gönderme hatası:', error);
         showToast('Hata', `Yaş geri bildirimi gönderilirken hata oluştu: ${error.message}`, 'danger');
     });
+}
+
+// Geliştirilmiş yaş tahmini display için yardımcı fonksiyon
+function createAgeFeedbackElements(faceId, estimatedAge, personId) {
+    const feedbackContainer = document.createElement('div');
+    feedbackContainer.className = 'age-feedback-container mt-2';
+    
+    feedbackContainer.innerHTML = `
+        <div class="input-group">
+            <span class="input-group-text">Doğru Yaş:</span>
+            <input type="number" class="form-control age-feedback-input" 
+                   min="1" max="100" placeholder="Gerçek yaş" 
+                   value="${estimatedAge}" data-person-id="${personId}">
+            <button class="btn btn-primary age-feedback-btn" 
+                    data-person-id="${personId}" 
+                    onclick="submitAgeFeedback('${personId}', this.previousElementSibling)">
+                Gönder
+            </button>
+        </div>
+        <div class="form-check mt-1">
+            <input class="form-check-input age-accuracy-check" type="checkbox" id="accuracy-${faceId}">
+            <label class="form-check-label" for="accuracy-${faceId}">
+                Yaş aralığı doğru ama kesin yaş yanlış
+            </label>
+        </div>
+    `;
+    
+    return feedbackContainer;
 }
 
 // Model metrikleri yükle

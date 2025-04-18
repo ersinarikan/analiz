@@ -233,74 +233,125 @@
                             <div class="row">
                                 <div class="col-md-6">
                                     <h5>Genel Geri Bildirim</h5>
-                                    <form class="feedback-form">
-                                        <input type="hidden" class="content-id" value="">
+                                    <form class="feedback-form mt-3" onsubmit="submitFeedback(event)">
+                                        <input type="hidden" class="content-id" value="{{ content_id }}">
                                         
                                         <div class="mb-3">
-                                            <label for="general-rating" class="form-label">Genel Değerlendirme</label>
+                                            <label class="form-label">Genel Değerlendirme</label>
                                             <select class="form-select general-rating" required>
-                                                <option value="">Seçiniz</option>
-                                                <option value="5">Mükemmel - Tam Doğru</option>
-                                                <option value="4">İyi - Çoğunlukla Doğru</option>
-                                                <option value="3">Orta - Kısmen Doğru</option>
-                                                <option value="2">Zayıf - Çoğunlukla Yanlış</option>
-                                                <option value="1">Kötü - Tamamen Yanlış</option>
+                                                <option value="" disabled selected>Değerlendirme seçin</option>
+                                                <option value="5">Mükemmel - Doğru analiz</option>
+                                                <option value="4">İyi - Küçük hatalar var</option>
+                                                <option value="3">Orta - Kısmen doğru</option>
+                                                <option value="2">Kötü - Önemli hatalar var</option>
+                                                <option value="1">Çok Kötü - Tamamen yanlış</option>
                                             </select>
                                         </div>
                                         
                                         <div class="row mb-3">
                                             <div class="col-md-6">
                                                 <label class="form-label">Şiddet Tespiti</label>
-                                                <select class="form-select violence-feedback">
-                                                    <option value="correct">Doğru tespit</option>
-                                                    <option value="false_positive">Yanlış tespit</option>
-                                                    <option value="false_negative">Tespit edilmemiş</option>
-                                                </select>
+                                                <div class="d-flex gap-2">
+                                                    <select class="form-select violence-feedback">
+                                                        <option value="" selected>Değerlendirme seçin</option>
+                                                        <option value="accurate">Doğru tespit</option>
+                                                        <option value="under_estimated">Düşük tahmin</option>
+                                                        <option value="over_estimated">Yüksek tahmin</option>
+                                                        <option value="false_negative">Yanlış tespit (Şiddet var ama tespit edilmemiş)</option>
+                                                        <option value="false_positive">Yanlış tespit (Şiddet yok ama tespit edilmiş)</option>
+                                                    </select>
+                                                    <div class="input-group" style="max-width: 140px;">
+                                                        <span class="input-group-text">%</span>
+                                                        <input type="number" class="form-control violence-correct-value" min="0" max="100" placeholder="Doğru değer">
+                                                    </div>
+                                                </div>
                                             </div>
+                                            
                                             <div class="col-md-6">
                                                 <label class="form-label">Yetişkin İçeriği</label>
-                                                <select class="form-select adult-content-feedback">
-                                                    <option value="correct">Doğru tespit</option>
-                                                    <option value="false_positive">Yanlış tespit</option>
-                                                    <option value="false_negative">Tespit edilmemiş</option>
-                                                </select>
+                                                <div class="d-flex gap-2">
+                                                    <select class="form-select adult-content-feedback">
+                                                        <option value="" selected>Değerlendirme seçin</option>
+                                                        <option value="accurate">Doğru tespit</option>
+                                                        <option value="under_estimated">Düşük tahmin</option>
+                                                        <option value="over_estimated">Yüksek tahmin</option>
+                                                        <option value="false_negative">Yanlış tespit (Yetişkin içeriği var ama tespit edilmemiş)</option>
+                                                        <option value="false_positive">Yanlış tespit (Yetişkin içeriği yok ama tespit edilmiş)</option>
+                                                    </select>
+                                                    <div class="input-group" style="max-width: 140px;">
+                                                        <span class="input-group-text">%</span>
+                                                        <input type="number" class="form-control adult-content-correct-value" min="0" max="100" placeholder="Doğru değer">
+                                                    </div>
+                                                </div>
                                             </div>
                                         </div>
                                         
                                         <div class="row mb-3">
                                             <div class="col-md-6">
                                                 <label class="form-label">Taciz</label>
-                                                <select class="form-select harassment-feedback">
-                                                    <option value="correct">Doğru tespit</option>
-                                                    <option value="false_positive">Yanlış tespit</option>
-                                                    <option value="false_negative">Tespit edilmemiş</option>
-                                                </select>
+                                                <div class="d-flex gap-2">
+                                                    <select class="form-select harassment-feedback">
+                                                        <option value="" selected>Değerlendirme seçin</option>
+                                                        <option value="accurate">Doğru tespit</option>
+                                                        <option value="under_estimated">Düşük tahmin</option>
+                                                        <option value="over_estimated">Yüksek tahmin</option>
+                                                        <option value="false_negative">Yanlış tespit (Taciz var ama tespit edilmemiş)</option>
+                                                        <option value="false_positive">Yanlış tespit (Taciz yok ama tespit edilmiş)</option>
+                                                    </select>
+                                                    <div class="input-group" style="max-width: 140px;">
+                                                        <span class="input-group-text">%</span>
+                                                        <input type="number" class="form-control harassment-correct-value" min="0" max="100" placeholder="Doğru değer">
+                                                    </div>
+                                                </div>
                                             </div>
+                                            
                                             <div class="col-md-6">
                                                 <label class="form-label">Silah</label>
-                                                <select class="form-select weapon-feedback">
-                                                    <option value="correct">Doğru tespit</option>
-                                                    <option value="false_positive">Yanlış tespit</option>
-                                                    <option value="false_negative">Tespit edilmemiş</option>
-                                                </select>
+                                                <div class="d-flex gap-2">
+                                                    <select class="form-select weapon-feedback">
+                                                        <option value="" selected>Değerlendirme seçin</option>
+                                                        <option value="accurate">Doğru tespit</option>
+                                                        <option value="under_estimated">Düşük tahmin</option>
+                                                        <option value="over_estimated">Yüksek tahmin</option>
+                                                        <option value="false_negative">Yanlış tespit (Silah var ama tespit edilmemiş)</option>
+                                                        <option value="false_positive">Yanlış tespit (Silah yok ama tespit edilmiş)</option>
+                                                    </select>
+                                                    <div class="input-group" style="max-width: 140px;">
+                                                        <span class="input-group-text">%</span>
+                                                        <input type="number" class="form-control weapon-correct-value" min="0" max="100" placeholder="Doğru değer">
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        
+                                        <div class="row mb-3">
+                                            <div class="col-md-6">
+                                                <label class="form-label">Madde Kullanımı</label>
+                                                <div class="d-flex gap-2">
+                                                    <select class="form-select drug-feedback">
+                                                        <option value="" selected>Değerlendirme seçin</option>
+                                                        <option value="accurate">Doğru tespit</option>
+                                                        <option value="under_estimated">Düşük tahmin</option>
+                                                        <option value="over_estimated">Yüksek tahmin</option>
+                                                        <option value="false_negative">Yanlış tespit (Madde kullanımı var ama tespit edilmemiş)</option>
+                                                        <option value="false_positive">Yanlış tespit (Madde kullanımı yok ama tespit edilmiş)</option>
+                                                    </select>
+                                                    <div class="input-group" style="max-width: 140px;">
+                                                        <span class="input-group-text">%</span>
+                                                        <input type="number" class="form-control drug-correct-value" min="0" max="100" placeholder="Doğru değer">
+                                                    </div>
+                                                </div>
                                             </div>
                                         </div>
                                         
                                         <div class="mb-3">
-                                            <label class="form-label">Madde Kullanımı</label>
-                                            <select class="form-select drug-feedback">
-                                                <option value="correct">Doğru tespit</option>
-                                                <option value="false_positive">Yanlış tespit</option>
-                                                <option value="false_negative">Tespit edilmemiş</option>
-                                            </select>
-                                        </div>
-                                        
-                                        <div class="mb-3">
-                                            <label for="feedback-comment" class="form-label">Yorumlar</label>
+                                            <label class="form-label">Yorumlar</label>
                                             <textarea class="form-control feedback-comment" rows="3" placeholder="İsterseniz buraya yorumlarınızı yazabilirsiniz..."></textarea>
                                         </div>
                                         
-                                        <button type="submit" class="btn btn-primary submit-feedback-btn">Geri Bildirim Gönder</button>
+                                        <button type="submit" class="btn btn-primary submit-feedback-btn">
+                                            <i class="fas fa-paper-plane me-2"></i>GERİ BİLDİRİM GÖNDER
+                                        </button>
                                     </form>
                                 </div>
                                 
@@ -533,51 +584,15 @@
                                         <div class="card-header">
                                             <h5 class="mb-0">Yaş Dağılımı</h5>
                                         </div>
-                            <div class="d-flex justify-content-end">
-                                <button id="resetContentModelBtn" class="btn btn-danger">
-                                    <i class="fas fa-undo me-1"></i> Modeli Sıfırla
-                                </button>
-                            </div>
-                        </div>
-                        
-                        <!-- Yaş Tahmin Modeli Metrikleri -->
-                        <div class="tab-pane fade" id="age-metrics" role="tabpanel" aria-labelledby="age-metrics-tab">
-                            <div class="row mb-4">
-                                <div class="col-md-4">
-                                    <div class="card metrics-card">
-                                        <div class="card-body text-center">
-                                            <span class="d-block text-muted">Ortalama Mutlak Hata (MAE)</span>
-                                            <span class="metrics-value age-mae">-</span>
+                                        <div class="d-flex justify-content-end">
+                                            <button id="resetContentModelBtn" class="btn btn-danger">
+                                                <i class="fas fa-undo me-1"></i> Modeli Sıfırla
+                                            </button>
                                         </div>
                                     </div>
                                 </div>
-                                <div class="col-md-4">
-                                    <div class="card metrics-card">
-                                        <div class="card-body text-center">
-                                            <span class="d-block text-muted">±3 Yaş Başarı Oranı</span>
-                                            <span class="metrics-value age-accuracy">-</span>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div class="col-md-4">
-                                    <div class="card metrics-card">
-                                        <div class="card-body text-center">
-                                            <span class="d-block text-muted">Toplam Örnek Sayısı</span>
-                                            <span class="metrics-value age-count">-</span>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                            
-                            <div class="row mb-4">
-                                <div class="col-md-6">
-                                    <div class="card h-100">
-                                        <div class="card-header">Yaş Dağılımı</div>
-                                        <div class="card-body">
-                                            <canvas id="ageDistributionChart"></canvas>
-                                        </div>
-                                    </div>
-                                </div>
+                                
+                                <!-- Yaş Tahmin Modeli Metrikleri -->
                                 <div class="col-md-6">
                                     <div class="card h-100">
                                         <div class="card-header">Yaş Tahmin Hata Dağılımı</div>
@@ -691,6 +706,49 @@
                     <button type="button" class="btn btn-primary" id="startTrainingBtn">
                         <i class="fas fa-play me-1"></i> Eğitimi Başlat
                     </button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Yaş Tahmini Geri Bildirimi için Modal -->
+    <div class="modal fade" id="ageFeedbackModal" tabindex="-1" aria-labelledby="ageFeedbackModalLabel" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="ageFeedbackModalLabel">Yaş Tahmini Geri Bildirimi</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Kapat"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="text-center mb-3">
+                        <img id="ageFeedbackImage" src="" alt="Yüz Görüntüsü" class="img-fluid rounded shadow-sm" style="max-height: 200px;">
+                    </div>
+                    
+                    <div class="alert alert-info">
+                        <small><i class="fas fa-info-circle me-1"></i> Lütfen bu kişinin doğru yaşını girin. Geri bildiriminiz yapay zeka modelimizin eğitiminde kullanılacaktır.</small>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="correctedAge" class="form-label">Tahmin Edilen Yaş: <span id="estimatedAgeValue">--</span></label>
+                        
+                        <div class="input-group mb-2">
+                            <span class="input-group-text">Doğru Yaş:</span>
+                            <input type="number" class="form-control" id="correctedAge" min="1" max="100" placeholder="Gerçek yaş">
+                        </div>
+                        
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="ageRangeCorrect">
+                            <label class="form-check-label" for="ageRangeCorrect">
+                                Yaş aralığı doğru ama kesin yaş yanlış
+                            </label>
+                        </div>
+                    </div>
+                    
+                    <input type="hidden" id="personIdInput">
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">İptal</button>
+                    <button type="button" class="btn btn-primary" id="saveAgeFeedback">Geri Bildirim Gönder</button>
                 </div>
             </div>
         </div>

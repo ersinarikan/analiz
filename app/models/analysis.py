@@ -11,6 +11,7 @@ from sqlalchemy.orm import relationship
 import traceback
 from flask import current_app
 from app.utils.serialization_utils import convert_numpy_types_to_python, debug_serialization
+import uuid
 
 logger = logging.getLogger(__name__)
 
@@ -22,18 +23,18 @@ class Analysis(db.Model):
     """
     __tablename__ = 'analyses'
     
-    id = db.Column(db.Integer, primary_key=True)
-    file_id = db.Column(db.Integer, db.ForeignKey('files.id'), nullable=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    
-    # Analiz durumu ve ilerleme
+    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    file_id = db.Column(db.String(36), nullable=False)
     status = db.Column(db.String(20), default='pending')  # 'pending', 'processing', 'completed', 'failed'
-    progress = db.Column(db.Float, default=0)  # 0-100 arası ilerleme yüzdesi
-    status_message = db.Column(db.String(255))
     
-    # Analiz tercihleri
-    frames_per_second = db.Column(db.Float)  # Video analizi için saniyede kaç kare işleneceği
+    start_time = db.Column(db.DateTime, default=datetime.now)
+    end_time = db.Column(db.DateTime, nullable=True)
+    
+    frames_analyzed = db.Column(db.Integer, default=0)
+    frames_per_second = db.Column(db.Float, default=1.0)
+    
+    error_message = db.Column(db.Text, nullable=True)
+    
     include_age_analysis = db.Column(db.Boolean, default=False)  # Yaş tahmini yapılsın mı?
     
     # Genel kategorik skorlar (0-1 arası)
@@ -52,8 +53,8 @@ class Analysis(db.Model):
     # İlişkiler - Çakışmayı önlemek için file_ref ve file ilişkilerini kaldırdık
     # Bunun yerine, tek bir file ilişkisi kullanacağız
     file = db.relationship('File', foreign_keys=[file_id])
-    content_detections = db.relationship('ContentDetection', backref='analysis', cascade='all, delete-orphan')
-    age_estimations = db.relationship('AgeEstimation', backref='analysis', cascade='all, delete-orphan')
+    content_detections = db.relationship('ContentDetection', backref='analysis', lazy=True, cascade="all, delete-orphan")
+    age_estimations = db.relationship('AgeEstimation', backref='analysis', lazy=True, cascade="all, delete-orphan")
     
     def start_analysis(self):
         """Analiz sürecini başlatır ve durumu 'processing' olarak günceller."""
@@ -136,7 +137,7 @@ class ContentDetection(db.Model):
     __tablename__ = 'content_detections'
     
     id = db.Column(db.Integer, primary_key=True)
-    analysis_id = db.Column(db.Integer, db.ForeignKey('analyses.id'), nullable=False)
+    analysis_id = db.Column(db.String(36), db.ForeignKey('analyses.id'), nullable=False)
     frame_path = db.Column(db.String(255))  # Analiz edilen karenin dosya yolu
     frame_timestamp = db.Column(db.Float)  # Karenin video içindeki zaman damgası (saniye)
     
@@ -229,17 +230,17 @@ class AgeEstimation(db.Model):
     __tablename__ = 'age_estimations'
     
     id = db.Column(db.Integer, primary_key=True)
-    analysis_id = db.Column(db.Integer, db.ForeignKey('analyses.id'), nullable=False)
-    person_id = db.Column(db.String(50))  # Kişiyi benzersiz tanımlayan ID (kişi takibi için)
-    frame_path = db.Column(db.String(255))  # Yüzün tespit edildiği kare dosya yolu
-    frame_timestamp = db.Column(db.Float)  # Karenin video içindeki zaman damgası (saniye)
+    analysis_id = db.Column(db.String(36), db.ForeignKey('analyses.id'), nullable=False)
+    person_id = db.Column(db.String(36), nullable=False)  # Kişi için benzersiz ID
+    frame_path = db.Column(db.String(255), nullable=True)
+    frame_timestamp = db.Column(db.Float, nullable=False)  # Karenin video içindeki zaman damgası (saniye)
     
     # Yüz konumu 
     _face_location = db.Column(db.String(100))  # JSON olarak saklanır: [x, y, width, height]
     
     # Yaş tahmini
-    estimated_age = db.Column(db.Float)  # Tahmini yaş
-    confidence_score = db.Column(db.Float)  # Tahmin güvenilirlik skoru (0-1 arası)
+    estimated_age = db.Column(db.Float, nullable=False)
+    confidence_score = db.Column(db.Float, default=0.0)
     
     # JSON formatında saklanan yaş tahmini verileri
     age_estimations_json = db.Column(db.Text)
@@ -418,3 +419,32 @@ class AnalysisFeedback(db.Model):
             'is_processed': self.is_processed,
             'processing_seconds': self.processing_seconds
         }
+
+class FaceTracking(db.Model):
+    """Görüntülerdeki yüzleri takip eden model."""
+    __tablename__ = 'face_tracking'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    analysis_id = db.Column(db.String(36), db.ForeignKey('analyses.id'), nullable=False)
+    
+    person_id = db.Column(db.String(36), nullable=False, unique=True)  # Benzersiz kişi ID'si
+    first_appearance = db.Column(db.Float, nullable=False)  # İlk göründüğü zaman (saniye)
+    last_appearance = db.Column(db.Float, nullable=False)  # Son göründüğü zaman (saniye)
+    
+    # En iyi yüz görüntüsü
+    best_frame_path = db.Column(db.String(255), nullable=True)
+    best_frame_number = db.Column(db.Integer, nullable=True)
+    best_frame_confidence = db.Column(db.Float, default=0.0)
+    
+    # Kişiyle ilgili veri
+    total_appearances = db.Column(db.Integer, default=0)  # Toplam göründüğü kare sayısı
+    
+    # Yaş tahmini (en yüksek güvenilirliğe sahip tahmin)
+    best_age_estimation = db.Column(db.Float, nullable=True)
+    best_age_confidence = db.Column(db.Float, default=0.0)
+    
+    # Yüz özellikleri
+    face_features = db.Column(db.Text, nullable=True)  # JSON olarak saklanabilir
+    
+    def __repr__(self):
+        return f"<FaceTracking(id={self.id}, person_id='{self.person_id}', analysis_id='{self.analysis_id}')>"
