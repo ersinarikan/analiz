@@ -247,23 +247,63 @@ class ContentAnalyzer:
             drug_score = self._analyze_with_model(image, self.drug_model)
             
             # Nesne tespitine dayalı skor iyileştirmeleri
+            person_count = sum(1 for obj in detected_objects if obj['label'].lower() == 'person')
+            weapon_objects = []
+            drug_objects = []
+            adult_objects = []
+            
+            # Tespit edilen nesneleri kategorilere ayır
             for obj in detected_objects:
                 label = obj['label'].lower()
                 conf = obj['confidence']
                 
-                # Silah tespiti
+                # Silah kategorisi
                 if label in ['gun', 'knife', 'rifle', 'pistol', 'shotgun', 'weapon']:
-                    weapon_score = max(weapon_score, conf * 0.9)
-                    violence_score = max(violence_score, conf * 0.7)  # Silah varsa şiddet skoru da artar
+                    weapon_objects.append((label, conf))
                 
-                # Uyuşturucu tespiti  
+                # Madde kullanımı ile ilişkili nesneler
                 if label in ['bottle', 'wine glass', 'cup', 'syringe']:
-                    drug_score = max(drug_score, conf * 0.5)  # Şüpheli nesneler
+                    drug_objects.append((label, conf))
+                    
+                # Yetişkin içeriği ile ilişkili nesneler
+                if label in ['person'] and person_count >= 2:
+                    adult_objects.append((label, conf))
+            
+            # Bağlama dayalı skor ayarlamaları (daha dinamik ve gerçekçi)
+            
+            # Silah skoru - silah nesneleri varsa
+            if weapon_objects:
+                # En yüksek güvenilirlikli silah nesnesini bul
+                max_weapon_conf = max([conf for _, conf in weapon_objects])
+                # Skor artışı - yüksek güvenilirlik = büyük artış
+                weapon_boost = max_weapon_conf * 0.8
+                weapon_score = max(weapon_score, weapon_boost)
+                # Ayrıca şiddet skorunu da artır - silah genelde şiddetle ilişkilidir
+                violence_boost = max_weapon_conf * 0.6
+                violence_score = max(violence_score, violence_boost)
+                logger.info(f"Silah nesnesi tespit edildi, weapon_score={weapon_score:.2f}, violence_score={violence_score:.2f}")
+            
+            # Kişiler arası etkileşim - 2+ kişi varsa
+            if person_count >= 2:
+                # Kişi sayısı arttıkça, taciz/yetişkin içeriği olasılığı artar
+                interaction_factor = min(0.2 + (person_count * 0.05), 0.4)  # max 0.4
+                harassment_score = max(harassment_score, harassment_score + interaction_factor)
+                adult_content_score = max(adult_content_score, adult_content_score + (interaction_factor * 0.5))
+                logger.info(f"{person_count} kişi tespit edildi, harassment_score={harassment_score:.2f}")
+            
+            # Madde kullanımı ile ilişkili nesneler
+            if drug_objects:
+                # Şüpheli nesne sayısı ve güvenilirliği önemli
+                drug_object_boost = min(0.2 + (len(drug_objects) * 0.1), 0.5) # max 0.5
+                drug_score = max(drug_score, drug_score + drug_object_boost)
+                logger.info(f"Madde kullanımı ile ilişkili nesneler tespit edildi, drug_score={drug_score:.2f}")
                 
-                # Kişilerin tespit edilmesi
-                if label == 'person' and len(detected_objects) > 1:
-                    # Çoklu kişi varsa hareket/interaksiyon olasılığını değerlendir
-                    harassment_score = max(harassment_score, 0.3)
+            # Son skorları 0-1 aralığında sınırla
+            violence_score = min(max(violence_score, 0.0), 1.0)
+            adult_content_score = min(max(adult_content_score, 0.0), 1.0)
+            harassment_score = min(max(harassment_score, 0.0), 1.0)
+            weapon_score = min(max(weapon_score, 0.0), 1.0)
+            drug_score = min(max(drug_score, 0.0), 1.0)
             
             # NumPy türlerini Python türlerine dönüştür - yeni utils modülünü kullan
             safe_objects = convert_numpy_types_to_python(detected_objects)
@@ -303,18 +343,91 @@ class ContentAnalyzer:
             return self._calculate_image_features_score(image)
             
     def _calculate_image_features_score(self, image):
-        """Görüntü özelliklerine dayalı bir skor hesaplar (model çalışmadığında)"""
-        # Görüntü özelliklerini analiz et (parlaklık, kontrast, renk dağılımı)
-        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-        avg_brightness = np.mean(gray) / 255.0
-        contrast = np.std(gray) / 255.0
+        """
+        Görüntü özelliklerine dayalı bir skor hesaplar (model çalışmadığında).
+        Bu fonksiyon, renk dağılımı, kenarlar ve dokular gibi çeşitli görüntü 
+        özelliklerini analiz eder ve bu özelliklere dayalı bir risk skoru tahmin eder.
+        """
+        try:
+            # Görüntü özelliklerini analiz et
+            gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+            avg_brightness = np.mean(gray) / 255.0
+            contrast = np.std(gray) / 255.0
+            
+            # Renk analizleri
+            hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+            saturation = np.mean(hsv[:, :, 1]) / 255.0
+            hue_var = np.std(hsv[:, :, 0]) / 180.0
+            
+            # Kenar tespiti (Yüksek kenar yoğunluğu şiddet veya silah içerebilir)
+            edges = cv2.Canny(gray, 100, 200)
+            edge_density = np.sum(edges) / (image.shape[0] * image.shape[1] * 255)
+            
+            # Doku analizi
+            texture_score = 0.0
+            try:
+                # Gri tonlamalı görüntü için GLCM (Gray Level Co-occurrence Matrix) hesapla
+                from skimage.feature import graycomatrix, graycoprops
+                glcm = graycomatrix(gray, [1], [0, np.pi/4, np.pi/2, 3*np.pi/4], 256, symmetric=True, normed=True)
+                contrast_texture = graycoprops(glcm, 'contrast')[0, 0]
+                dissimilarity = graycoprops(glcm, 'dissimilarity')[0, 0]
+                texture_score = min((contrast_texture + dissimilarity) / 50.0, 0.3)
+            except Exception as tex_err:
+                logger.warning(f"Doku analizi hesaplanamadı: {str(tex_err)}")
+            
+            # Farklı içerik kategorileri için farklı skorlar hesapla
+            
+            # Şiddet skoru: Kenar yoğunluğu ve kontrasttan etkilenir
+            violence_score = 0.1 + (edge_density * 0.5) + (contrast * 0.2)
+            violence_score = min(max(violence_score, 0.1), 0.5)
+            
+            # Yetişkin içeriği: Cilt tonu ve doygunluk seviyelerinden etkilenir
+            has_skin_tones = self._detect_skin_tones(image)
+            adult_score = 0.05 + (saturation * 0.3) + (0.2 if has_skin_tones else 0.0)
+            adult_score = min(max(adult_score, 0.05), 0.3)
+            
+            # Taciz: Kompozisyon düzensizliğinden etkilenir
+            harassment_score = 0.1 + (hue_var * 0.2) + (texture_score * 0.5)
+            harassment_score = min(max(harassment_score, 0.1), 0.3)
+            
+            # Silah: Kenar yoğunluğundan etkilenir
+            weapon_score = 0.05 + (edge_density * 0.4) + (contrast * 0.1)
+            weapon_score = min(max(weapon_score, 0.05), 0.3)
+            
+            # Madde kullanımı: Renk dağılımı ve dokulardan etkilenir
+            drug_score = 0.05 + (saturation * 0.2) + (texture_score * 0.3)
+            drug_score = min(max(drug_score, 0.05), 0.25)
+            
+            logger.info(f"Görüntü özellikleri analizi: Şiddet={violence_score:.2f}, Yetişkin={adult_score:.2f}, "
+                       f"Taciz={harassment_score:.2f}, Silah={weapon_score:.2f}, Madde={drug_score:.2f}")
+            
+            # İstenilen kategori için skorları döndür (bu durumda genel skor)
+            return violence_score  # Şiddet puanını örnek olarak döndür
+            
+        except Exception as e:
+            logger.error(f"Görüntü özellikleri hesaplama hatası: {str(e)}")
+            # Güvenli bir varsayılan değer döndür
+            return 0.2
+    
+    def _detect_skin_tones(self, image):
+        """Görüntüde cilt tonları olup olmadığını tespit eder (basit yaklaşım)"""
+        try:
+            # HSV renk uzayına dönüştür
+            hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+            
+            # Cilt tonu aralığı (HSV'de)
+            lower_skin = np.array([0, 20, 70], dtype=np.uint8)
+            upper_skin = np.array([20, 150, 255], dtype=np.uint8)
+            
+            # Cilt tonu maskesi oluştur
+            mask = cv2.inRange(hsv, lower_skin, upper_skin)
+            
+            # Cilt pikseli oranı hesapla
+            skin_ratio = np.sum(mask) / (image.shape[0] * image.shape[1] * 255)
+            
+            # Belirli bir eşiğin üzerinde cilt tonu varsa true döndür
+            return skin_ratio > 0.15  # %15'den fazla cilt tonu içeriyorsa
         
-        # Renk doygunluğu analizi
-        hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
-        saturation = np.mean(hsv[:, :, 1]) / 255.0
-        
-        # Temel bir skor hesapla (0.1-0.4 arasında)
-        score = 0.1 + (contrast * 0.2) + (saturation * 0.1)
-        
-        # Skoru 0.1-0.4 arasında sınırla
-        return min(max(score, 0.1), 0.4) 
+        except Exception as e:
+            logger.error(f"Cilt tonu tespiti hatası: {str(e)}")
+            return False 

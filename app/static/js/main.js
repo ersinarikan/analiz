@@ -936,6 +936,12 @@ function displayAnalysisResults(fileId, results) {
     if (results.overall_scores && typeof results.overall_scores === 'object' && Object.keys(results.overall_scores).length > 0) {
         console.log(`Risk skorları gösteriliyor (${file.name}):`, results.overall_scores);
         
+        // Açıklama ekle
+        const infoText = document.createElement('div');
+        infoText.className = 'alert alert-info mb-3';
+        infoText.innerHTML = '<small><i class="fas fa-info-circle me-1"></i> Bu skorlar içeriğin tamamı için hesaplanan <strong>ortalama</strong> risk değerlerini gösterir.</small>';
+        riskScoresContainer.appendChild(infoText);
+        
         const scores = results.overall_scores;
         
         for (const [category, score] of Object.entries(scores)) {
@@ -996,6 +1002,13 @@ function displayAnalysisResults(fileId, results) {
         const highestRiskScore = resultCard.querySelector('.highest-risk-score');
         const highestRiskTimestamp = resultCard.querySelector('.highest-risk-timestamp');
         const riskCategoryBadge = resultCard.querySelector('.risk-category-badge');
+        
+        // Açıklama ekle
+        const frameContainer = resultCard.querySelector('.highest-risk-frame');
+        const infoText = document.createElement('div');
+        infoText.className = 'alert alert-warning mb-2';
+        infoText.innerHTML = '<small><i class="fas fa-exclamation-triangle me-1"></i> İçerikte tespit edilen <strong>en yüksek risk skoruna sahip</strong> kare gösterilmektedir.</small>';
+        frameContainer.insertBefore(infoText, frameContainer.firstChild);
         
         if (highestRiskFrame && results.highest_risk.frame) {
             try {
@@ -1280,17 +1293,24 @@ function displayAnalysisResults(fileId, results) {
     
     // ===== DETAY TAB - YAŞ TAHMİNİ =====
     // Yaş tahmini varsa göster
-    if (results.age_analysis && results.age_analysis.length > 0) {
+    if ((results.age_estimations && results.age_estimations.length > 0) || 
+        (results.age_analysis && results.age_analysis.length > 0)) {
+        
         try {
             // Her yüz için en güvenilir skorları bul
             const faceConfidenceMap = new Map();
             
-            results.age_analysis.forEach(analysis => {
+            // Backend'in döndüğü veri yapısına göre uygun değişkeni seç
+            const ageData = results.age_estimations || results.age_analysis || [];
+            
+            console.log('Yaş tahmini verileri:', ageData);
+            
+            ageData.forEach(analysis => {
                 // Her analiz için yüz ID'si ve güvenilirlik skorunu al
-                const faceId = analysis.face_id || 'unknown';
-                const confidence = analysis.confidence || 0;
+                const faceId = analysis.person_id || analysis.face_id || 'unknown';
+                const confidence = analysis.confidence_score || analysis.confidence || 0;
                 const age = analysis.estimated_age || 'Bilinmiyor';
-                const timestamp = analysis.timestamp || null;
+                const timestamp = analysis.frame_timestamp || analysis.timestamp || null;
                 const frame_path = analysis.frame_path || null;
                 
                 // Eğer bu yüz daha önce görülmediyse veya bu analiz daha güvenilirse güncelle
@@ -1354,6 +1374,20 @@ function displayAnalysisResults(fileId, results) {
                 const faceCard = document.createElement('div');
                 faceCard.classList.add('col-md-4', 'mb-3');
                 
+                // Yaş değerini düzgün formata çevirelim
+                let displayAge = data.age;
+                
+                // Eğer yaş çok küçük bir değerse (0.5'den küçük) ve "Bilinmiyor" değilse, 
+                // muhtemelen farklı bir birimde (0-1 arası normalize edilmiş) olabilir
+                if (typeof displayAge === 'number' && displayAge < 0.5 && displayAge > 0) {
+                    // 0-1 aralığını 0-100 yaş aralığına dönüştür
+                    displayAge = Math.round(displayAge * 100);
+                    console.log(`Düşük yaş değeri (${data.age}) tespit edildi, ${displayAge} yaşına dönüştürüldü`);
+                } else if (typeof displayAge === 'number') {
+                    // Sayısal değeri yuvarla
+                    displayAge = Math.round(displayAge);
+                }
+                
                 faceCard.innerHTML = `
                     <div class="card h-100">
                         <div class="position-relative">
@@ -1366,7 +1400,7 @@ function displayAnalysisResults(fileId, results) {
                             ${timeText ? `<span class="position-absolute bottom-0 start-0 m-2 badge bg-dark">${timeText}</span>` : ''}
                         </div>
                         <div class="card-body">
-                            <h6 class="card-title">Yaş Tahmini: <strong>${data.age}</strong></h6>
+                            <h6 class="card-title">Yaş Tahmini: <strong>${displayAge}</strong></h6>
                             <div class="d-flex justify-content-between mb-1">
                                 <span>Güvenilirlik:</span>
                                 <strong>${(data.confidence * 100).toFixed(0)}%</strong>

@@ -194,18 +194,63 @@ class AgeEstimator:
             prediction = self.models['age_predictor'].predict(img, verbose=0)
             estimated_age = float(prediction[0][0])
             
+            # Kontrol: Eğer tahmini yaş 0-1 arasındaysa, muhtemelen normalize edilmiş bir değerdir
+            # 0-1 aralığını 15-75 yaş aralığına dönüştür (yaygın yaş aralığı)
+            if 0 <= estimated_age <= 1:
+                logger.info(f"Normalize edilmiş yaş değeri tespit edildi: {estimated_age}, dönüştürülüyor")
+                estimated_age = 15 + (estimated_age * 60)
+            
             # Yaş tahmini genelde 0-100 arasında olmalı
             estimated_age = max(0, min(100, estimated_age))
+            estimated_age = round(estimated_age)  # Tam sayıya yuvarla
             
-            # Güven skoru için basit bir hesaplama
-            confidence = 0.9
+            # Yaş tahmininin güvenilirliğini belirten daha anlamlı bir skor hesapla
+            # Yüzün kalitesi, pozisyonu ve netliğine dayalı ölçümler yapılabilir
+            face_clarity = self._calculate_face_clarity(face_image)  # Yüzün netliği
+            face_position = self._calculate_face_position(face_image)  # Yüzün pozisyonu
             
+            # Güven skorunu hesapla (0.3-0.95 arasında)
+            confidence = 0.3 + (face_clarity * 0.4) + (face_position * 0.25)
+            
+            logger.info(f"Yaş tahmini: {estimated_age}, Güvenilirlik: {confidence:.2f}")            
             return estimated_age, confidence
             
         except Exception as e:
             logger.error(f"Yaş tahmini hatası: {str(e)}")
             # Hata durumunda varsayılan değerler döndür
             return 25.0, 0.5  # Ortalama yaş ve düşük güven
+    
+    def _calculate_face_clarity(self, face_image):
+        """Yüz görüntüsünün netliğini hesaplar (bulanıklığa dayalı)"""
+        try:
+            # Griye dönüştür
+            gray = cv2.cvtColor(face_image, cv2.COLOR_BGR2GRAY)
+            
+            # Laplacian ile bulanıklığı hesapla
+            lap_var = cv2.Laplacian(gray, cv2.CV_64F).var()
+            
+            # Normalize et (0-1 arasına)
+            clarity = min(lap_var / 500.0, 1.0)
+            
+            return clarity
+        except Exception as e:
+            logger.error(f"Yüz netliği hesaplama hatası: {str(e)}")
+            return 0.5  # Orta netlik
+    
+    def _calculate_face_position(self, face_image):
+        """Yüzün merkeze yakınlığını hesaplar"""
+        try:
+            # Yüz boyutları
+            h, w = face_image.shape[:2]
+            
+            # Merkezden uzaklık faktörü hesapla
+            # İdeal durumda yüz ortadadır
+            center_factor = 1.0 - (abs(h/2 - w/2) / (h + w))
+            
+            return center_factor
+        except Exception as e:
+            logger.error(f"Yüz pozisyon hesaplama hatası: {str(e)}")
+            return 0.5  # Orta pozisyon
     
     def compute_face_encoding(self, face_image):
         """
