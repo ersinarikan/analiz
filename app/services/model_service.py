@@ -10,6 +10,9 @@ from app import db
 from app.models.feedback import Feedback
 from app.ai.content_analyzer import ContentAnalyzer
 from config import Config
+from app.models.content import ModelVersion
+from app.services import db_service
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -557,4 +560,498 @@ def _get_dummy_result():
             'result': 'safe',
             'note': 'This is a placeholder result as no real model is available'
         }
-    } 
+    }
+
+def train_with_feedback(model_type, params=None):
+    """
+    Kullanıcı geri bildirimleriyle model eğitimi yapar
+    """
+    logging.info(f"Geri bildirimlerle model eğitimi başlatılıyor: {model_type}")
+    
+    # Varsayılan parametreleri ayarla
+    if not params:
+        params = {
+            'epochs': 10,
+            'batch_size': 32,
+            'learning_rate': 0.001
+        }
+    
+    # Geri bildirim verilerini al
+    if model_type == 'content':
+        feedback_data = db_service.get_content_feedback()
+    else:  # age
+        feedback_data = db_service.get_age_feedback()
+    
+    logging.info(f"{len(feedback_data)} adet geri bildirim verisi alındı")
+    
+    if not feedback_data or len(feedback_data) < 10:  # Minimum 10 geri bildirim olmalı
+        return {
+            "success": False,
+            "message": "Yeterli sayıda geri bildirim verisi bulunamadı. En az 10 geri bildirim gerekli."
+        }
+    
+    # Eğitim verilerini hazırla
+    training_data = prepare_feedback_data(feedback_data, model_type)
+    
+    # Mevcut modeli yükle
+    try:
+        model = load_model(model_type)
+    except Exception as e:
+        logging.error(f"Model yüklenirken hata: {str(e)}")
+        return {
+            "success": False,
+            "message": f"Model yüklenirken hata: {str(e)}"
+        }
+    
+    start_time = time.time()
+    
+    try:
+        # Modeli eğit
+        if model_type == 'content':
+            history = train_content_model(model, training_data, params)
+        else:  # age
+            history = train_age_model(model, training_data, params)
+        
+        # Metrikleri hesapla
+        metrics = calculate_metrics(model, training_data, model_type)
+        
+        # Yeni sürüm oluştur
+        new_version = create_model_version(
+            model_type=model_type,
+            metrics=metrics,
+            training_samples=len(training_data['train_data']),
+            validation_samples=len(training_data['val_data']),
+            epochs=params['epochs'],
+            feedback_ids=[f.id for f in feedback_data]
+        )
+        
+        # Yeni modeli kaydet
+        save_model(model, model_type, version=new_version.version)
+        
+        duration = time.time() - start_time
+        
+        return {
+            "success": True,
+            "version": new_version.version,
+            "duration": duration,
+            "metrics": metrics,
+            "samples": len(training_data['train_data']) + len(training_data['val_data']),
+            "training_samples": len(training_data['train_data']),
+            "validation_samples": len(training_data['val_data'])
+        }
+    except Exception as e:
+        logging.error(f"Model eğitimi sırasında hata: {str(e)}")
+        return {
+            "success": False,
+            "message": f"Eğitim sırasında hata: {str(e)}"
+        }
+
+def prepare_feedback_data(feedback_data, model_type):
+    """
+    Geri bildirim verilerini eğitim için hazırlar
+    """
+    if model_type == 'content':
+        return prepare_content_feedback(feedback_data)
+    else:  # age
+        return prepare_age_feedback(feedback_data)
+
+def prepare_content_feedback(feedback_data):
+    """
+    İçerik analizi için geri bildirim verilerini hazırla
+    """
+    # İçerik ve kategori verileri
+    train_data = []
+    val_data = []
+    
+    # Veriyi eğitim (%80) ve doğrulama (%20) olarak ayır
+    split_idx = int(len(feedback_data) * 0.8)
+    
+    # Karıştır
+    np.random.shuffle(feedback_data)
+    
+    for i, feedback in enumerate(feedback_data):
+        # İçerik ID'ye göre resim/video karesini bul
+        content = db_service.get_content_by_id(feedback.content_id)
+        if not content:
+            continue
+        
+        # Kategori geri bildirimleri
+        category_data = feedback.category_feedback
+        
+        # Eğitim verisi hazırla
+        item = {
+            "content_id": feedback.content_id,
+            "frame_path": content.frame_path,
+            "category_scores": {
+                "violence": float(category_data.get("violence", 0)),
+                "adult_content": float(category_data.get("adult_content", 0)),
+                "harassment": float(category_data.get("harassment", 0)),
+                "weapon": float(category_data.get("weapon", 0)),
+                "drug": float(category_data.get("drug", 0))
+            }
+        }
+        
+        # Eğitim/doğrulama ayırma
+        if i < split_idx:
+            train_data.append(item)
+        else:
+            val_data.append(item)
+    
+    return {
+        "train_data": train_data,
+        "val_data": val_data
+    }
+
+def prepare_age_feedback(feedback_data):
+    """
+    Yaş tahmini için geri bildirim verilerini hazırla
+    """
+    # Yaş tahmini verileri
+    train_data = []
+    val_data = []
+    
+    # Veriyi eğitim (%80) ve doğrulama (%20) olarak ayır
+    split_idx = int(len(feedback_data) * 0.8)
+    
+    # Karıştır
+    np.random.shuffle(feedback_data)
+    
+    for i, feedback in enumerate(feedback_data):
+        person_data = db_service.get_person_by_id(feedback.person_id)
+        if not person_data:
+            continue
+        
+        # Yaş verisi hazırla
+        item = {
+            "person_id": feedback.person_id,
+            "face_image_path": person_data.face_image_path,
+            "corrected_age": feedback.corrected_age
+        }
+        
+        # Eğitim/doğrulama ayırma
+        if i < split_idx:
+            train_data.append(item)
+        else:
+            val_data.append(item)
+    
+    return {
+        "train_data": train_data,
+        "val_data": val_data
+    }
+
+def create_model_version(model_type, metrics, training_samples, validation_samples, epochs, feedback_ids):
+    """
+    Yeni bir model versiyonu oluşturur
+    """
+    # Son sürüm numarasını bul
+    last_version = db.session.query(ModelVersion).filter_by(
+        model_type=model_type
+    ).order_by(ModelVersion.version.desc()).first()
+    
+    new_version_num = 1
+    if last_version:
+        new_version_num = last_version.version + 1
+    
+    # Tüm aktif sürümleri devre dışı bırak
+    db.session.query(ModelVersion).filter_by(
+        model_type=model_type,
+        is_active=True
+    ).update({ModelVersion.is_active: False})
+    
+    # Yeni sürüm oluştur
+    model_version = ModelVersion(
+        model_type=model_type,
+        version=new_version_num,
+        created_at=datetime.now(),
+        metrics=metrics,
+        is_active=True,
+        training_samples=training_samples,
+        validation_samples=validation_samples,
+        epochs=epochs,
+        file_path=f"models/{model_type}/version_{new_version_num}",
+        weights_path=f"models/{model_type}/version_{new_version_num}/weights.pth",
+        used_feedback_ids=feedback_ids
+    )
+    
+    db.session.add(model_version)
+    db.session.commit()
+    
+    logging.info(f"Yeni model versiyonu oluşturuldu: {model_type} v{new_version_num}")
+    
+    return model_version
+
+def get_model_versions(model_type):
+    """
+    Belirli bir model tipi için tüm versiyonları getirir
+    """
+    versions = db.session.query(ModelVersion).filter_by(
+        model_type=model_type
+    ).order_by(ModelVersion.version.desc()).all()
+    
+    return versions
+
+def activate_model_version(version_id):
+    """
+    Belirli bir model versiyonunu aktif hale getirir
+    """
+    try:
+        # Versiyonu bul
+        version = db.session.query(ModelVersion).filter_by(id=version_id).first()
+        
+        if not version:
+            return {
+                "success": False,
+                "message": "Belirtilen model versiyonu bulunamadı"
+            }
+        
+        # Aynı tipteki tüm aktif modelleri devre dışı bırak
+        db.session.query(ModelVersion).filter_by(
+            model_type=version.model_type,
+            is_active=True
+        ).update({ModelVersion.is_active: False})
+        
+        # Bu versiyonu aktif yap
+        version.is_active = True
+        db.session.commit()
+        
+        # Modeli yükle (uygulama tarafından kullanılmak üzere)
+        load_specific_model(version.model_type, version.version)
+        
+        return {
+            "success": True,
+            "version": version.version,
+            "model_type": version.model_type
+        }
+    except Exception as e:
+        logging.error(f"Model versiyonu aktifleştirme hatası: {str(e)}")
+        return {
+            "success": False,
+            "message": f"Model aktifleştirme hatası: {str(e)}"
+        }
+
+def reset_model(model_type):
+    """
+    Modeli sıfırlar (ön eğitimli orijinal modele geri döner)
+    """
+    try:
+        # Tüm aktif modelleri devre dışı bırak
+        db.session.query(ModelVersion).filter_by(
+            model_type=model_type,
+            is_active=True
+        ).update({ModelVersion.is_active: False})
+        
+        # Sıfır sürümlü bir model oluş (ön eğitimli model)
+        model_version = ModelVersion(
+            model_type=model_type,
+            version=0,
+            created_at=datetime.now(),
+            metrics={},
+            is_active=True,
+            training_samples=0,
+            validation_samples=0,
+            epochs=0,
+            file_path=f"models/{model_type}/pretrained",
+            weights_path=f"models/{model_type}/pretrained/weights.pth",
+            used_feedback_ids=[]
+        )
+        
+        db.session.add(model_version)
+        db.session.commit()
+        
+        # Ön eğitimli modeli yükle
+        load_pretrained_model(model_type)
+        
+        return {
+            "success": True,
+            "message": f"{model_type} modeli başarıyla sıfırlandı"
+        }
+    except Exception as e:
+        logging.error(f"Model sıfırlama hatası: {str(e)}")
+        return {
+            "success": False,
+            "message": f"Model sıfırlama hatası: {str(e)}"
+        }
+
+def load_specific_model(model_type, version):
+    """
+    Belirli bir versiyon numarasına sahip modeli yükler
+    """
+    try:
+        # Versiyonu doğrula
+        model_version = db.session.query(ModelVersion).filter_by(
+            model_type=model_type,
+            version=version
+        ).first()
+        
+        if not model_version:
+            logging.error(f"Belirtilen model versiyonu bulunamadı: {model_type} v{version}")
+            return False
+        
+        # Model dosyasını kontrol et
+        if not os.path.exists(model_version.weights_path):
+            logging.error(f"Model dosyası bulunamadı: {model_version.weights_path}")
+            return False
+        
+        # Modeli yükle
+        if model_type == 'content':
+            model = load_content_model(model_version.weights_path)
+        else:  # age
+            model = load_age_model(model_version.weights_path)
+        
+        # Global model değişkenine ata
+        if model_type == 'content':
+            global content_model
+            content_model = model
+        else:  # age
+            global age_model
+            age_model = model
+        
+        logging.info(f"{model_type} modeli v{version} başarıyla yüklendi")
+        return True
+    except Exception as e:
+        logging.error(f"Model yükleme hatası: {str(e)}")
+        return False
+
+def calculate_metrics(model, training_data, model_type):
+    """
+    Model performans metriklerini hesaplar
+    """
+    metrics = {}
+    
+    try:
+        if model_type == 'content':
+            # İçerik analiz metriklerini hesapla
+            val_data = training_data['val_data']
+            
+            # Tahminleri hesapla
+            predictions = []
+            ground_truth = []
+            
+            for item in val_data:
+                # Model tahmini yap
+                input_data = prepare_input_for_prediction(item['frame_path'])
+                pred = model.predict(input_data)
+                
+                # Tahmin ve gerçek değerleri topla
+                for category in ['violence', 'adult_content', 'harassment', 'weapon', 'drug']:
+                    predictions.append(pred[category])
+                    ground_truth.append(item['category_scores'][category])
+            
+            # Metrikleri hesapla
+            metrics = {
+                'accuracy': calculate_accuracy(predictions, ground_truth, threshold=0.5),
+                'precision': calculate_precision(predictions, ground_truth, threshold=0.5),
+                'recall': calculate_recall(predictions, ground_truth, threshold=0.5),
+                'f1': calculate_f1(predictions, ground_truth, threshold=0.5)
+            }
+            
+            # Kategori bazlı metrikler
+            category_metrics = {}
+            for i, category in enumerate(['violence', 'adult_content', 'harassment', 'weapon', 'drug']):
+                cat_preds = [predictions[j] for j in range(len(predictions)) if j % 5 == i]
+                cat_truth = [ground_truth[j] for j in range(len(ground_truth)) if j % 5 == i]
+                
+                category_metrics[category] = {
+                    'accuracy': calculate_accuracy(cat_preds, cat_truth, threshold=0.5),
+                    'precision': calculate_precision(cat_preds, cat_truth, threshold=0.5),
+                    'recall': calculate_recall(cat_preds, cat_truth, threshold=0.5),
+                    'f1': calculate_f1(cat_preds, cat_truth, threshold=0.5)
+                }
+            
+            metrics['category_metrics'] = category_metrics
+            
+        else:  # age
+            # Yaş tahmin metriklerini hesapla
+            val_data = training_data['val_data']
+            
+            # Tahminleri hesapla
+            predictions = []
+            ground_truth = []
+            
+            for item in val_data:
+                # Model tahmini yap
+                input_data = prepare_input_for_prediction(item['face_image_path'])
+                pred = model.predict_age(input_data)
+                
+                # Tahmin ve gerçek değerleri topla
+                predictions.append(pred)
+                ground_truth.append(item['corrected_age'])
+            
+            # MAE (Mean Absolute Error) hesapla
+            mae = sum(abs(p - g) for p, g in zip(predictions, ground_truth)) / len(predictions)
+            
+            # ±3 yaş doğruluğunu hesapla
+            accuracy_3years = sum(1 for p, g in zip(predictions, ground_truth) if abs(p - g) <= 3) / len(predictions)
+            
+            metrics = {
+                'mae': mae,
+                'accuracy': accuracy_3years,
+                'count': len(predictions)
+            }
+            
+            # Yaş dağılımı
+            age_distribution = {}
+            age_ranges = ['0-9', '10-19', '20-29', '30-39', '40-49', '50-59', '60-69', '70+']
+            
+            for age in ground_truth:
+                range_idx = min(age // 10, 7)  # 70+ için 7. indeks
+                age_range = age_ranges[range_idx]
+                age_distribution[age_range] = age_distribution.get(age_range, 0) + 1
+            
+            metrics['age_distribution'] = age_distribution
+            
+            # Hata dağılımı
+            error_distribution = {}
+            error_ranges = ['0-1', '2-3', '4-5', '6-10', '10+']
+            
+            for p, g in zip(predictions, ground_truth):
+                error = abs(p - g)
+                
+                if error <= 1:
+                    error_range = '0-1'
+                elif error <= 3:
+                    error_range = '2-3'
+                elif error <= 5:
+                    error_range = '4-5'
+                elif error <= 10:
+                    error_range = '6-10'
+                else:
+                    error_range = '10+'
+                
+                error_distribution[error_range] = error_distribution.get(error_range, 0) + 1
+            
+            metrics['error_distribution'] = error_distribution
+    
+    except Exception as e:
+        logging.error(f"Metrik hesaplama hatası: {str(e)}")
+        metrics = {'error': str(e)}
+    
+    return metrics
+
+# Yardımcı metrik hesaplama fonksiyonları
+def calculate_accuracy(predictions, ground_truth, threshold=0.5):
+    """İkili sınıflandırma için doğruluk hesaplar"""
+    correct = sum(1 for p, g in zip(predictions, ground_truth) if (p >= threshold) == (g >= threshold))
+    return correct / len(predictions) if predictions else 0
+
+def calculate_precision(predictions, ground_truth, threshold=0.5):
+    """Kesinlik (doğru pozitiflerin tüm pozitiflere oranı)"""
+    true_positives = sum(1 for p, g in zip(predictions, ground_truth) if p >= threshold and g >= threshold)
+    predicted_positives = sum(1 for p in predictions if p >= threshold)
+    return true_positives / predicted_positives if predicted_positives else 0
+
+def calculate_recall(predictions, ground_truth, threshold=0.5):
+    """Duyarlılık (doğru pozitiflerin tüm gerçek pozitiflere oranı)"""
+    true_positives = sum(1 for p, g in zip(predictions, ground_truth) if p >= threshold and g >= threshold)
+    actual_positives = sum(1 for g in ground_truth if g >= threshold)
+    return true_positives / actual_positives if actual_positives else 0
+
+def calculate_f1(predictions, ground_truth, threshold=0.5):
+    """F1 skoru (kesinlik ve duyarlılığın harmonik ortalaması)"""
+    precision = calculate_precision(predictions, ground_truth, threshold)
+    recall = calculate_recall(predictions, ground_truth, threshold)
+    
+    if precision + recall == 0:
+        return 0
+    
+    return 2 * (precision * recall) / (precision + recall) 

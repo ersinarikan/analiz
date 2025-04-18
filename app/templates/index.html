@@ -386,82 +386,74 @@
         <div class="modal-dialog modal-xl">
             <div class="modal-content">
                 <div class="modal-header">
-                    <h5 class="modal-title" id="modelMetricsModalLabel">
-                        <i class="fas fa-chart-line me-2"></i> Yapay Zeka Model Metrikleri
-                    </h5>
-                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                    <h5 class="modal-title" id="modelMetricsModalLabel">Yapay Zeka Model Metrikleri</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Kapat"></button>
                 </div>
                 <div class="modal-body">
-                    <ul class="nav nav-tabs mb-3" role="tablist">
+                    <ul class="nav nav-tabs" id="modelMetricsTabs" role="tablist">
                         <li class="nav-item" role="presentation">
-                            <button class="nav-link active" id="content-metrics-tab" data-bs-toggle="tab" data-bs-target="#content-metrics" type="button" role="tab" aria-controls="content-metrics" aria-selected="true">
-                                <i class="fas fa-eye me-1"></i> İçerik Analiz Modeli
-                            </button>
+                            <button class="nav-link active" id="content-metrics-tab" data-bs-toggle="tab" data-bs-target="#contentMetricsTab" type="button" role="tab" aria-controls="contentMetricsTab" aria-selected="true">İçerik Analiz Modeli</button>
                         </li>
                         <li class="nav-item" role="presentation">
-                            <button class="nav-link" id="age-metrics-tab" data-bs-toggle="tab" data-bs-target="#age-metrics" type="button" role="tab" aria-controls="age-metrics" aria-selected="false">
-                                <i class="fas fa-user me-1"></i> Yaş Tahmin Modeli
-                            </button>
+                            <button class="nav-link" id="age-metrics-tab" data-bs-toggle="tab" data-bs-target="#ageMetricsTab" type="button" role="tab" aria-controls="ageMetricsTab" aria-selected="false">Yaş Tahmin Modeli</button>
                         </li>
                     </ul>
-                    
-                    <div class="tab-content">
-                        <!-- İçerik Analiz Modeli Metrikleri -->
-                        <div class="tab-pane fade show active" id="content-metrics" role="tabpanel" aria-labelledby="content-metrics-tab">
-                            <div class="row mb-4">
-                                <div class="col-md-3">
-                                    <div class="card metrics-card">
-                                        <div class="card-body text-center">
-                                            <span class="d-block text-muted">Doğruluk</span>
-                                            <span class="metrics-value content-accuracy">-</span>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div class="col-md-3">
-                                    <div class="card metrics-card">
-                                        <div class="card-body text-center">
-                                            <span class="d-block text-muted">Hassasiyet</span>
-                                            <span class="metrics-value content-precision">-</span>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div class="col-md-3">
-                                    <div class="card metrics-card">
-                                        <div class="card-body text-center">
-                                            <span class="d-block text-muted">Geri Çağırma</span>
-                                            <span class="metrics-value content-recall">-</span>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div class="col-md-3">
-                                    <div class="card metrics-card">
-                                        <div class="card-body text-center">
-                                            <span class="d-block text-muted">F1 Skoru</span>
-                                            <span class="metrics-value content-f1">-</span>
-                                        </div>
-                                    </div>
+                    <div class="tab-content mt-3" id="modelMetricsTabContent">
+                        <div class="tab-pane fade show active" id="contentMetricsTab" role="tabpanel" aria-labelledby="content-metrics-tab">
+                            <div class="d-flex justify-content-center">
+                                <div class="spinner-border text-primary" role="status">
+                                    <span class="visually-hidden">Yükleniyor...</span>
                                 </div>
                             </div>
                             
-                            <div class="row mb-4">
+                            <!-- Metrikler yüklenirken gösterilen spinner'ı değiştirecek olan içerik -->
+                            <div class="row mt-4">
                                 <div class="col-md-6">
-                                    <div class="card h-100">
-                                        <div class="card-header">Kategori Bazında Metrikler</div>
+                                    <div class="card">
+                                        <div class="card-header">
+                                            <h5 class="mb-0">Genel Metrikler</h5>
+                                        </div>
+                                        <div class="card-body">
+                                            <div class="row">
+                                                <div class="col-md-6 mb-3">
+                                                    <label class="form-label">Doğruluk</label>
+                                                    <h4 class="content-accuracy">-</h4>
+                                                </div>
+                                                <div class="col-md-6 mb-3">
+                                                    <label class="form-label">Kesinlik</label>
+                                                    <h4 class="content-precision">-</h4>
+                                                </div>
+                                                <div class="col-md-6 mb-3">
+                                                    <label class="form-label">Duyarlılık</label>
+                                                    <h4 class="content-recall">-</h4>
+                                                </div>
+                                                <div class="col-md-6 mb-3">
+                                                    <label class="form-label">F1 Skoru</label>
+                                                    <h4 class="content-f1">-</h4>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="card mt-3">
+                                        <div class="card-header">
+                                            <h5 class="mb-0">Kategori Metrikleri</h5>
+                                        </div>
                                         <div class="card-body">
                                             <div class="table-responsive">
-                                                <table class="table table-striped">
-                                                    <thead>
+                                                <table class="table table-bordered table-striped table-sm">
+                                                    <thead class="table-light">
                                                         <tr>
                                                             <th>Kategori</th>
                                                             <th>Doğruluk</th>
-                                                            <th>Hassasiyet</th>
-                                                            <th>Geri Çağırma</th>
+                                                            <th>Kesinlik</th>
+                                                            <th>Duyarlılık</th>
                                                             <th>F1</th>
                                                         </tr>
                                                     </thead>
                                                     <tbody id="contentCategoryMetrics">
                                                         <tr>
-                                                            <td colspan="5" class="text-center">Yükleniyor...</td>
+                                                            <td colspan="5" class="text-center">Veri yükleniyor...</td>
                                                         </tr>
                                                     </tbody>
                                                 </table>
@@ -469,18 +461,78 @@
                                         </div>
                                     </div>
                                 </div>
+                                
                                 <div class="col-md-6">
-                                    <div class="card h-100">
-                                        <div class="card-header">Eğitim Geçmişi</div>
+                                    <div class="card">
+                                        <div class="card-header">
+                                            <h5 class="mb-0">Eğitim Geçmişi</h5>
+                                        </div>
                                         <div class="card-body">
                                             <div id="contentTrainingHistory">
-                                                <div class="text-center">Yükleniyor...</div>
+                                                <div class="d-flex justify-content-center">
+                                                    <div class="spinner-border text-primary" role="status">
+                                                        <span class="visually-hidden">Yükleniyor...</span>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- Model Versiyonları için yeni kart -->
+                                    <div class="card mt-3">
+                                        <div class="card-header">
+                                            <h5 class="mb-0">Model Versiyonları</h5>
+                                        </div>
+                                        <div class="card-body">
+                                            <div id="contentVersionsContainer">
+                                                <div class="d-flex justify-content-center">
+                                                    <div class="spinner-border text-primary" role="status">
+                                                        <span class="visually-hidden">Yükleniyor...</span>
+                                                    </div>
+                                                </div>
                                             </div>
                                         </div>
                                     </div>
                                 </div>
                             </div>
+                        </div>
+                        
+                        <div class="tab-pane fade" id="ageMetricsTab" role="tabpanel" aria-labelledby="age-metrics-tab">
+                            <div class="d-flex justify-content-center">
+                                <div class="spinner-border text-primary" role="status">
+                                    <span class="visually-hidden">Yükleniyor...</span>
+                                </div>
+                            </div>
                             
+                            <!-- Metrikler yüklenirken gösterilen spinner'ı değiştirecek olan içerik -->
+                            <div class="row mt-4">
+                                <div class="col-md-6">
+                                    <div class="card">
+                                        <div class="card-header">
+                                            <h5 class="mb-0">Genel Metrikler</h5>
+                                        </div>
+                                        <div class="card-body">
+                                            <div class="row">
+                                                <div class="col-md-4 mb-3">
+                                                    <label class="form-label">Ortalama Mutlak Hata</label>
+                                                    <h4 class="age-mae">-</h4>
+                                                </div>
+                                                <div class="col-md-4 mb-3">
+                                                    <label class="form-label">±3 Yaş Doğruluğu</label>
+                                                    <h4 class="age-accuracy">-</h4>
+                                                </div>
+                                                <div class="col-md-4 mb-3">
+                                                    <label class="form-label">Veri Sayısı</label>
+                                                    <h4 class="age-count">-</h4>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="card mt-3">
+                                        <div class="card-header">
+                                            <h5 class="mb-0">Yaş Dağılımı</h5>
+                                        </div>
                             <div class="d-flex justify-content-end">
                                 <button id="resetContentModelBtn" class="btn btn-danger">
                                     <i class="fas fa-undo me-1"></i> Modeli Sıfırla

@@ -5,6 +5,9 @@ from app.services.model_service import prepare_training_data
 import logging
 import threading
 import uuid
+from app.services import model_service
+from app.models.content import ModelVersion
+from app import db
 
 bp = Blueprint('model', __name__, url_prefix='/api/model')
 logger = logging.getLogger(__name__)
@@ -162,4 +165,81 @@ def training_status(training_id):
             
     except Exception as e:
         logger.error(f"Eğitim durumu kontrolü hatası: {str(e)}")
-        return jsonify({'error': f'Eğitim durumu kontrol edilirken bir hata oluştu: {str(e)}'}), 500 
+        return jsonify({'error': f'Eğitim durumu kontrol edilirken bir hata oluştu: {str(e)}'}), 500
+
+@bp.route('/versions/<model_type>', methods=['GET'])
+def get_model_versions(model_type):
+    """
+    Belirli bir model tipi için tüm versiyonları döndürür
+    """
+    if model_type not in ['content', 'age']:
+        return jsonify({'error': 'Geçersiz model tipi'}), 400
+    
+    versions = model_service.get_model_versions(model_type)
+    
+    # Verileri JSON formatına dönüştür
+    versions_data = []
+    for version in versions:
+        versions_data.append({
+            'id': version.id,
+            'model_type': version.model_type,
+            'version': version.version,
+            'created_at': version.created_at.isoformat(),
+            'is_active': version.is_active,
+            'metrics': version.metrics,
+            'training_samples': version.training_samples,
+            'validation_samples': version.validation_samples,
+            'epochs': version.epochs
+        })
+    
+    return jsonify({
+        'success': True,
+        'model_type': model_type,
+        'versions': versions_data
+    })
+
+@bp.route('/activate/<int:version_id>', methods=['POST'])
+def activate_model_version(version_id):
+    """
+    Belirli bir model versiyonunu aktif hale getirir
+    """
+    result = model_service.activate_model_version(version_id)
+    return jsonify(result)
+
+@bp.route('/reset', methods=['POST'])
+def reset_model():
+    """
+    Modeli sıfırlar (ön eğitimli orijinal modele geri döner)
+    """
+    data = request.json
+    model_type = data.get('model_type')
+    
+    if model_type not in ['content', 'age']:
+        return jsonify({'error': 'Geçersiz model tipi'}), 400
+    
+    result = model_service.reset_model(model_type)
+    return jsonify(result)
+
+@bp.route('/train-with-feedback', methods=['POST'])
+def train_with_feedback():
+    """
+    Geri bildirim verilerini kullanarak modeli yeniden eğitir
+    """
+    data = request.json
+    model_type = data.get('model_type')
+    
+    if model_type not in ['content', 'age']:
+        return jsonify({'error': 'Geçersiz model tipi'}), 400
+    
+    # Eğitim parametreleri
+    params = {
+        'epochs': data.get('epochs', 10),
+        'batch_size': data.get('batch_size', 32),
+        'learning_rate': data.get('learning_rate', 0.001)
+    }
+    
+    # Arka planda eğitim başlat
+    # Not: Gerçek uygulamada bu işlem Celery ile asenkron çalıştırılmalı
+    result = model_service.train_with_feedback(model_type, params)
+    
+    return jsonify(result) 

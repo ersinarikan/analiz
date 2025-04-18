@@ -28,6 +28,9 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // Event Listeners
     initializeEventListeners();
+    
+    // Eğitim butonu kurulumu
+    setupTrainingButton();
 });
 
 // Socket.io bağlantısını başlat
@@ -952,6 +955,21 @@ function displayAnalysisResults(fileId, results) {
         infoText.innerHTML = '<small><i class="fas fa-info-circle me-1"></i> Bu skorlar içeriğin tamamı için hesaplanan <strong>ortalama</strong> risk değerlerini gösterir.</small>';
         riskScoresContainer.appendChild(infoText);
         
+        // Şüpheli skorları tespit et
+        const suspiciousScores = detectSuspiciousScores(results);
+        
+        // Şüpheli skor varsa uyarı göster
+        if (suspiciousScores.length > 0) {
+            const warningEl = document.createElement('div');
+            warningEl.className = 'alert alert-warning mb-3';
+            warningEl.innerHTML = `
+                <i class="fas fa-exclamation-triangle me-2"></i>
+                <strong>Dikkat:</strong> Bazı kategorilerde skorlar beklenenden yüksek çıkmış olabilir.
+                <small>(${suspiciousScores.join(', ')} kategorilerinde değerlendirme yaparken dikkatli olunuz)</small>
+            `;
+            riskScoresContainer.appendChild(warningEl);
+        }
+        
         const scores = results.overall_scores;
         
         for (const [category, score] of Object.entries(scores)) {
@@ -983,10 +1001,13 @@ function displayAnalysisResults(fileId, results) {
                 riskClass = 'risk-level-low';
             }
             
+            // Şüpheli skor ise işaretle
+            const isSuspicious = suspiciousScores.includes(categoryName);
+            
             // Skor elementi HTML'i
             scoreElement.innerHTML = `
                 <div class="d-flex justify-content-between align-items-center">
-                    <span>${categoryName}</span>
+                    <span>${categoryName} ${isSuspicious ? '<i class="fas fa-question-circle text-warning" title="Bu kategori skoru tutarsız olabilir"></i>' : ''}</span>
                     <span class="risk-score ${riskClass}">${(score * 100).toFixed(0)}% - ${riskLevel}</span>
                 </div>
                 <div class="progress">
@@ -1661,6 +1682,26 @@ function loadModelMetrics() {
     })
     .then(data => {
         console.log('İçerik analiz modeli metrikleri:', data);
+        
+        // Model versiyonlarını al
+        return fetch('/api/model/versions/content')
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`HTTP error! Status: ${response.status}`);
+                }
+                return response.json();
+            })
+            .then(versionData => {
+                // Versiyon bilgilerini ekle
+                data.versions = versionData.versions;
+                return data;
+            })
+            .catch(error => {
+                console.error('Model versiyonları alınamadı:', error);
+                return data;
+            });
+    })
+    .then(data => {
         displayContentModelMetrics(data);
     })
     .catch(error => {
@@ -1680,6 +1721,26 @@ function loadModelMetrics() {
     })
     .then(data => {
         console.log('Yaş analiz modeli metrikleri:', data);
+        
+        // Model versiyonlarını al
+        return fetch('/api/model/versions/age')
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`HTTP error! Status: ${response.status}`);
+                }
+                return response.json();
+            })
+            .then(versionData => {
+                // Versiyon bilgilerini ekle
+                data.versions = versionData.versions;
+                return data;
+            })
+            .catch(error => {
+                console.error('Model versiyonları alınamadı:', error);
+                return data;
+            });
+    })
+    .then(data => {
         displayAgeModelMetrics(data);
     })
     .catch(error => {
@@ -1768,6 +1829,11 @@ function displayContentModelMetrics(data) {
         });
     } else {
         trainingHistoryContainer.innerHTML = '<div class="alert alert-info">Henüz eğitim yapılmamış.</div>';
+    }
+    
+    // Versiyon bilgisi ekle
+    if (data.versions && data.versions.length > 0) {
+        displayModelVersions('content', data.versions);
     }
 }
 
@@ -1912,6 +1978,164 @@ function displayAgeModelMetrics(data) {
     } else {
         trainingHistoryContainer.innerHTML = '<div class="alert alert-info">Henüz eğitim yapılmamış.</div>';
     }
+    
+    // Versiyon bilgisi ekle
+    if (data.versions && data.versions.length > 0) {
+        displayModelVersions('age', data.versions);
+    }
+}
+
+// Model versiyonlarını göster
+function displayModelVersions(modelType, versions) {
+    const container = document.getElementById(`${modelType}VersionsContainer`);
+    if (!container) {
+        console.error(`${modelType}VersionsContainer bulunamadı`);
+        return;
+    }
+    
+    // Container'ı temizle
+    container.innerHTML = `<h5 class="mb-3">Model Versiyonları</h5>`;
+    
+    if (!versions || versions.length === 0) {
+        container.innerHTML += '<div class="alert alert-info">Henüz kaydedilmiş model versiyonu bulunmuyor.</div>';
+        return;
+    }
+    
+    // Versiyon listesi oluştur
+    const versionsList = document.createElement('div');
+    versionsList.className = 'list-group mb-3';
+    
+    versions.forEach(version => {
+        const versionItem = document.createElement('div');
+        versionItem.className = `list-group-item ${version.is_active ? 'list-group-item-success' : ''}`;
+        
+        // Metrik bilgilerini hazırla
+        let metricsHtml = '';
+        if (version.metrics) {
+            if (modelType === 'content') {
+                metricsHtml = `
+                    <div class="metrics-container mt-2">
+                        <div class="row">
+                            <div class="col-md-3">
+                                <small>Doğruluk: <strong>${version.metrics.accuracy ? (version.metrics.accuracy*100).toFixed(1) + '%' : 'N/A'}</strong></small>
+                            </div>
+                            <div class="col-md-3">
+                                <small>F1: <strong>${version.metrics.f1 ? (version.metrics.f1*100).toFixed(1) + '%' : 'N/A'}</strong></small>
+                            </div>
+                            <div class="col-md-3">
+                                <small>Kesinlik: <strong>${version.metrics.precision ? (version.metrics.precision*100).toFixed(1) + '%' : 'N/A'}</strong></small>
+                            </div>
+                            <div class="col-md-3">
+                                <small>Duyarlılık: <strong>${version.metrics.recall ? (version.metrics.recall*100).toFixed(1) + '%' : 'N/A'}</strong></small>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            } else { // age model
+                metricsHtml = `
+                    <div class="metrics-container mt-2">
+                        <div class="row">
+                            <div class="col-md-4">
+                                <small>MAE: <strong>${version.metrics.mae ? version.metrics.mae.toFixed(1) + ' yaş' : 'N/A'}</strong></small>
+                            </div>
+                            <div class="col-md-4">
+                                <small>±3 Yaş Doğruluğu: <strong>${version.metrics.accuracy ? (version.metrics.accuracy*100).toFixed(1) + '%' : 'N/A'}</strong></small>
+                            </div>
+                            <div class="col-md-4">
+                                <small>Örnek Sayısı: <strong>${version.metrics.count || 'N/A'}</strong></small>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+        }
+        
+        // Eğitim bilgilerini hazırla
+        const trainingInfo = `
+            <div class="training-info mt-1">
+                <small class="text-muted">
+                    ${version.training_samples || 0} eğitim, ${version.validation_samples || 0} doğrulama örneği,
+                    ${version.epochs || 0} epoch (${new Date(version.created_at).toLocaleString()})
+                </small>
+            </div>
+        `;
+        
+        versionItem.innerHTML = `
+            <div class="d-flex w-100 justify-content-between align-items-center">
+                <h6 class="mb-1">Model Versiyonu ${version.version}</h6>
+                <div>
+                    ${version.is_active 
+                        ? '<span class="badge bg-success">Aktif</span>' 
+                        : `<button class="btn btn-sm btn-outline-primary activate-version-btn" data-version-id="${version.id}">Aktifleştir</button>`
+                    }
+                </div>
+            </div>
+            ${metricsHtml}
+            ${trainingInfo}
+        `;
+        
+        versionsList.appendChild(versionItem);
+    });
+    
+    container.appendChild(versionsList);
+    
+    // Sıfırlama butonu ekle
+    const resetButton = document.createElement('button');
+    resetButton.className = 'btn btn-danger mt-3';
+    resetButton.innerHTML = '<i class="fas fa-undo-alt me-2"></i>Modeli Sıfırla';
+    resetButton.onclick = () => confirmModelReset(modelType);
+    container.appendChild(resetButton);
+    
+    // Aktifleştirme butonlarına olay dinleyici ekle
+    const activateButtons = container.querySelectorAll('.activate-version-btn');
+    activateButtons.forEach(button => {
+        button.addEventListener('click', function() {
+            const versionId = this.dataset.versionId;
+            activateModelVersion(versionId, modelType);
+        });
+    });
+}
+
+// Model versiyonunu aktifleştir
+function activateModelVersion(versionId, modelType) {
+    if (!confirm(`Model versiyonunu aktifleştirmek istediğinizden emin misiniz?`)) {
+        return;
+    }
+    
+    fetch('/api/model/activate/' + versionId, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        }
+    })
+    .then(response => {
+        if (!response.ok) {
+            throw new Error(`HTTP error! Status: ${response.status}`);
+        }
+        return response.json();
+    })
+    .then(data => {
+        if (data.success) {
+            showToast('Başarılı', `Model versiyonu başarıyla aktifleştirildi.`, 'success');
+            // Metrikleri yenile
+            loadModelMetrics();
+        } else {
+            showToast('Hata', `Model aktifleştirilemedi: ${data.message}`, 'danger');
+        }
+    })
+    .catch(error => {
+        console.error('Model aktifleştirme hatası:', error);
+        showToast('Hata', `Model aktifleştirilemedi: ${error.message}`, 'danger');
+    });
+}
+
+// Model sıfırlama onayı
+function confirmModelReset(modelType) {
+    if (!confirm(`${modelType === 'content' ? 'İçerik analiz' : 'Yaş tahmin'} modelini sıfırlamak istediğinizden emin misiniz? Bu işlem geri alınamaz.`)) {
+        return;
+    }
+    
+    resetModel(modelType);
 }
 
 // Model eğitimini başlat
@@ -2108,10 +2332,6 @@ function displayTrainingResults(results) {
 
 // Modeli sıfırla
 function resetModel(modelType) {
-    if (!confirm(`${modelType === 'content' ? 'İçerik analiz' : 'Yaş tahmin'} modelini sıfırlamak istediğinizden emin misiniz? Bu işlem geri alınamaz.`)) {
-        return;
-    }
-    
     fetch('/api/model/reset', {
         method: 'POST',
         headers: {
@@ -2138,6 +2358,88 @@ function resetModel(modelType) {
         console.error('Model sıfırlama hatası:', error);
         showToast('Hata', `Model sıfırlanırken hata oluştu: ${error.message}`, 'danger');
     });
+}
+
+// Geri bildirimlerle model eğitimi başlat
+function startTrainingWithFeedback() {
+    // Eğitim modelini ve parametreleri al
+    const modelType = document.getElementById('modelType').value;
+    const epochCount = parseInt(document.getElementById('epochCount').value);
+    const batchSize = parseInt(document.getElementById('batchSize').value);
+    const learningRate = parseFloat(document.getElementById('learningRate').value);
+    
+    // Eğitim durumu bölümünü göster
+    document.querySelector('.training-info').style.display = 'block';
+    document.getElementById('trainingResultsSection').style.display = 'none';
+    
+    // Eğitim durumunu sıfırla
+    const progressBar = document.getElementById('trainingProgressBar');
+    progressBar.style.width = '0%';
+    progressBar.textContent = '0%';
+    progressBar.setAttribute('aria-valuenow', 0);
+    
+    // Durum metnini güncelle
+    document.getElementById('trainingStatusText').textContent = 'Geri bildirim verileri hazırlanıyor...';
+    
+    // Eğitim butonunu devre dışı bırak
+    document.getElementById('startTrainingBtn').disabled = true;
+    
+    // Eğitim isteği gönder
+    fetch('/api/model/train-with-feedback', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            model_type: modelType,
+            epochs: epochCount,
+            batch_size: batchSize,
+            learning_rate: learningRate
+        })
+    })
+    .then(response => {
+        if (!response.ok) {
+            throw new Error(`HTTP error! Status: ${response.status}`);
+        }
+        return response.json();
+    })
+    .then(data => {
+        if (data.success) {
+            console.log('Eğitim tamamlandı:', data);
+            document.getElementById('trainingStatusText').textContent = 'Eğitim tamamlandı.';
+            
+            // İlerleme çubuğunu güncelle
+            progressBar.style.width = '100%';
+            progressBar.textContent = '100%';
+            progressBar.setAttribute('aria-valuenow', 100);
+            
+            // Eğitim sonuçlarını göster
+            displayTrainingResults(data);
+            
+            // Eğitim butonunu aktif et
+            document.getElementById('startTrainingBtn').disabled = false;
+            
+            // Metrikleri yenile
+            loadModelMetrics();
+        } else {
+            throw new Error(data.message || 'Bilinmeyen bir hata oluştu');
+        }
+    })
+    .catch(error => {
+        console.error('Eğitim başlatma hatası:', error);
+        document.getElementById('trainingStatusText').textContent = `Eğitim başlatılamadı: ${error.message}`;
+        document.getElementById('startTrainingBtn').disabled = false;
+        showToast('Hata', `Eğitim başlatılırken hata oluştu: ${error.message}`, 'danger');
+    });
+}
+
+// Eğitim butonunun işlevini güncelle
+function setupTrainingButton() {
+    const trainingBtn = document.getElementById('startTrainingBtn');
+    if (trainingBtn) {
+        trainingBtn.removeEventListener('click', startModelTraining);
+        trainingBtn.addEventListener('click', startTrainingWithFeedback);
+    }
 }
 
 // Socket.io eğitim ilerleme güncellemesi
@@ -2197,4 +2499,55 @@ function fileNameFromId(fileId) {
         return file.name;
     }
     return "Bilinmeyen dosya";
+}
+
+// Şüpheli skorları tespit etme yardımcı fonksiyonu
+function detectSuspiciousScores(results) {
+    const suspiciousCategories = [];
+    const scores = results.overall_scores;
+    
+    // Anormal skor kombinasyonları
+    if (scores.drug > 0.8 && scores.violence < 0.4 && scores.weapon < 0.3) {
+        suspiciousCategories.push('Madde Kullanımı');
+    }
+    
+    // Yüksek şiddet skoru ama silah skoru düşük
+    if (scores.violence > 0.8 && scores.weapon < 0.3) {
+        // Eğer içerik bir haber veya TV programı tarzı ise
+        if (isNewsOrTVContent(results)) {
+            suspiciousCategories.push('Şiddet');
+        }
+    }
+    
+    // Eğer tüm skorlar çok yüksekse şüpheli olabilir
+    if (scores.violence > 0.7 && scores.harassment > 0.7 && scores.adult_content > 0.7 && scores.weapon > 0.5) {
+        suspiciousCategories.push('Genel Skorlar');
+    }
+    
+    return suspiciousCategories;
+}
+
+// İçerik türünü tahmin etme (haber veya TV programı mı?)
+function isNewsOrTVContent(results) {
+    // Detay bilgilerinden tahmin etmeye çalış
+    if (results.content_detections && results.content_detections.length > 0) {
+        // Tespit edilen yüz sayısı
+        const detectedFaces = results.age_estimations ? results.age_estimations.length : 0;
+        
+        // Farklı yüz sayısı
+        const uniqueFaces = new Set();
+        if (results.age_estimations) {
+            results.age_estimations.forEach(est => {
+                const faceId = est.person_id || est.face_id || '';
+                if (faceId) uniqueFaces.add(faceId);
+            });
+        }
+        
+        // Eğer çok sayıda yüz ve çeşitli kişi varsa TV/haber olabilir
+        if (detectedFaces > 10 && uniqueFaces.size > 2) {
+            return true;
+        }
+    }
+    
+    return false;
 } 
