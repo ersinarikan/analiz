@@ -3,6 +3,16 @@ let uploadedFiles = [];
 let analysisInProgress = false;
 let socket;
 
+// Dosya yolu normalleştirme fonksiyonu
+function normalizePath(path) {
+    // Windows ve Unix yol ayraçlarını normalize et
+    if (path) {
+        // Önce tüm backslash'leri slash'e çevir
+        return path.replace(/\\/g, '/');
+    }
+    return path;
+}
+
 // Globals for tracking analysis state
 const fileStatuses = new Map();  // Maps fileId to status
 const fileAnalysisMap = new Map();  // Maps fileId to analysisId
@@ -1237,7 +1247,7 @@ function displayAnalysisResults(fileId, results) {
                             frameUrl = `/api/files/${fileId}/download`;
                         } else {
                             // Video kareleri için
-                            const frameName = detection.frame_path.split('/').pop().split('\\').pop();
+                            const frameName = normalizePath(detection.frame_path).split('/').pop();
                             frameUrl = `/api/files/frames/${results.analysis_id}/${frameName}`;
                         }
                     } else if (file.type && file.type.startsWith('image/')) {
@@ -1366,7 +1376,7 @@ function displayAnalysisResults(fileId, results) {
                         frameUrl = `/api/files/${fileId}/download`;
                     } else {
                         // Video kareleri için
-                        const frameName = data.frame_path.split('/').pop().split('\\').pop();
+                        const frameName = normalizePath(data.frame_path).split('/').pop();
                         frameUrl = `/api/files/frames/${results.analysis_id}/${frameName}`;
                     }
                 }
@@ -1406,16 +1416,16 @@ function displayAnalysisResults(fileId, results) {
                 
                 // Yüz konumu bilgisi varsa
                 let faceLocationHtml = '';
-                if (analysis.face_location || data.face_location) {
-                    const faceLocation = analysis.face_location || data.face_location;
+                if (data.face_location) {
+                    const faceLocation = data.face_location;
                     // Kare üzerinde yüzü dikdörtgen ile işaretle
                     faceLocationHtml = `
                         <div class="face-highlight" style="
                             position: absolute;
-                            top: ${faceLocation ? faceLocation[1] / 4 : 0}px;
-                            left: ${faceLocation ? faceLocation[0] / 4 : 0}px;
-                            width: ${faceLocation ? faceLocation[2] / 4 : 0}px;
-                            height: ${faceLocation ? faceLocation[3] / 4 : 0}px;
+                            top: ${faceLocation[1] / 4}px;
+                            left: ${faceLocation[0] / 4}px;
+                            width: ${faceLocation[2] / 4}px;
+                            height: ${faceLocation[3] / 4}px;
                             border: 3px solid #00e676;
                             border-radius: 4px;
                             z-index: 10;
