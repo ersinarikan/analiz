@@ -1,6 +1,6 @@
 import os
 import uuid
-from flask import Blueprint, request, jsonify, current_app, send_from_directory, g
+from flask import Blueprint, request, jsonify, current_app, send_from_directory, g, send_file
 from werkzeug.utils import secure_filename
 import magic
 import logging
@@ -316,7 +316,6 @@ def serve_storage_processed_file(filename):
     """
     try:
         # storage/processed/ altındaki tüm dizinleri kontrol et
-        import os
         processed_folder = os.path.join(current_app.config['STORAGE_FOLDER'], 'processed')
         
         # Tüm frames_X dizinlerini bul
@@ -344,4 +343,112 @@ def serve_storage_processed_file(filename):
         
     except Exception as e:
         logger.error(f"İşlenmiş dosya sunulurken hata oluştu: {str(e)}")
-        return jsonify({'error': f'Dosya bulunamadı: {str(e)}'}), 404 
+        return jsonify({'error': f'Dosya bulunamadı: {str(e)}'}), 404
+
+# Video karelerini doğrudan sunmak için yeni rota
+@bp.route('/frames/<analysis_id>/<path:frame_file>', methods=['GET'])
+def serve_analysis_frame(analysis_id, frame_file):
+    """
+    Analiz ID'sine göre işlenmiş bir video karesini sunar.
+    
+    Args:
+        analysis_id: Analiz ID'si (UUID)
+        frame_file: Kare dosyasının adı (örn. frame_000123_12.34.jpg)
+        
+    Returns:
+        Dosya içeriği veya hata mesajı
+    """
+    try:
+        # Önce doğrudan işlenmiş klasöründe ara
+        processed_folder = current_app.config['PROCESSED_FOLDER']
+        
+        # Temizlenmiş dosya adı
+        clean_frame = frame_file.split('/')[-1].split('\\')[-1]
+        
+        # Olası dosya yolları
+        possible_paths = [
+            os.path.join(processed_folder, clean_frame),  # Ana işlenmiş klasöründe
+            os.path.join(processed_folder, f"frames_{analysis_id}", clean_frame),  # UUID bazlı alt klasörde
+            os.path.join(processed_folder, "frames", clean_frame)  # Genel frames klasöründe
+        ]
+        
+        # Log bilgisi
+        current_app.logger.info(f"Kare dosyası aranıyor: {clean_frame}, Analiz ID: {analysis_id}")
+        current_app.logger.info(f"Aranan konumlar: {possible_paths}")
+        
+        # Olası yolları kontrol et
+        for path in possible_paths:
+            if os.path.exists(path):
+                current_app.logger.info(f"Kare dosyası bulundu: {path}")
+                
+                # MIME tipini belirle
+                mime_type = 'image/jpeg'  # Varsayılan olarak JPEG
+                if clean_frame.lower().endswith('.png'):
+                    mime_type = 'image/png'
+                elif clean_frame.lower().endswith('.gif'):
+                    mime_type = 'image/gif'
+                
+                return send_file(path, mimetype=mime_type)
+        
+        # Bulunamadı
+        current_app.logger.error(f"Kare dosyası bulunamadı: {clean_frame}")
+        return jsonify({'error': 'Dosya bulunamadı'}), 404
+        
+    except Exception as e:
+        current_app.logger.error(f"Kare dosyası görüntülenirken hata: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@bp.route('/files/processed/<path:frame_file>', methods=['GET'])
+def get_processed_frame(frame_file):
+    """
+    İşlenmiş bir video karesini doğrudan dosyasından getirir.
+    
+    Args:
+        frame_file: Kare dosyasının adı (örn. frame_000123_12.34.jpg)
+        
+    Returns:
+        Dosya içeriği veya hata mesajı
+    """
+    try:
+        # Dosya yolunu oluştur
+        processed_folder = current_app.config['PROCESSED_FOLDER']
+        
+        # Temizlenmiş dosya adı
+        clean_frame = frame_file.split('/')[-1].split('\\')[-1]
+        
+        # Ana dosya yolu
+        file_path = os.path.join(processed_folder, clean_frame)
+        
+        # Alternatif yollar
+        possible_paths = [
+            file_path,  # Ana klasörde
+            # Tüm frames_X klasörlerini kontrol et
+            *[os.path.join(processed_folder, d, clean_frame) 
+              for d in os.listdir(processed_folder) 
+              if os.path.isdir(os.path.join(processed_folder, d)) and d.startswith('frames_')]
+        ]
+        
+        # Log bilgisi
+        current_app.logger.info(f"İşlenmiş kare dosyası aranıyor: {clean_frame}")
+        
+        # Olası yolları kontrol et
+        for path in possible_paths:
+            if os.path.exists(path):
+                current_app.logger.info(f"İşlenmiş kare dosyası bulundu: {path}")
+                
+                # MIME tipini belirle
+                mime_type = 'image/jpeg'  # Varsayılan olarak JPEG
+                if clean_frame.lower().endswith('.png'):
+                    mime_type = 'image/png'
+                elif clean_frame.lower().endswith('.gif'):
+                    mime_type = 'image/gif'
+                
+                return send_file(path, mimetype=mime_type)
+        
+        # Dosya bulunamadı
+        current_app.logger.error(f"İşlenmiş kare dosyası bulunamadı: {clean_frame}")
+        return jsonify({'error': 'Dosya bulunamadı'}), 404
+        
+    except Exception as e:
+        current_app.logger.error(f"İşlenmiş kare dosyası servis edilirken hata: {str(e)}")
+        return jsonify({'error': str(e)}), 500 

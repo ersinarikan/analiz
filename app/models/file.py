@@ -1,6 +1,7 @@
 import os
 import datetime
 from app import db
+from sqlalchemy import func, String
 
 class File(db.Model):
     """Sistem tarafından analiz edilecek dosyaları temsil eder."""
@@ -18,7 +19,10 @@ class File(db.Model):
     user_id = db.Column(db.Integer, nullable=True)  # Kullanıcı ID referansı
     
     # İlişkiler - çakışmayı engellemek için backref'leri kaldırdık
-    analyses = db.relationship('Analysis', foreign_keys='Analysis.file_id', lazy='dynamic')
+    analyses = db.relationship('Analysis', 
+                              foreign_keys='Analysis.file_id', 
+                              lazy='dynamic',
+                              primaryjoin="func.cast(File.id, String) == Analysis.file_id")
     
     # Latest analysis tek bir analiz erişimi için kullanılabilir
     # Çakışmayı önlemek için analysis ilişkisi kaldırıldı

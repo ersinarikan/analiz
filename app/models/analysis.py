@@ -3,7 +3,7 @@ import json
 from app import db
 from app.models.file import File
 import logging
-from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, Text, Boolean, JSON
+from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, Text, Boolean, JSON, func
 from app.json_encoder import json_dumps_numpy, NumPyJSONEncoder
 import numpy as np
 from sqlalchemy.ext.declarative import declarative_base
@@ -24,7 +24,7 @@ class Analysis(db.Model):
     __tablename__ = 'analyses'
     
     id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    file_id = db.Column(db.String(36), nullable=False)
+    file_id = db.Column(db.String(36), db.ForeignKey('files.id'), nullable=False)
     status = db.Column(db.String(20), default='pending')  # 'pending', 'processing', 'completed', 'failed'
     
     start_time = db.Column(db.DateTime, default=datetime.now)
@@ -36,6 +36,10 @@ class Analysis(db.Model):
     error_message = db.Column(db.Text, nullable=True)
     
     include_age_analysis = db.Column(db.Boolean, default=False)  # Yaş tahmini yapılsın mı?
+    
+    # Eksik alanları ekle
+    progress = db.Column(db.Float, default=0)  # İlerleme yüzdesi (0-100)
+    status_message = db.Column(db.String(255), nullable=True)  # Durum mesajı
     
     # Genel kategorik skorlar (0-1 arası)
     overall_violence_score = db.Column(db.Float, default=0)
@@ -52,7 +56,9 @@ class Analysis(db.Model):
     
     # İlişkiler - Çakışmayı önlemek için file_ref ve file ilişkilerini kaldırdık
     # Bunun yerine, tek bir file ilişkisi kullanacağız
-    file = db.relationship('File', foreign_keys=[file_id])
+    file = db.relationship('File', 
+                          foreign_keys=[file_id],
+                          primaryjoin="func.cast(File.id, String) == Analysis.file_id")
     content_detections = db.relationship('ContentDetection', backref='analysis', lazy=True, cascade="all, delete-orphan")
     age_estimations = db.relationship('AgeEstimation', backref='analysis', lazy=True, cascade="all, delete-orphan")
     
@@ -109,8 +115,6 @@ class Analysis(db.Model):
             'id': self.id,
             'file_id': self.file_id,
             'file_info': file_info,
-            'created_at': self.created_at.isoformat() if self.created_at else None,
-            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
             'status': self.status,
             'progress': self.progress,
             'status_message': self.status_message,
@@ -233,13 +237,13 @@ class AgeEstimation(db.Model):
     analysis_id = db.Column(db.String(36), db.ForeignKey('analyses.id'), nullable=False)
     person_id = db.Column(db.String(36), nullable=False)  # Kişi için benzersiz ID
     frame_path = db.Column(db.String(255), nullable=True)
-    frame_timestamp = db.Column(db.Float, nullable=False)  # Karenin video içindeki zaman damgası (saniye)
+    frame_timestamp = db.Column(db.Float, nullable=True)  # Karenin video içindeki zaman damgası (saniye)
     
     # Yüz konumu 
     _face_location = db.Column(db.String(100))  # JSON olarak saklanır: [x, y, width, height]
     
     # Yaş tahmini
-    estimated_age = db.Column(db.Float, nullable=False)
+    estimated_age = db.Column(db.Float, nullable=True)
     confidence_score = db.Column(db.Float, default=0.0)
     
     # JSON formatında saklanan yaş tahmini verileri
@@ -338,7 +342,7 @@ class AnalysisFeedback(db.Model):
     __tablename__ = 'analysis_feedbacks'
     
     id = db.Column(db.Integer, primary_key=True)
-    analysis_id = db.Column(db.Integer, db.ForeignKey('analyses.id'), nullable=False)
+    analysis_id = db.Column(db.String(36), db.ForeignKey('analyses.id'), nullable=False)
     analysis = db.relationship('Analysis', backref='feedbacks')
     
     # Geri bildirim verileri
@@ -386,7 +390,7 @@ class AnalysisFeedback(db.Model):
             raise ValueError(f"Yaş tahminlerini JSON'a dönüştürürken hata: {str(e)}")
 
     def to_dict(self):
-        """Analiz nesnesini sözlüğe dönüştürür."""
+        """Analiz geri bildirimini sözlüğe dönüştürür."""
         try:
             detected_objects = json.loads(self._detected_objects) if self._detected_objects else []
         except json.JSONDecodeError:
@@ -401,23 +405,13 @@ class AnalysisFeedback(db.Model):
         
         return {
             'id': self.id,
-            'file_id': self.file_id,
-            'status': self.status,
-            'error': self.error,
-            'progress': self.progress,
+            'analysis_id': self.analysis_id,
+            'feedback_type': self.feedback_type,
+            'category': self.category,
+            'comment': self.comment,
             'created_at': self.created_at.isoformat() if self.created_at else None,
-            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
-            'completed_at': self.completed_at.isoformat() if self.completed_at else None,
-            'violence_score': float(self.violence_score) if self.violence_score is not None else None,
-            'weapon_score': float(self.weapon_score) if self.weapon_score is not None else None,
-            'adult_score': float(self.adult_score) if self.adult_score is not None else None,
-            'substance_score': float(self.substance_score) if self.substance_score is not None else None,
-            'harassment_score': float(self.harassment_score) if self.harassment_score is not None else None,
-            'overall_score': float(self.overall_score) if self.overall_score is not None else None,
             'detected_objects': detected_objects,
-            'age_estimations': age_estimations,
-            'is_processed': self.is_processed,
-            'processing_seconds': self.processing_seconds
+            'age_estimations': age_estimations
         }
 
 class FaceTracking(db.Model):

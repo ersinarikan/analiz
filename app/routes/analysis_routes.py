@@ -64,7 +64,7 @@ def start_analysis():
         db.session.rollback()
         return jsonify({'error': f'Analiz başlatılırken bir hata oluştu: {str(e)}'}), 500
 
-@bp.route('/<int:analysis_id>', methods=['GET'])
+@bp.route('/<analysis_id>', methods=['GET'])
 def get_analysis(analysis_id):
     """
     Belirtilen ID'ye sahip analizin bilgilerini getirir.
@@ -88,7 +88,7 @@ def get_analysis(analysis_id):
         return jsonify({'error': f'Analiz bilgisi alınırken bir hata oluştu: {str(e)}'}), 500
 
 
-@bp.route('/file/<int:file_id>', methods=['GET'])
+@bp.route('/file/<file_id>', methods=['GET'])
 def get_file_analyses(file_id):
     """
     Belirtilen dosya ID'sine ait tüm analizleri getirir.
@@ -108,7 +108,7 @@ def get_file_analyses(file_id):
     return jsonify([a.to_dict() for a in analyses]), 200
 
 
-@bp.route('/<int:analysis_id>/results', methods=['GET'])
+@bp.route('/<analysis_id>/results', methods=['GET'])
 def get_results(analysis_id):
     """
     Belirtilen analiz ID'si için detaylı sonuçları getirir.
@@ -127,7 +127,7 @@ def get_results(analysis_id):
     return jsonify(results), 200
 
 
-@bp.route('/<int:analysis_id>/feedback', methods=['POST'])
+@bp.route('/<analysis_id>/feedback', methods=['POST'])
 def submit_feedback(analysis_id):
     """
     Bir analiz sonucu için kullanıcı geribildirimini kaydeder.
@@ -174,7 +174,7 @@ def submit_feedback(analysis_id):
     }), 201
 
 
-@bp.route('/<int:analysis_id>/feedback', methods=['GET'])
+@bp.route('/<analysis_id>/feedback', methods=['GET'])
 def get_feedback(analysis_id):
     """
     Belirtilen analiz ID'si için tüm geribildirimleri getirir.
@@ -194,7 +194,7 @@ def get_feedback(analysis_id):
     return jsonify([f.to_dict() for f in feedbacks]), 200
 
 
-@bp.route('/<int:analysis_id>/cancel', methods=['POST'])
+@bp.route('/<analysis_id>/cancel', methods=['POST'])
 def cancel_analysis(analysis_id):
     """
     Devam eden bir analizi iptal eder.
@@ -229,7 +229,7 @@ def cancel_analysis(analysis_id):
         return jsonify({'error': f'Analiz iptal edilirken bir hata oluştu: {str(e)}'}), 500
 
 
-@bp.route('/<int:analysis_id>/retry', methods=['POST'])
+@bp.route('/<analysis_id>/retry', methods=['POST'])
 def retry_analysis(analysis_id):
     """
     Başarısız olan bir analizi tekrar dener.
@@ -268,7 +268,7 @@ def retry_analysis(analysis_id):
         return jsonify({'error': f'Analiz tekrar denenirken bir hata oluştu: {str(e)}'}), 500
 
 
-@bp.route('/<int:analysis_id>/status', methods=['GET'])
+@bp.route('/<analysis_id>/status', methods=['GET'])
 def get_analysis_status(analysis_id):
     """
     Analiz durumunu ve ilerleme bilgisini getirir.
@@ -290,8 +290,8 @@ def get_analysis_status(analysis_id):
             'status': analysis.status,
             'progress': analysis.progress,
             'message': analysis.status_message,
-            'created_at': analysis.created_at.isoformat(),
-            'updated_at': analysis.updated_at.isoformat() if analysis.updated_at else None
+            'start_time': analysis.start_time.isoformat() if analysis.start_time else None,
+            'end_time': analysis.end_time.isoformat() if analysis.end_time else None
         }
         
         return jsonify(status_info), 200
@@ -301,7 +301,7 @@ def get_analysis_status(analysis_id):
         return jsonify({'error': f'Analiz durumu alınırken bir hata oluştu: {str(e)}'}), 500
 
 
-@bp.route('/<int:analysis_id>/detailed-results', methods=['GET'])
+@bp.route('/<analysis_id>/detailed-results', methods=['GET'])
 def get_detailed_results(analysis_id):
     """
     Tamamlanmış bir analizin detaylı sonuçlarını getirir.

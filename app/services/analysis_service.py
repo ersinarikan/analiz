@@ -137,11 +137,13 @@ class AnalysisService:
             analysis = Analysis(
                 file_id=file_id,
                 frames_per_second=frames_per_second,
-                include_age_analysis=include_age_analysis,
-                status='pending',
-                status_message='Analiz başlatılıyor, dosya hazırlanıyor...',
-                progress=5
+                include_age_analysis=include_age_analysis
             )
+            
+            # Başlangıç durumunu ayarla
+            analysis.status = 'pending'
+            analysis.status_message = 'Analiz başlatılıyor, dosya hazırlanıyor...'
+            analysis.progress = 5
             
             db.session.add(analysis)
             db.session.commit()
