@@ -1,11 +1,13 @@
 import os
-from flask import Flask
+from flask import Flask, request, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from flask_socketio import SocketIO
 from flask_cors import CORS
 import logging
 from config import Config
 import threading
+import json
+from datetime import datetime
 
 # Initialize extensions
 db = SQLAlchemy()
@@ -65,7 +67,6 @@ def create_app(config_class=Config):
         
         # Populate database with default data if needed
         from app.models.model_version import ModelVersion
-        from datetime import datetime
         
         # Default model sürümlerini oluştur (eğer yoksa)
         content_model = ModelVersion.query.filter_by(model_type='content').first()
@@ -92,5 +93,59 @@ def create_app(config_class=Config):
     
     # Log startup information
     app.logger.info('Analiz modelleri başarıyla yüklendi')
+    
+    @app.route('/api/feedback/submit', methods=['POST'])
+    def submit_feedback():
+        try:
+            feedback_data = request.json
+            
+            # Geri bildirim verilerini doğrula
+            required_fields = ['content_id', 'rating']
+            if not all(field in feedback_data for field in required_fields):
+                return jsonify({'error': 'Eksik veri'}), 400
+            
+            # Geri bildirim verilerini kaydet
+            feedback_file = os.path.join(app.config['UPLOAD_FOLDER'], 'feedback', 'content_feedback.jsonl')
+            os.makedirs(os.path.dirname(feedback_file), exist_ok=True)
+            
+            # Geri bildirime timestamp ekle
+            feedback_data['timestamp'] = datetime.now().isoformat()
+            
+            # JSONL formatında kaydet
+            with open(feedback_file, 'a', encoding='utf-8') as f:
+                json.dump(feedback_data, f, ensure_ascii=False)
+                f.write('\n')
+            
+            return jsonify({'success': True, 'message': 'Geri bildirim kaydedildi'})
+            
+        except Exception as e:
+            return jsonify({'error': str(e)}), 500
+
+    @app.route('/api/feedback/age', methods=['POST'])
+    def submit_age_feedback():
+        try:
+            feedback_data = request.json
+            
+            # Geri bildirim verilerini doğrula
+            required_fields = ['person_id', 'corrected_age']
+            if not all(field in feedback_data for field in required_fields):
+                return jsonify({'error': 'Eksik veri'}), 400
+            
+            # Geri bildirim verilerini kaydet
+            feedback_file = os.path.join(app.config['UPLOAD_FOLDER'], 'feedback', 'age_feedback.jsonl')
+            os.makedirs(os.path.dirname(feedback_file), exist_ok=True)
+            
+            # Geri bildirime timestamp ekle
+            feedback_data['timestamp'] = datetime.now().isoformat()
+            
+            # JSONL formatında kaydet
+            with open(feedback_file, 'a', encoding='utf-8') as f:
+                json.dump(feedback_data, f, ensure_ascii=False)
+                f.write('\n')
+            
+            return jsonify({'success': True, 'message': 'Yaş geri bildirimi kaydedildi'})
+            
+        except Exception as e:
+            return jsonify({'error': str(e)}), 500
     
     return app 
