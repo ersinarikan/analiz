@@ -385,13 +385,15 @@ def load_model(model_name):
                 model = content_analyzer.drug_model
             else:
                 logger.error(f"Tanımlanmamış model adı: {model_name}")
-                model = _create_dummy_model()
-                
+                return None
+            
             # Modeli önbelleğe al
             if model:
                 _model_cache[model_name] = model
                 logger.info(f"{model_name} modeli ContentAnalyzer'dan başarıyla yüklendi")
-            
+            else:
+                logger.error(f"{model_name} modeli ContentAnalyzer'da bulunamadı!")
+                return None
             return model
         else:
             # Diğer model tipleri (yaş tahmini, vb.)
@@ -399,12 +401,11 @@ def load_model(model_name):
             
             if not model_path:
                 logger.error(f"Tanımlanmamış model adı: {model_name}")
-                return _create_dummy_model()
+                return None
             
             if not os.path.exists(model_path):
-                logger.warning(f"Model dosyası bulunamadı: {model_path}")
-                # Örnek/geçici bir model döndür
-                return _create_dummy_model()
+                logger.error(f"Model dosyası bulunamadı: {model_path}")
+                return None
             
             logger.info(f"{model_name} modeli yükleniyor: {model_path}")
             model = tf.saved_model.load(model_path)
@@ -416,7 +417,7 @@ def load_model(model_name):
         
     except Exception as e:
         logger.error(f"Model yüklenirken hata oluştu ({model_name}): {str(e)}")
-        return _create_dummy_model()
+        return None
 
 def run_image_analysis(model, image_path):
     """
@@ -430,10 +431,6 @@ def run_image_analysis(model, image_path):
         dict: Analiz sonucu - score (skor) ve details (detaylar) içerir
     """
     try:
-        # Gerçek bir model yoksa (dummy model)
-        if hasattr(model, '_is_dummy') and model._is_dummy:
-            return _get_dummy_result()
-        
         # Resmi yükle ve ön işleme yap
         image = _preprocess_image(image_path)
         
@@ -470,24 +467,13 @@ def run_video_analysis(model, video_path):
         dict: Analiz sonucu - score (skor) ve details (detaylar) içerir
     """
     try:
-        # Gerçek bir model yoksa (dummy model)
-        if hasattr(model, '_is_dummy') and model._is_dummy:
-            return _get_dummy_result()
-        
         # Burada gerçek bir video analizi yapılacak
         # Normalde video karelerini çıkarıp her bir kare için analiz yapılması gerekir
-        # Basitlik için şimdilik sahte sonuçlar döndürüyoruz
-        
+        # (Burada gerçek analiz kodu olmalı)
+        logger.error("Gerçek video analizi fonksiyonu henüz uygulanmadı.")
         return {
-            'score': 0.3,  # Örnek skor
-            'details': {
-                'confidence': 0.3,
-                'threshold': 0.5,
-                'result': 'safe',
-                'frames_analyzed': 10,
-                'highest_score_frame': 5,
-                'highest_score': 0.3
-            }
+            'score': 0.0,
+            'details': {'error': 'Gerçek video analizi fonksiyonu eksik.'}
         }
     except Exception as e:
         logger.error(f"Video analizi sırasında hata: {str(e)}")
@@ -521,46 +507,6 @@ def _preprocess_image(image_path):
     tensor = tf.convert_to_tensor(img_array[np.newaxis, ...], dtype=tf.float32)
     
     return tensor
-
-def _create_dummy_model():
-    """
-    Gerçek model bulunamadığında kullanılacak sahte bir model oluşturur.
-    Bu, uygulama akışının devam etmesini sağlar.
-    
-    Returns:
-        object: Sahte model nesnesi
-    """
-    class DummyModel:
-        def __init__(self):
-            self._is_dummy = True
-            
-        def __call__(self, inputs):
-            # Rastgele tahminler döndür
-            import random
-            score = random.uniform(0.1, 0.4)  # Genelde düşük skorlar
-            return [[np.array([score])]]
-    
-    return DummyModel()
-
-def _get_dummy_result():
-    """
-    Sahte analiz sonucu döndürür.
-    
-    Returns:
-        dict: Sahte analiz sonucu
-    """
-    import random
-    score = random.uniform(0.1, 0.4)
-    
-    return {
-        'score': score,
-        'details': {
-            'confidence': score,
-            'threshold': 0.5,
-            'result': 'safe',
-            'note': 'This is a placeholder result as no real model is available'
-        }
-    }
 
 def train_with_feedback(model_type, params=None):
     """

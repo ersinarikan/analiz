@@ -3305,15 +3305,13 @@ function displayAgeFeedback(feedbackTab, results) {
         const feedbackCard = document.createElement('div');
         feedbackCard.className = 'card mb-3';
         
-        // Görsel URL'sini oluştur
+        // Görsel URL'sini oluştur - Resim analizlerinde doğrudan yüklenen resmi kullan
         let frameUrl = '';
-        if (face.frame) {
-            if (results.file_type && results.file_type.startsWith('image/')) {
-                frameUrl = `/api/files/${results.file_id}/download`;
-            } else {
-                const frameName = face.frame.split('/').pop();
-                frameUrl = `/api/files/frames/${results.analysis_id}/${frameName}`;
-            }
+        if (results.file_type && results.file_type.startsWith('image/')) {
+            frameUrl = `/api/files/${results.file_id}/download`;
+        } else if (face.frame) {
+            const frameName = face.frame.split('/').pop();
+            frameUrl = `/api/files/frames/${results.analysis_id}/${frameName}`;
         } else if (results.file_id) {
             frameUrl = `/api/files/${results.file_id}/download`;
         }
