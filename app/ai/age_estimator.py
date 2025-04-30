@@ -1,3 +1,6 @@
+# NOT: Bu dosya devre dışı bırakıldı. Yaş tahmini için InsightFace kullanılacaktır.
+# Tüm yaş tahmin fonksiyonları ve model yükleme kodları pasif hale getirildi.
+
 import os
 import numpy as np
 import torch

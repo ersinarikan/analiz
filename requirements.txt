@@ -1,9 +1,10 @@
 # Web Framework
 Flask==2.0.1
 Flask-RESTful==0.3.10
-Flask-CORS==4.0.0
+Flask-CORS==4.0.1
 Flask-SocketIO==5.1.1
 gunicorn==21.2.0
+Werkzeug==2.0.3
 
 # Veritabanı
 Flask-SQLAlchemy==2.5.1
@@ -14,15 +15,15 @@ SQLAlchemy==1.4.23
 eventlet==0.33.3
 
 # Yapay Zeka ve Görüntü İşleme
-tensorflow==2.14.0
-torch==1.9.0
-torchvision==0.10.0
-opencv-python==4.5.3.56
-opencv-contrib-python==4.5.3.56
-Pillow==8.3.2
-numpy==1.21.2
-scikit-learn==0.24.2
-matplotlib==3.4.3
+tensorflow==2.15.0
+torch==2.2.2
+torchvision==0.17.2
+opencv-python==4.8.0.76
+opencv-contrib-python==4.8.0.76
+Pillow==10.2.0
+numpy==1.24.4
+scikit-learn==1.2.2
+matplotlib==3.8.4
 
 # Pytorch-Age-Estimation modeli için
 facenet-pytorch==2.5.2
@@ -51,4 +52,7 @@ flake8==6.1.0
 
 # Ek Gereksinimler
 gdown
-requests 
+requests
+
+# Yeni eklenen kod bloğu
+deep_sort_realtime 

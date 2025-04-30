@@ -345,6 +345,7 @@ def get_detailed_results(analysis_id):
             'analysis_id': analysis.id,
             'file_id': analysis.file_id,
             'file_name': analysis.file.original_filename if analysis.file else None,
+            'file_type': analysis.file.file_type if analysis.file else None,
             'overall_scores': {
                 'violence': analysis.overall_violence_score,
                 'adult_content': analysis.overall_adult_content_score,

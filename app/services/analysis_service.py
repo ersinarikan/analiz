@@ -9,7 +9,7 @@ from flask import current_app
 from app import db
 # Import the real analyzers
 from app.ai.content_analyzer import ContentAnalyzer
-from app.ai.age_estimator import AgeEstimator
+from app.ai.insightface_age_estimator import InsightFaceAgeEstimator
 from app.models.analysis import Analysis, ContentDetection, AgeEstimation
 from app.models.file import File
 from app.utils.video_utils import extract_frames
@@ -23,6 +23,7 @@ from app.services.db_service import save_to_db, query_db
 from app.services.model_service import load_model, run_image_analysis, run_video_analysis
 from app.utils.content_utils import detect_content_type
 from app.json_encoder import json_dumps_numpy, NumPyJSONEncoder
+from deep_sort_realtime.deepsort_tracker import DeepSort
 
 logger = logging.getLogger(__name__)
 
@@ -745,33 +746,25 @@ def analyze_image(analysis):
         
         # Eğer yaş analizi isteniyorsa, yüzleri tespit et ve yaşları tahmin et
         if analysis.include_age_analysis:
-            # Mock analizöre geri dönüşü kaldırıyoruz
-            age_estimator = AgeEstimator()
-            faces = age_estimator.detect_faces(image)
-            
+            age_estimator = InsightFaceAgeEstimator()
+            faces = age_estimator.model.get(image)
             for i, face in enumerate(faces):
-                x, y, w, h = face['location']
-                
-                # Yüz bölgesini kırp
-                if x >= 0 and y >= 0 and w > 0 and h > 0 and x+w <= image.shape[1] and y+h <= image.shape[0]:
-                    face_img = image[y:y+h, x:x+w]
-                    age, confidence = age_estimator.estimate_age(face_img)
-                    
-                    # Kişi için benzersiz ID oluştur
+                x1, y1, x2, y2 = [int(v) for v in face.bbox]
+                w = x2 - x1
+                h = y2 - y1
+                if x1 >= 0 and y1 >= 0 and w > 0 and h > 0 and x1+w <= image.shape[1] and y1+h <= image.shape[0]:
+                    face_img = image[y1:y1+h, x1:x1+w]
+                    age = face.age
+                    confidence = 0.9  # Sabit güven skoru
                     person_id = f"{analysis.id}_{i}"
-                    
-                    # Yaş tahminini veritabanına kaydet
                     age_estimation = AgeEstimation(
                         analysis_id=analysis.id,
                         person_id=person_id,
                         frame_path=file.file_path,
-                        estimated_age=float(age),  # Float'a dönüştür
-                        confidence_score=float(confidence)  # Float'a dönüştür
+                        estimated_age=float(age),
+                        confidence_score=float(confidence)
                     )
-                    
-                    # Koordinatları int tipine dönüştür
-                    x_int, y_int, w_int, h_int = int(x), int(y), int(w), int(h)
-                    age_estimation.set_face_location(x_int, y_int, w_int, h_int)
+                    age_estimation.set_face_location(x1, y1, w, h)
                     db.session.add(age_estimation)
         
         # Değişiklikleri veritabanına kaydet
@@ -825,11 +818,12 @@ def analyze_video(analysis):
         
         # Yaş tahmini için estimator hazırla
         if analysis.include_age_analysis:
-            age_estimator = AgeEstimator()
-            logger.info(f"AgeEstimator başarıyla yüklendi: Analiz #{analysis.id}")
+            age_estimator = InsightFaceAgeEstimator()
+            tracker = DeepSort(max_age=30, n_init=3, nms_max_overlap=1.0, embedder=None)
+            logger.info(f"DeepSORT tracker başlatıldı: Analiz #{analysis.id}")
         else:
             age_estimator = None
-            logger.info(f"Yaş analizi atlandı: Analiz #{analysis.id}")
+            tracker = None
         
         # Kişi takibi için yardımcı sözlük (aynı kişinin farklı karelerde izlenmesi için)
         person_tracker = {}
@@ -919,62 +913,44 @@ def analyze_video(analysis):
             db.session.add(detection)
             
             # Yaş analizi yapılacaksa yüz tespiti ve yaş tahmini yap
-            if age_estimator:
-                faces = age_estimator.detect_faces(image)
-                detected_faces_count += len(faces)
-                
-                if faces and (i % 10 == 0 or len(faces) > 2):  # Her 10 karede bir veya çok sayıda yüz tespit edildiğinde
-                    logger.info(f"Yüz tespiti: Analiz #{analysis.id}, Kare {i+1}, "
-                               f"{len(faces)} yüz tespit edildi, Toplam {detected_faces_count} yüz")
-                    
+            if age_estimator and tracker:
+                faces = age_estimator.model.get(image)
+                detections = []
                 for face in faces:
-                    x, y, w, h = face['location']
-                    
-                    # Yüz bölgesini kırp
-                    if x >= 0 and y >= 0 and w > 0 and h > 0 and x+w <= image.shape[1] and y+h <= image.shape[0]:
-                        face_img = image[y:y+h, x:x+w]
-                        
-                        # Yüz vektörünü hesapla ve Python listesine dönüştür
-                        face_encoding = age_estimator.compute_face_encoding(face_img)
-                        if isinstance(face_encoding, np.ndarray):
-                            face_encoding = face_encoding.tolist()  # NumPy dizisini listeye dönüştür
-                        
-                        # Bu yüz daha önce görülmüş mü kontrol et (kişi takibi)
-                        person_id = None
-                        for pid, encodings in person_tracker.items():
-                            # Yüz benzerliğini kontrol et
-                            for enc in encodings:
-                                if age_estimator.compare_faces(enc, face_encoding):
-                                    person_id = pid
-                                    break
-                            if person_id:
-                                break
-                        
-                        # Yeni kişi ise yeni ID oluştur
-                        if not person_id:
-                            person_id = f"{analysis.id}_person_{len(person_tracker) + 1}"
-                            person_tracker[person_id] = []
-                        
-                        # Yüz kodlamasını kişi takibine ekle
-                        person_tracker[person_id].append(face_encoding)
-                        
-                        # Yaş tahmini yap
-                        age, confidence = age_estimator.estimate_age(face_img)
-                        
-                        # Yaş tahminini veritabanına kaydet
-                        age_estimation = AgeEstimation(
-                            analysis_id=analysis.id,
-                            person_id=person_id,
-                            frame_path=frame_path,
-                            frame_timestamp=timestamp,
-                            estimated_age=float(age),  # Float'a dönüştür
-                            confidence_score=float(confidence)  # Float'a dönüştür
-                        )
-                        
-                        # Koordinatları int tipine dönüştür
-                        x_int, y_int, w_int, h_int = int(x), int(y), int(w), int(h)
-                        age_estimation.set_face_location(x_int, y_int, w_int, h_int)
-                        db.session.add(age_estimation)
+                    x1, y1, x2, y2 = [int(v) for v in face.bbox]
+                    w = x2 - x1
+                    h = y2 - y1
+                    bbox = [x1, y1, w, h]
+                    embedding = face.embedding
+                    detections.append({
+                        'bbox': bbox,
+                        'embedding': embedding,
+                        'face': face
+                    })
+                # DeepSORT ile takip
+                tracks = tracker.update_tracks(
+                    [ (d['bbox'], 1.0, "face") for d in detections ],  # bbox, confidence, class
+                    embeds=[d['embedding'] for d in detections],
+                    frame=image
+                )
+                for det, track in zip(detections, tracks):
+                    if not track.is_confirmed():
+                        continue
+                    track_id = f"{analysis.id}_person_{track.track_id}"
+                    face = det['face']
+                    x1, y1, w, h = det['bbox']
+                    age = face.age
+                    confidence = 0.9
+                    age_estimation = AgeEstimation(
+                        analysis_id=analysis.id,
+                        person_id=track_id,
+                        frame_path=frame_path,
+                        frame_timestamp=timestamp,
+                        estimated_age=float(age),
+                        confidence_score=float(confidence)
+                    )
+                    age_estimation.set_face_location(x1, y1, w, h)
+                    db.session.add(age_estimation)
             
             # Belirli aralıklarla işlemleri veritabanına kaydet (her 10 karede bir)
             if i % 10 == 0:

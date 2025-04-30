@@ -1061,7 +1061,7 @@ function displayAnalysisResults(fileId, results) {
                     // Video kareleri için API endpoint ile dosyaya erişim sağla
                     const frameFilename = results.highest_risk.frame;
                     const analysisId = results.highest_risk.analysis_id;
-                    imageSource = `/api/files/frames/${analysisId}/${frameFilename}`;
+                    imageSource = `/api/files/frames/${analysisId}/${encodeURIComponent(frameFilename)}`;
                 }
                 
                 console.log(`Yüksek riskli kare URL'si: ${imageSource}`);
@@ -1273,7 +1273,7 @@ function displayAnalysisResults(fileId, results) {
                             frameUrl = `/api/files/${fileId}/download`;
                         } else {
                             // Video kareleri için
-                            const frameName = normalizePath(detection.frame_path).split('/').pop();
+                            const frameName = normalizePath(detection.frame_path).split(/[\\/]/).pop();
                             frameUrl = `/api/files/frames/${results.analysis_id}/${frameName}`;
                         }
                     } else if (file.type && file.type.startsWith('image/')) {
@@ -1426,7 +1426,7 @@ function displayAnalysisResults(fileId, results) {
                         frameUrl = `/api/files/${fileId}/download`;
                     } else {
                         // Video kareleri için
-                        const frameName = normalizePath(data.frame_path).split('/').pop();
+                        const frameName = normalizePath(data.frame_path).split(/[\\/]/).pop();
                         frameUrl = `/api/files/frames/${results.analysis_id}/${frameName}`;
                     }
                 }
@@ -3309,8 +3309,8 @@ function displayAgeFeedback(feedbackTab, results) {
         let frameUrl = '';
         if (results.file_type && results.file_type.startsWith('image/')) {
             frameUrl = `/api/files/${results.file_id}/download`;
-        } else if (face.frame) {
-            const frameName = face.frame.split('/').pop();
+        } else if (face.frame && results.file_type && results.file_type.startsWith('video')) {
+            const frameName = face.frame.split(/[\\/]/).pop();
             frameUrl = `/api/files/frames/${results.analysis_id}/${frameName}`;
         } else if (results.file_id) {
             frameUrl = `/api/files/${results.file_id}/download`;
@@ -3512,4 +3512,24 @@ function displayAgeFeedback(feedbackTab, results) {
         
         ageFeedbackContainer.appendChild(feedbackCard);
     });
+}
+
+// --- DÜZELTME: frameUrl oluşturma mantığı ---
+// Yaş tahmini feedback ve diğer görsel gösterimlerinde frameUrl oluşturulurken,
+// eğer dosya tipi resim ise, her zaman orijinal dosya kullanılacak.
+// Video ise frame_path kullanılacak.
+
+function getCorrectFrameUrl({ fileType, fileId, framePath, analysisId }) {
+    if (fileType && fileType.startsWith('image/') && fileId) {
+        return `/api/files/${fileId}/download`;
+    }
+    if (framePath && analysisId) {
+        // Sadece dosya adını kullan
+        const frameName = framePath.split('/').pop();
+        return `/api/files/frames/${analysisId}/${frameName}`;
+    }
+    if (fileId) {
+        return `/api/files/${fileId}/download`;
+    }
+    return '/static/img/image-not-found.svg';
 }

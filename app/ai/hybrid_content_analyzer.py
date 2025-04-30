@@ -89,11 +89,27 @@ class HybridContentAnalyzer(BaseHybridModel):
                 logger.warning(f"Scene model yükleme hatası: {str(e)}")
                 self.models['scene'] = {'model': None, 'trainable': True}
             
+            # YOLO modelini yükle
+            try:
+                yolo_path = os.path.join(self.model_dir, '..', 'detection', 'yolov8n.pt')
+                yolo_path = os.path.abspath(yolo_path)
+                if os.path.exists(yolo_path):
+                    from ultralytics import YOLO
+                    self.yolo_model = YOLO(yolo_path)
+                    logger.info(f"YOLO modeli yüklendi: {yolo_path}")
+                else:
+                    logger.error(f"YOLO model dosyası bulunamadı: {yolo_path}")
+                    self.yolo_model = None
+            except Exception as e:
+                logger.error(f"YOLO model yükleme hatası: {str(e)}")
+                self.yolo_model = None
+            
             # Model ağırlıklarını başlat
             self.weights = {
                 'resnet': 0.4,
                 'scene': 0.3,
-                'clip': 0.3
+                'clip': 0.3,
+                'object_detection': 0.3
             }
             
             # En az bir model yüklendiyse başarılı
