@@ -44,7 +44,7 @@ def create_app(config_name=None):
     from app.routes.main_routes import bp as main_bp
     from app.routes.model_routes import bp as model_bp
     from app.routes.feedback_routes import bp as feedback_bp
-    from app.routes.debug_routes import debug_bp
+    from app.routes.debug_routes import bp as debug_bp
     
     app.register_blueprint(main_bp)
     app.register_blueprint(file_bp)

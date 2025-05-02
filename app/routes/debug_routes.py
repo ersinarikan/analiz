@@ -5,9 +5,9 @@ import numpy as np
 import json
 
 logger = logging.getLogger(__name__)
-debug_bp = Blueprint('debug', __name__, url_prefix='/debug')
+bp = Blueprint('debug', __name__, url_prefix='/debug')
 
-@debug_bp.route('/test_serialization', methods=['GET'])
+@bp.route('/test_serialization', methods=['GET'])
 def test_serialization():
     """NumPy veri türlerinin JSON serileştirme testini çalıştırır."""
     success, result = test_numpy_serialization()
@@ -18,7 +18,7 @@ def test_serialization():
         'error': None if success else result
     })
 
-@debug_bp.route('/test_content_detection', methods=['GET'])
+@bp.route('/test_content_detection', methods=['GET'])
 def test_content_detection():
     """ContentDetection sınıfının serileştirme işlemini test eder."""
     from app.models.analysis import ContentDetection
