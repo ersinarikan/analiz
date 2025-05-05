@@ -1,5 +1,6 @@
 import os
-from flask import Flask
+import shutil
+from flask import Flask, send_from_directory, current_app
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
 from flask_cors import CORS
@@ -21,6 +22,7 @@ def create_app(config_name=None):
     Returns:
         Flask uygulaması
     """
+    print("!!! TEST: create_app fonksiyonu ÇALIŞIYOR !!!")
     app = Flask(__name__)
     
     # Konfigürasyonu yükle
@@ -64,12 +66,6 @@ def create_app(config_name=None):
     # SocketIO başlatma
     socketio.init_app(app, cors_allowed_origins="*")
     
-    # Yükleme ve işleme klasörlerini oluştur
-    with app.app_context():
-        os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
-        os.makedirs(app.config['PROCESSED_FOLDER'], exist_ok=True)
-        os.makedirs(app.config['MODELS_FOLDER'], exist_ok=True)
-    
     # Register error handlers
     @app.errorhandler(404)
     def page_not_found(e):
@@ -85,3 +81,54 @@ def create_app(config_name=None):
         return app.send_static_file('index.html')
     
     return app 
+
+def initialize_app(app):
+    """
+    Uygulamayı başlatır ve gerekli temizlik işlemlerini yapar.
+    Bu fonksiyon sadece ana süreçte çağrılmalıdır.
+    
+    Args:
+        app: Flask uygulaması
+    """
+    with app.app_context():
+        print("!!! TEST: initialize_app fonksiyonu ÇALIŞIYOR !!!")
+        
+        # Veritabanı temizliği
+        db_path = app.config.get('SQLALCHEMY_DATABASE_URI', '').replace('sqlite:///', '')
+        if not os.path.isabs(db_path):
+            db_path = os.path.join(app.root_path, db_path)
+        print("Veritabanı yolu:", db_path)
+        if db_path and os.path.exists(db_path):
+            os.remove(db_path)
+            print("Veritabanı silindi.")
+        db.create_all()
+        print("Veritabanı yeniden oluşturuldu.")
+        
+        # Klasörlerin oluşturulması ve temizlenmesi
+        os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+        os.makedirs(app.config['PROCESSED_FOLDER'], exist_ok=True)
+        os.makedirs(app.config['MODELS_FOLDER'], exist_ok=True)
+        
+        # Sadece upload ve processed klasörlerini temizle
+        clean_folder(app.config['UPLOAD_FOLDER'])
+        clean_folder(app.config['PROCESSED_FOLDER'])
+
+    # Global route'ları kaydet
+    register_global_routes(app)
+
+def clean_folder(folder_path):
+    if os.path.exists(folder_path):
+        for filename in os.listdir(folder_path):
+            file_path = os.path.join(folder_path, filename)
+            if os.path.isfile(file_path) or os.path.islink(file_path):
+                os.unlink(file_path)
+            elif os.path.isdir(file_path):
+                shutil.rmtree(file_path)
+    else:
+        os.makedirs(folder_path, exist_ok=True)
+
+def register_global_routes(app):
+    @app.route('/processed/<path:filename>')
+    def serve_processed_file(filename):
+        processed_folder = os.path.join(app.config['STORAGE_FOLDER'], 'processed')
+        return send_from_directory(processed_folder, filename) 

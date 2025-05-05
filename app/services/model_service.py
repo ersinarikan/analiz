@@ -223,7 +223,7 @@ def reset_model(model_type):
         return False, "Geçersiz model tipi"
     
     model_folder = os.path.join(current_app.config['MODELS_FOLDER'], f"{model_type}_model")
-    pretrained_folder = os.path.join(current_app.config['DEFAULT_MODEL_PATH'], f"{model_type}_model")
+    pretrained_folder = os.path.join(current_app.config['MODELS_FOLDER'], f"{model_type}_model")
     
     try:
         # Mevcut modeli tarih ve saat bilgisiyle yedekle
@@ -342,12 +342,12 @@ def _prepare_age_training_data():
 
 # Model yolları için sabit değerler
 MODEL_PATHS = {
-    'violence_detection': os.path.join(Config.DEFAULT_MODEL_PATH, 'violence'),
-    'harassment_detection': os.path.join(Config.DEFAULT_MODEL_PATH, 'harassment'),
-    'adult_content_detection': os.path.join(Config.DEFAULT_MODEL_PATH, 'adult_content'),
-    'weapon_detection': os.path.join(Config.DEFAULT_MODEL_PATH, 'weapon'),
-    'substance_detection': os.path.join(Config.DEFAULT_MODEL_PATH, 'substance'),
-    'age_estimation': os.path.join(Config.DEFAULT_MODEL_PATH, 'age')
+    'violence_detection': os.path.join(Config.MODELS_FOLDER, 'violence'),
+    'harassment_detection': os.path.join(Config.MODELS_FOLDER, 'harassment'),
+    'adult_content_detection': os.path.join(Config.MODELS_FOLDER, 'adult_content'),
+    'weapon_detection': os.path.join(Config.MODELS_FOLDER, 'weapon'),
+    'substance_detection': os.path.join(Config.MODELS_FOLDER, 'substance'),
+    'age_estimation': os.path.join(Config.MODELS_FOLDER, 'age')
 }
 
 def load_model(model_name):

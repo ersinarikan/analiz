@@ -62,6 +62,8 @@ class Analysis(db.Model):
     content_detections = db.relationship('ContentDetection', backref='analysis', lazy=True, cascade="all, delete-orphan")
     age_estimations = db.relationship('AgeEstimation', backref='analysis', lazy=True, cascade="all, delete-orphan")
     
+    processed_image_path = db.Column(db.String(255), nullable=True)
+    
     def start_analysis(self):
         """Analiz sürecini başlatır ve durumu 'processing' olarak günceller."""
         self.status = 'processing'
@@ -128,7 +130,8 @@ class Analysis(db.Model):
             'highest_risk_frame': self.highest_risk_frame,
             'highest_risk_frame_timestamp': self.highest_risk_frame_timestamp,
             'highest_risk_score': self.highest_risk_score,
-            'highest_risk_category': self.highest_risk_category
+            'highest_risk_category': self.highest_risk_category,
+            'processed_image_path': self.processed_image_path
         }
 
 
@@ -244,10 +247,24 @@ class AgeEstimation(db.Model):
     
     # Yaş tahmini
     estimated_age = db.Column(db.Float, nullable=True)
-    confidence_score = db.Column(db.Float, default=0.0)
+    @property
+    def confidence_score(self):
+        return self._confidence_score
+
+    @confidence_score.setter
+    def confidence_score(self, value):
+        if value is None:
+            self._confidence_score = 0.50
+        else:
+            self._confidence_score = float(value)
+
+    # DB column'u private olarak tanımla
+    _confidence_score = db.Column('confidence_score', db.Float, default=0.0)
     
     # JSON formatında saklanan yaş tahmini verileri
     age_estimations_json = db.Column(db.Text)
+    
+    processed_image_path = db.Column(db.String(255), nullable=True)
     
     def set_face_location(self, x, y, width, height):
         """
@@ -317,7 +334,6 @@ class AgeEstimation(db.Model):
     def to_dict(self):
         """
         Yaş tahminini sözlük formatında döndürür.
-        
         Returns:
             dict: Yaş tahmininin tüm özellikleriyle sözlük temsili
         """
@@ -330,6 +346,7 @@ class AgeEstimation(db.Model):
             'face_location': self.get_face_location(),
             'estimated_age': self.estimated_age,
             'confidence_score': self.confidence_score,
+            'processed_image_path': self.processed_image_path,
             'age_estimations': self.get_age_estimations()
         }
 

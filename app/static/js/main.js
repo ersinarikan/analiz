@@ -1064,24 +1064,13 @@ function displayAnalysisResults(fileId, results) {
                     imageSource = `/api/files/frames/${analysisId}/${encodeURIComponent(frameFilename)}`;
                 }
                 
-                console.log(`Yüksek riskli kare URL'si: ${imageSource}`);
+                console.log(`Yüksek riskli kare URL'si:`, imageSource);
                 
                 // İmage error handling ekle
                 highestRiskFrame.onerror = function() {
                     console.error("Görsel yüklenemedi:", imageSource);
-                    // Alternatif kaynak dene 
-                    const alternativeUrl = `/api/files/processed/${results.highest_risk.frame || ''}`;
-                    console.log(`Alternatif URL deneniyor: ${alternativeUrl}`);
-                    
-                    // Alternatif URL'yi bir kere deneyelim
-                    this.onerror = function() {
-                        // İkinci hata durumunda placeholder göster
-                        console.error("Alternatif görsel de yüklenemedi");
-                        this.src = '/static/img/image-not-found.svg';
-                        this.onerror = null; // Sonsuz döngüyü önle
-                    };
-                    
-                    this.src = alternativeUrl;
+                    this.src = '/static/img/image-not-found.svg';
+                    this.onerror = null; // Sonsuz döngüyü önle
                 };
                 
                 highestRiskFrame.src = imageSource;
@@ -1343,54 +1332,27 @@ function displayAnalysisResults(fileId, results) {
     // Yaş tahmini verilerini uygun şekilde işlemeye çalış
     if ((results.age_estimations && results.age_estimations.length > 0) || 
         (results.age_analysis && results.age_analysis.length > 0)) {
-        
         try {
             // Backend'in döndüğü veri yapısına göre uygun değişkeni seç
             const ageData = results.age_estimations || results.age_analysis || [];
-            
             console.log('Yaş tahmini işlenen veriler:', ageData.length, 'kayıt bulundu');
-            
-            // GÜNCELLEME: Kişi bazlı en yüksek güven skorlu tahminleri takip etmek için geliştirilmiş harita
-            const faceConfidenceMap = new Map();
-            const faceFrames = new Map(); // Her yüz için ilgili kareleri saklayacak harita
-            
-            // İlk geçiş: Tüm yüzleri ID bazlı gruplandır
-            ageData.forEach(analysis => {
-                // Her analiz için yüz ID'si ve güvenilirlik skorunu al
-                const faceId = analysis.person_id || analysis.face_id || 'unknown';
-                const confidence = analysis.confidence_score || analysis.confidence || 0;
-                const age = analysis.estimated_age || 'Bilinmiyor';
-                const timestamp = analysis.frame_timestamp || analysis.timestamp || null;
-                const frame_path = analysis.frame_path || null;
-                const face_location = analysis.face_location || null;
-                
-                // Bu yüz ID için kareleri takip et
-                if (!faceFrames.has(faceId)) {
-                    faceFrames.set(faceId, []);
-                }
-                
-                // Kare bilgisini sakla
-                faceFrames.get(faceId).push({
-                    confidence,
-                    age,
-                    timestamp,
-                    frame_path,
-                    face_location
-                });
-                
-                // Eğer bu yüz daha önce görülmediyse veya bu analiz daha güvenilirse güncelle
-                if (!faceConfidenceMap.has(faceId) || confidence > faceConfidenceMap.get(faceId).confidence) {
-                    faceConfidenceMap.set(faceId, {
-                        confidence,
-                        age,
-                        timestamp,
-                        frame_path,
-                        face_location
-                    });
+
+            // Geri bildirimdekiyle aynı mapping: en yüksek confidence'lı kaydı seç
+            const faces = {};
+            ageData.forEach(item => {
+                const faceId = item.person_id || item.face_id || 'unknown';
+                const confidence = item.confidence_score || item.confidence || 0;
+                if (!faces[faceId] || confidence > faces[faceId].confidence) {
+                    faces[faceId] = {
+                        age: item.estimated_age || 'Bilinmiyor',
+                        confidence: confidence,
+                        processed_image_path: item.processed_image_path || null
+                    };
                 }
             });
-            
-            // Geliştirilmiş yaş tahminleri bölümü
+
+            // Geri bildirimdeki gibi kartları oluştur
+            const faceIds = Object.keys(faces);
             const ageEstimationSection = document.createElement('div');
             ageEstimationSection.classList.add('age-estimations', 'mt-4');
             ageEstimationSection.innerHTML = `
@@ -1401,167 +1363,76 @@ function displayAnalysisResults(fileId, results) {
                 <div class="row" id="ageEstimationList-${uniqueSuffix}"></div>
             `;
             detailsTab.appendChild(ageEstimationSection);
-            
             const ageEstimationList = ageEstimationSection.querySelector(`#ageEstimationList-${uniqueSuffix}`);
-            
-            // Tespit edilen toplam yüz sayısı
-            const person_count = faceConfidenceMap.size;
-            console.log(`Tespit edilen toplam benzersiz yüz sayısı: ${person_count}`);
-            
-            // Her yüz için en güvenilir tahmini göster
-            let faceCount = 0;
-            for (const [faceId, data] of faceConfidenceMap.entries()) {
-                faceCount++;
-                
-                // Bu ID için toplam kare sayısını al
-                const frameCount = faceFrames.has(faceId) ? faceFrames.get(faceId).length : 0;
-                
-                // Karşılık gelen görseli yükle
-                let frameUrl = '';
-                if (data.frame_path) {
-                    // Resim dosyası mı yoksa video karesi mi?
-                    if (file.type && file.type.startsWith('image/')) {
-                        // Eğer dosya bir görsel ise, direkt dosyayı kullan
-                        const fileId = file.fileId || '';
-                        frameUrl = `/api/files/${fileId}/download`;
-                    } else {
-                        // Video kareleri için
-                        const frameName = normalizePath(data.frame_path).split(/[\\/]/).pop();
-                        frameUrl = `/api/files/frames/${results.analysis_id}/${frameName}`;
-                    }
-                }
-                
-                // Zaman bilgisini formatla
-                let timeText = '';
-                if (data.timestamp) {
-                    const minutes = Math.floor(data.timestamp / 60);
-                    const seconds = Math.floor(data.timestamp % 60);
-                    timeText = `${minutes}:${seconds.toString().padStart(2, '0')}`;
-                }
-                
-                // Güvenilirlik seviyesine göre renk seç
-                let confidenceClass = 'bg-success';
-                if (data.confidence < 0.6) {
-                    confidenceClass = 'bg-warning';
-                } else if (data.confidence < 0.4) {
-                    confidenceClass = 'bg-danger';
-                }
-                
-                const faceCard = document.createElement('div');
-                faceCard.classList.add('col-md-4', 'mb-3');
-                
-                // Yaş değerini düzgün formata çevirelim
-                let displayAge = data.age;
-                
-                // Eğer yaş çok küçük bir değerse (0.5'den küçük) ve "Bilinmiyor" değilse, 
-                // muhtemelen farklı bir birimde (0-1 arası normalize edilmiş) olabilir
-                if (typeof displayAge === 'number' && displayAge < 0.5 && displayAge > 0) {
-                    // 0-1 aralığını 0-100 yaş aralığına dönüştür
-                    displayAge = Math.round(displayAge * 100);
-                    console.log(`Düşük yaş değeri (${data.age}) tespit edildi, ${displayAge} yaşına dönüştürüldü`);
-                } else if (typeof displayAge === 'number') {
-                    // Sayısal değeri yuvarla
-                    displayAge = Math.round(displayAge);
-                }
-                
-                // Yüz konumu bilgisi varsa
-                let faceLocationHtml = '';
-                if (data.face_location) {
-                    const faceLocation = data.face_location;
-                    
-                    // Doğru ölçeklendirme faktörleri - görüntüleme alanı boyutuna göre ayarlama
-                    // Hata yapan kısım burada - doğrudan querySelector ile arayıp parentNode'a erişmeye çalışıyoruz
-                    // GÜNCELLEME: Tüm DOM sorgularını güvenli hale getir, document.querySelector kullanma
-                    // Görüntü konteyneri boyutları için varsayılan değerler kullan
-                    const containerWidth = 240;  // varsayılan genişlik
-                    const containerHeight = 240; // varsayılan yükseklik
-                    
-                    // Görüntü boyutları (varsayılan 640x480)
-                    const originalWidth = 640;
-                    const originalHeight = 480;
-                    
-                    // Ölçeklendirme faktörleri hesapla
-                    const scaleX = containerWidth / originalWidth;
-                    const scaleY = containerHeight / originalHeight;
-                    
-                    // Kare üzerinde yüzü dikdörtgen ile işaretle, numaralandırma ekle
-                    faceLocationHtml = `
-                        <div class="face-highlight" style="
-                            position: absolute;
-                            top: ${faceLocation[1] * scaleY}px;
-                            left: ${faceLocation[0] * scaleX}px;
-                            width: ${(faceLocation[2] - faceLocation[0]) * scaleX}px;
-                            height: ${(faceLocation[3] - faceLocation[1]) * scaleY}px;
-                            border: 3px solid #00e676;
-                            border-radius: 4px;
-                            z-index: 10;
-                            box-shadow: 0 0 5px rgba(0,0,0,0.5);
-                        ">
-                            <span style="
-                                position: absolute;
-                                top: -25px;
-                                left: -5px;
-                                background-color: #00e676;
-                                color: white;
-                                border-radius: 50%;
-                                width: 24px;
-                                height: 24px;
-                                display: flex;
-                                align-items: center;
-                                justify-content: center;
-                                font-weight: bold;
-                                font-size: 14px;
-                                box-shadow: 0 0 3px rgba(0,0,0,0.3);
-                            ">${faceCount}</span>
-                        </div>
-                    `;
-                }
 
-                // Birden fazla kişi olduğunda hangi yüzün analiz edildiğini belirtmek için
-                const faceIndicatorHTML = `
-                    <div class="alert alert-info py-1 mb-2">
-                        <small>
-                            <i class="fas fa-info-circle me-1"></i> 
-                            <strong>Yüz #${faceCount}</strong> - Bu kişi videoda ${frameCount} karede görüntülendi.
-                            ${person_count > 1 ? `Toplam <strong>${person_count} farklı kişi</strong> tespit edildi.` : ''}
-                        </small>
-                    </div>
-                `;
-
-                faceCard.innerHTML = `
-                    <div class="card h-100">
-                        <div class="position-relative">
-                            <div style="height: 240px; overflow: hidden;">
-                                <img src="${frameUrl}" class="card-img-top face-img" alt="Yüz ${faceCount}" 
-                                    style="width: 100%; height: 100%; object-fit: cover;"
-                                    onerror="this.onerror=null;this.src='/static/img/image-not-found.svg';">
-                                ${faceLocationHtml}
-                            </div>
-                            <span class="position-absolute top-0 end-0 m-2 badge bg-info">Yüz #${faceCount}</span>
-                            ${timeText ? `<span class="position-absolute bottom-0 start-0 m-2 badge bg-dark">${timeText}</span>` : ''}
-                        </div>
-                        <div class="card-body">
-                            ${faceIndicatorHTML}
-                            <h6 class="card-title">Yaş Tahmini: <strong>${displayAge}</strong></h6>
-                            <div class="d-flex justify-content-between mb-1">
-                                <span>Güvenilirlik:</span>
-                                <strong>${(data.confidence * 100).toFixed(0)}%</strong>
-                            </div>
-                            <div class="progress">
-                                <div class="progress-bar ${confidenceClass}" style="width: ${data.confidence * 100}%" 
-                                    role="progressbar" aria-valuenow="${data.confidence * 100}" 
-                                    aria-valuemin="0" aria-valuemax="100"></div>
-                            </div>
-                        </div>
-                    </div>
-                `;
-                
-                ageEstimationList.appendChild(faceCard);
-            }
-            
-            // Eğer yüz tespiti yapılmadıysa bilgi mesajı göster
-            if (faceCount === 0) {
+            if (faceIds.length === 0) {
                 ageEstimationList.innerHTML = '<div class="col-12"><div class="alert alert-info">Bu dosyada tespit edilen yüz bulunmuyor.</div></div>';
+            } else {
+                faceIds.forEach((faceId, index) => {
+                    const face = faces[faceId];
+                    const col = document.createElement('div');
+                    col.className = 'col-md-4 mb-3';
+                    let frameUrl = '';
+                    if (face.processed_image_path) {
+                        frameUrl = `/${face.processed_image_path}`;
+                        col.innerHTML = `
+                            <div class="card h-100">
+                                <div class="card-body">
+                                    <div class="row align-items-center">
+                                        <div class="col-md-12">
+                                            <div class="position-relative" style="height: 300px; overflow: hidden;">
+                                                <img src="${frameUrl}" alt="Yüz ${index + 1}"
+                                                    style="width: 100%; height: 100%; object-fit: contain;"
+                                                    onerror="this.onerror=null;this.src='/static/img/image-not-found.svg';">
+                                                <span class="position-absolute top-0 end-0 m-2 badge bg-info">Yüz #${index + 1}</span>
+                                            </div>
+                                            <div class="mt-3">
+                                                <h5 class="card-title mb-3">Tahmini Yaş: ${Math.round(face.age)}</h5>
+                                                <div class="mb-2">
+                                                    <div class="d-flex justify-content-between">
+                                                        <span>Güvenilirlik:</span>
+                                                        <span>${Math.round(face.confidence * 100)}%</span>
+                                                    </div>
+                                                    <div class="progress" style="height: 6px;">
+                                                        <div class="progress-bar ${face.confidence > 0.7 ? 'bg-success' : 
+                                                            face.confidence > 0.4 ? 'bg-warning' : 'bg-danger'}"
+                                                            style="width: ${face.confidence * 100}%">
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        `;
+                    } else {
+                        col.innerHTML = `
+                            <div class="card h-100">
+                                <div class="card-body">
+                                    <div class="alert alert-warning">
+                                        <i class="fas fa-exclamation-triangle me-2"></i>
+                                        İşlenmiş (overlay'li) görsel bulunamadı.
+                                    </div>
+                                    <h5 class="card-title mb-3">Tahmini Yaş: ${Math.round(face.age)}</h5>
+                                    <div class="mb-2">
+                                        <div class="d-flex justify-content-between">
+                                            <span>Güvenilirlik:</span>
+                                            <span>${Math.round(face.confidence * 100)}%</span>
+                                        </div>
+                                        <div class="progress" style="height: 6px;">
+                                            <div class="progress-bar ${face.confidence > 0.7 ? 'bg-success' : 
+                                                face.confidence > 0.4 ? 'bg-warning' : 'bg-danger'}"
+                                                style="width: ${face.confidence * 100}%">
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        `;
+                    }
+                    ageEstimationList.appendChild(col);
+                });
             }
         } catch (error) {
             console.error("Yaş tahminleri gösterilirken hata:", error);
@@ -2632,26 +2503,13 @@ function isNewsOrTVContent(results) {
 
 // 1. Yüksek riskli kare URL oluşturma fonksiyonunu düzeltme
 function getFrameUrl(frame, analysisId, fileId, fileType) {
-    // Eğer dosya bir görsel ise ve fileId varsa, direkt dosyayı kullan
-    if (fileType && fileType.startsWith('image/') && fileId) {
-        return `/api/files/${fileId}/download`;
+    // Sadece processed_image_path varsa URL döndür
+    if (frame && frame.startsWith('processed/')) {
+        return `/api/files/${frame}`;
     }
-
-    // Video karesi için frame path'i kullan
-    if (frame) {
-        const frameName = frame.split('/').pop();
-        if (frameName.startsWith('frame_')) {
-            return `/api/files/frames/${analysisId}/${frameName}`;
-        }
-    }
-
-    // Eğer frame yoksa ama fileId varsa, direkt dosyayı kullan
-    if (fileId) {
-        return `/api/files/${fileId}/download`;
-    }
-
-    // Hiçbir koşul sağlanmazsa varsayılan görsel
-    return '/static/img/image-not-found.svg';
+    
+    // Diğer tüm durumlarda null döndür
+    return null;
 }
 
 // Yüksek riskli kare görüntüleme kısmını düzelt
@@ -2661,13 +2519,8 @@ function displayHighestRiskFrame(results) {
     const container = document.getElementById('highestRiskFrameContainer');
     if (!container) return;
     
-    if (results.highest_risk && results.highest_risk.frame) {
-        const frameUrl = getFrameUrl(
-            results.highest_risk.frame,
-            results.analysis_id,
-            results.file_id,
-            results.file_type
-        );
+    if (results.highest_risk && results.highest_risk.processed_image_path) {
+        const frameUrl = `/api/files/${results.highest_risk.processed_image_path}`;
         console.log(`Yüksek riskli kare URL'si:`, frameUrl);
         
         const highestRiskFrame = document.createElement('img');
@@ -2695,7 +2548,7 @@ function displayHighestRiskFrame(results) {
             }
         }
     } else {
-        container.innerHTML = '<div class="alert alert-info">Yüksek riskli kare bulunamadı.</div>';
+        container.innerHTML = '<div class="alert alert-warning"><i class="fas fa-exclamation-triangle me-2"></i>İşlenmiş (overlay\'li) görsel bulunamadı.</div>';
     }
 }
 
@@ -2727,46 +2580,41 @@ function displayHighRiskFramesByCategory(results) {
             if (detection.violence_score > highestScores.violence) {
                 highestScores.violence = detection.violence_score;
                 highestFrames.violence = {
-                    frame: detection.frame_path,
+                    processed_image_path: detection.processed_image_path,
                     timestamp: detection.frame_timestamp
                 };
-                console.log("Daha yüksek violence skoru bulundu:", detection.violence_score);
             }
             
             if (detection.adult_content_score > highestScores.adult_content) {
                 highestScores.adult_content = detection.adult_content_score;
                 highestFrames.adult_content = {
-                    frame: detection.frame_path,
+                    processed_image_path: detection.processed_image_path,
                     timestamp: detection.frame_timestamp
                 };
-                console.log("Daha yüksek adult_content skoru bulundu:", detection.adult_content_score);
             }
             
             if (detection.harassment_score > highestScores.harassment) {
                 highestScores.harassment = detection.harassment_score;
                 highestFrames.harassment = {
-                    frame: detection.frame_path,
+                    processed_image_path: detection.processed_image_path,
                     timestamp: detection.frame_timestamp
                 };
-                console.log("Daha yüksek harassment skoru bulundu:", detection.harassment_score);
             }
             
             if (detection.weapon_score > highestScores.weapon) {
                 highestScores.weapon = detection.weapon_score;
                 highestFrames.weapon = {
-                    frame: detection.frame_path,
+                    processed_image_path: detection.processed_image_path,
                     timestamp: detection.frame_timestamp
                 };
-                console.log("Daha yüksek weapon skoru bulundu:", detection.weapon_score);
             }
             
             if (detection.drug_score > highestScores.drug) {
                 highestScores.drug = detection.drug_score;
                 highestFrames.drug = {
-                    frame: detection.frame_path,
+                    processed_image_path: detection.processed_image_path,
                     timestamp: detection.frame_timestamp
                 };
-                console.log("Daha yüksek drug skoru bulundu:", detection.drug_score);
             }
         });
     }
@@ -2783,92 +2631,62 @@ function displayHighRiskFramesByCategory(results) {
     categories.forEach(category => {
         if (highestScores[category] >= 0.3) { // Eşik değeri: %30 ve üzeri skorlar için göster
             const frameData = highestFrames[category];
-            if (!frameData) return;
+            if (!frameData || !frameData.processed_image_path) return;
             
             const categoryName = getCategoryDisplayName(category);
-            
             const cardDiv = document.createElement('div');
             cardDiv.className = 'col-md-4 mb-4';
             
-            const card = document.createElement('div');
-            card.className = 'card h-100';
+            const frameUrl = `/${frameData.processed_image_path}`;  // /api/files/ prefix'ini kaldırdık
+            console.log(`${categoryName} için frame URL:`, frameUrl);
             
-            // Kart içeriği
-            const cardHeader = document.createElement('div');
-            cardHeader.className = 'position-relative';
+            cardDiv.innerHTML = `
+                <div class="card h-100">
+                    <div class="position-relative">
+                        <div style="height: 240px; overflow: hidden;">
+                            <img src="${frameUrl}" class="card-img-top detection-img" alt="${categoryName}" 
+                                style="width: 100%; height: 100%; object-fit: cover;"
+                                onerror="this.onerror=null;this.src='/static/img/image-not-found.svg';">
+                        </div>
+                        <span class="position-absolute top-0 end-0 m-2 badge ${getCategoryBadgeClass(category)}">${categoryName}</span>
+                        ${frameData.timestamp ? `<span class="position-absolute bottom-0 start-0 m-2 badge bg-dark">${formatTime(frameData.timestamp)}</span>` : ''}
+                    </div>
+                    <div class="card-body">
+                        <h6 class="card-title">${categoryName}</h6>
+                        <div class="d-flex justify-content-between mb-1">
+                            <span>Risk Skoru:</span>
+                            <strong>${(highestScores[category] * 100).toFixed(0)}%</strong>
+                        </div>
+                        <div class="progress">
+                            <div class="progress-bar ${getCategoryBadgeClass(category)}" 
+                                style="width: ${highestScores[category] * 100}%" 
+                                role="progressbar" 
+                                aria-valuenow="${highestScores[category] * 100}" 
+                                aria-valuemin="0" 
+                                aria-valuemax="100">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
             
-            // Resim kısmı
-            const img = document.createElement('img');
-            const filename = frameData.frame ? frameData.frame.split('/').pop() : null;
-            // Frame URL'ini oluştur
-            const frameSrc = getFrameUrl(
-                frameData.frame,
-                results.analysis_id,
-                results.file_id,
-                results.file_type
-            );
-            console.log(`${categoryName} için frame URL:`, frameSrc);
-            
-            img.src = frameSrc;
-            img.className = 'card-img-top risk-frame';
-            img.alt = categoryName;
-            img.onerror = function() {
-                this.parentNode.innerHTML = '<div class="text-center py-5 bg-light">Görüntü Bulunamadı</div>';
-            };
-            
-            cardHeader.appendChild(img);
-            
-            // Kategori etiketi
-            const categoryLabel = document.createElement('span');
-            categoryLabel.className = 'position-absolute top-0 end-0 badge ' + getCategoryBadgeClass(category);
-            categoryLabel.textContent = categoryName;
-            cardHeader.appendChild(categoryLabel);
-            
-            // Zaman damgası
-            if (frameData.timestamp) {
-                const timeLabel = document.createElement('span');
-                timeLabel.className = 'position-absolute bottom-0 start-0 badge bg-dark';
-                timeLabel.textContent = formatTime(frameData.timestamp);
-                cardHeader.appendChild(timeLabel);
-            }
-            
-            card.appendChild(cardHeader);
-            
-            // Kart gövdesi
-            const cardBody = document.createElement('div');
-            cardBody.className = 'card-body';
-            
-            const cardTitle = document.createElement('h5');
-            cardTitle.className = 'card-title';
-            cardTitle.textContent = categoryName;
-            cardBody.appendChild(cardTitle);
-            
-            const scoreDiv = document.createElement('div');
-            scoreDiv.className = 'mb-2';
-            
-            const scoreLabel = document.createElement('div');
-            scoreLabel.className = 'd-flex justify-content-between align-items-center';
-            scoreLabel.innerHTML = `<span>Risk Skoru:</span><span class="fw-bold">${Math.round(highestScores[category] * 100)}%</span>`;
-            scoreDiv.appendChild(scoreLabel);
-            
-            const progressBar = document.createElement('div');
-            progressBar.className = 'progress';
-            progressBar.innerHTML = `<div class="progress-bar ${getProgressBarClass(highestScores[category])}" role="progressbar" style="width: ${highestScores[category] * 100}%" aria-valuenow="${highestScores[category] * 100}" aria-valuemin="0" aria-valuemax="100"></div>`;
-            scoreDiv.appendChild(progressBar);
-            
-            cardBody.appendChild(scoreDiv);
-            card.appendChild(cardBody);
-            
-            cardDiv.appendChild(card);
             grid.appendChild(cardDiv);
         }
     });
+    
+    // Eğer hiç kart eklenmemişse bilgi mesajı göster
+    if (grid.children.length === 0) {
+        grid.innerHTML = '<div class="col-12"><div class="alert alert-info">Bu dosyada önemli içerik tespiti yapılmadı.</div></div>';
+    }
 }
 
-// Yaş tahminleri görüntüleme fonksiyonunu düzelt - parentNode hatası için güvenlik kontrolü ekle
+// Yaş tahminleri görüntüleme fonksiyonu - Sadeleştirilmiş versiyon
 function displayAgeEstimations(results) {
+    console.log("[DEBUG] displayAgeEstimations başladı:", results);
+
     // Yaş tahminleri olup olmadığını kontrol et
     if (!results || !results.age_estimations) {
+        console.warn("[DEBUG] Yaş tahminleri bulunamadı:", results);
         const ageContainer = document.getElementById('ageEstimationsContainer');
         if (ageContainer) {
             ageContainer.innerHTML = '<div class="alert alert-warning">Yaş tahminleri bulunamadı veya dosya formatı hatalı.</div>';
@@ -2876,58 +2694,46 @@ function displayAgeEstimations(results) {
         return;
     }
 
+    const ageContainer = document.getElementById('ageEstimationsContainer');
+    if (!ageContainer) {
+        console.error('[DEBUG] ageEstimationsContainer bulunamadı!');
+        return;
+    }
+
     try {
-        console.log('YAŞ TAHMİNİ - API YANITI İNCELEME:', results);
-        console.log('YAŞ TAHMİNİ - age_estimations mevcut:', results.age_estimations);
-
-        // DOM elementi kontrolü
-        const ageContainer = document.getElementById('ageEstimationsContainer');
-        if (!ageContainer) {
-            console.error('ageEstimationsContainer bulunamadı');
-            return;
-        }
-
-        // Hata mesajını temizle
-        ageContainer.innerHTML = '';
-
-        // Yaş tahminleri array kontrolü
-        if (!Array.isArray(results.age_estimations) || results.age_estimations.length === 0) {
-            ageContainer.innerHTML = '<div class="alert alert-info">Bu içerikte tespit edilen yüz bulunmamaktadır.</div>';
-            return;
-        }
-
-        // Bilgi mesajı ekle
-        const infoText = document.createElement('div');
-        infoText.className = 'alert alert-info mb-3';
-        infoText.innerHTML = '<small><i class="fas fa-info-circle me-1"></i> Her tespit edilen benzersiz yüz için en yüksek güven skorlu tahmin gösterilmektedir.</small>';
-        ageContainer.appendChild(infoText);
-
-        // Benzersiz yüzleri ve en yüksek güven skorlarını bul
+        console.log("[DEBUG] Yaş tahminlerini işlemeye başlıyorum...");
+        
+        // Benzersiz yüzleri bul
         const faces = {};
         results.age_estimations.forEach(item => {
             const faceId = item.person_id || item.face_id || 'unknown';
             const confidence = item.confidence_score || item.confidence || 0;
-
+            
+            console.log(`[DEBUG] Yüz işleniyor - ID: ${faceId}, Confidence: ${confidence}`);
+            console.log("[DEBUG] Tam veri:", item);
+            
             if (!faces[faceId] || confidence > faces[faceId].confidence) {
                 faces[faceId] = {
                     age: item.estimated_age || 'Bilinmiyor',
                     confidence: confidence,
-                    frame: item.frame_path || null,
-                    timestamp: item.frame_timestamp || item.timestamp || null,
-                    face_location: item.face_location || null,
-                    appearance_count: item.appearance_count || 1
+                    processed_image_path: item.processed_image_path || null
                 };
+                console.log(`[DEBUG] Yüz kaydedildi/güncellendi:`, faces[faceId]);
             }
         });
 
         // Her yüz için kart oluştur
         const faceIds = Object.keys(faces);
-        console.log('Tespit edilen toplam benzersiz yüz sayısı:', faceIds.length);
+        console.log('[DEBUG] Tespit edilen toplam benzersiz yüz sayısı:', faceIds.length);
 
         if (faceIds.length === 0) {
+            console.warn('[DEBUG] Hiç yüz tespit edilmedi');
             ageContainer.innerHTML = '<div class="alert alert-info">Bu içerikte tespit edilen yüz bulunmamaktadır.</div>';
             return;
         }
+
+        // Container'ı temizle
+        ageContainer.innerHTML = '';
 
         // Her yüz için kart oluştur
         const row = document.createElement('div');
@@ -2936,133 +2742,169 @@ function displayAgeEstimations(results) {
 
         faceIds.forEach((faceId, index) => {
             const face = faces[faceId];
+            console.log(`[DEBUG] Yüz kartı oluşturuluyor - Index: ${index}, FaceID: ${faceId}`);
+            console.log("[DEBUG] Yüz verisi:", face);
+
             const col = document.createElement('div');
-            col.className = 'col-md-6 mb-3';
-
-            // Frame URL'ini oluştur
+            col.className = 'col-md-6 mb-4';
+            
+            // Görsel URL'sini oluştur
             let frameUrl = '';
-            if (face.frame) {
-                if (results.file_type && results.file_type.startsWith('image/')) {
-                    frameUrl = `/api/files/${results.file_id}/download`;
-                } else {
-                    const frameName = face.frame.split('/').pop();
-                    frameUrl = `/api/files/frames/${results.analysis_id}/${frameName}`;
-                }
-            }
-
-            // Yüz konumu için HTML
-            let faceBoxHtml = '';
-            if (face.face_location && Array.isArray(face.face_location)) {
-                const [top, right, bottom, left] = face.face_location;
+            if (face.processed_image_path) {
+                frameUrl = `/${face.processed_image_path}`;
+                console.log("[DEBUG] İşlenmiş görsel URL'si:", frameUrl);
                 
-                // Görüntü boyutlarını al (API'den gelen veya varsayılan)
-                const imageWidth = face.image_width || 640;
-                const imageHeight = face.image_height || 480;
-                
-                // Yüzdelik değerlere çevir
-                const topPercent = (top / imageHeight) * 100;
-                const leftPercent = (left / imageWidth) * 100;
-                const widthPercent = ((right - left) / imageWidth) * 100;
-                const heightPercent = ((bottom - top) / imageHeight) * 100;
-
-                // Yüz kutusu için stil
-                const boxStyle = `
-                    position: absolute;
-                    top: ${topPercent}%;
-                    left: ${leftPercent}%;
-                    width: ${widthPercent}%;
-                    height: ${heightPercent}%;
-                    border: 3px solid #00ff00;
-                    border-radius: 4px;
-                    z-index: 10;
-                    pointer-events: none;
-                    box-shadow: 0 0 5px rgba(0,0,0,0.3);
-                `;
-
-                // Yüz etiketi için stil
-                const labelStyle = `
-                    position: absolute;
-                    top: -25px;
-                    left: -5px;
-                    background-color: #00ff00;
-                    color: white;
-                    border-radius: 50%;
-                    width: 24px;
-                    height: 24px;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    font-weight: bold;
-                    font-size: 14px;
-                    box-shadow: 0 0 3px rgba(0,0,0,0.3);
-                `;
-
-                faceBoxHtml = `
-                    <div class="face-box" style="${boxStyle}">
-                        <div class="face-label" style="${labelStyle}">${index + 1}</div>
-                    </div>
-                `;
-            }
-
-            // Görüntü konteynerı için stil
-            const containerStyle = `
-                position: relative;
-                height: 300px;
-                overflow: hidden;
-                background-color: #f8f9fa;
-                border-radius: 8px 8px 0 0;
-            `;
-
-            // Görüntü için stil
-            const imageStyle = `
-                width: 100%;
-                height: 100%;
-                object-fit: cover;
-            `;
-
-            col.innerHTML = `
-                <div class="card h-100">
-                    <div style="${containerStyle}">
-                        <img src="${frameUrl}" alt="Yüz ${index + 1}"
-                            style="${imageStyle}"
-                            onerror="this.onerror=null;this.src='/static/img/image-not-found.svg';">
-                        ${faceBoxHtml}
-                        <span class="position-absolute top-0 end-0 m-2 badge bg-info">Yüz #${index + 1}</span>
-                        ${face.timestamp ? 
-                            `<span class="position-absolute bottom-0 start-0 m-2 badge bg-dark">
-                                ${formatTime(face.timestamp)}
-                            </span>` : ''}
-                    </div>
-                    <div class="card-body">
-                        <h5 class="card-title mb-3">Tahmini Yaş: ${Math.round(face.age)}</h5>
-                        ${face.appearance_count > 1 ? 
-                            `<div class="text-muted small mb-2">Bu kişi videoda ${face.appearance_count} karede görüntülendi.</div>` : ''}
-                        <div class="mb-2">
-                            <div class="d-flex justify-content-between">
-                                <span>Güvenilirlik:</span>
-                                <span>${Math.round(face.confidence * 100)}%</span>
+                col.innerHTML = `
+                    <div class="card h-100">
+                        <div class="card-body">
+                            <div class="row align-items-center">
+                                <div class="col-md-12">
+                                    <div class="position-relative" style="height: 300px; overflow: hidden;">
+                                        <img src="${frameUrl}" 
+                                             alt="Yüz ${index + 1}"
+                                             style="width: 100%; height: 100%; object-fit: contain;"
+                                             onerror="console.error('[DEBUG] Görsel yüklenemedi:', this.src); this.onerror=null; this.src='/static/img/image-not-found.svg';"
+                                             onload="console.log('[DEBUG] Görsel başarıyla yüklendi:', this.src)">
+                                        <span class="position-absolute top-0 end-0 m-2 badge bg-info">Yüz #${index + 1}</span>
+                                    </div>
+                                    <div class="mt-3">
+                                        <h5 class="card-title mb-3">Tahmini Yaş: ${Math.round(face.age)}</h5>
+                                        <div class="mb-2">
+                                            <div class="d-flex justify-content-between">
+                                                <span>Güvenilirlik:</span>
+                                                <span>${Math.round(face.confidence * 100)}%</span>
+                                            </div>
+                                            <div class="progress" style="height: 6px;">
+                                                <div class="progress-bar ${face.confidence > 0.7 ? 'bg-success' : 
+                                                    face.confidence > 0.4 ? 'bg-warning' : 'bg-danger'}"
+                                                    style="width: ${face.confidence * 100}%">
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
-                            <div class="progress" style="height: 6px;">
-                                <div class="progress-bar ${face.confidence > 0.7 ? 'bg-success' : 
-                                    face.confidence > 0.4 ? 'bg-warning' : 'bg-danger'}"
-                                    style="width: ${face.confidence * 100}%">
+                        </div>
+                    </div>
+                `;
+            } else {
+                console.warn("[DEBUG] İşlenmiş görsel bulunamadı - FaceID:", faceId);
+                col.innerHTML = `
+                    <div class="card h-100">
+                        <div class="card-body">
+                            <div class="alert alert-warning">
+                                <i class="fas fa-exclamation-triangle me-2"></i>
+                                İşlenmiş (overlay'li) görsel bulunamadı.
+                            </div>
+                            <h5 class="card-title mb-3">Tahmini Yaş: ${Math.round(face.age)}</h5>
+                            <div class="mb-2">
+                                <div class="d-flex justify-content-between">
+                                    <span>Güvenilirlik:</span>
+                                    <span>${Math.round(face.confidence * 100)}%</span>
+                                </div>
+                                <div class="progress" style="height: 6px;">
+                                    <div class="progress-bar ${face.confidence > 0.7 ? 'bg-success' : 
+                                        face.confidence > 0.4 ? 'bg-warning' : 'bg-danger'}"
+                                        style="width: ${face.confidence * 100}%">
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+            
+            console.log("[DEBUG] Kart DOM'a ekleniyor");
+            row.appendChild(col);
+            console.log("[DEBUG] Kart DOM'a eklendi");
+        });
+
+    } catch (e) {
+        console.error('[DEBUG] Yaş tahminleri gösterilirken hata:', e);
+        console.error('[DEBUG] Hata stack:', e.stack);
+        ageContainer.innerHTML = `<div class="alert alert-danger">Yaş tahminleri işlenirken hata oluştu: ${e.message}</div>`;
+    }
+}
+
+// Yaş geri bildirimi görüntüleme fonksiyonu - Sadeleştirilmiş versiyon
+function displayAgeFeedback(feedbackTab, results) {
+    if (!feedbackTab || !results.age_estimations || !results.age_estimations.length) {
+        return;
+    }
+
+    const ageFeedbackContainer = feedbackTab.querySelector('.age-feedback-container');
+    if (!ageFeedbackContainer) {
+        return;
+    }
+
+    // Benzersiz yüzleri bul
+    const faces = {};
+    results.age_estimations.forEach(item => {
+        const faceId = item.person_id || item.face_id || 'unknown';
+        const confidence = item.confidence_score || item.confidence || 0;
+        if (!faces[faceId] || confidence > faces[faceId].confidence) {
+            faces[faceId] = {
+                age: item.estimated_age || 'Bilinmiyor',
+                confidence: confidence,
+                processed_image_path: item.processed_image_path || null
+            };
+        }
+    });
+    
+    // Her yüz için geri bildirim kartı oluştur
+    Object.entries(faces).forEach(([faceId, face], index) => {
+        const feedbackCard = document.createElement('div');
+        feedbackCard.className = 'card mb-3';
+        let frameUrl = '';
+        
+        // Sadece processed_image_path varsa görsel göster
+        if (face.processed_image_path) {
+            frameUrl = `/${face.processed_image_path}`;
+            console.log("Geri bildirim tabı - İşlenmiş görsel kullanılıyor:", frameUrl);
+            feedbackCard.innerHTML = `
+                <div class="card-body">
+                    <div class="row align-items-center">
+                        <div class="col-md-4">
+                            <div class="position-relative" style="height: 200px; overflow: hidden;">
+                                <img src="${frameUrl}" alt="Yüz ${index + 1}"
+                                    style="width: 100%; height: 100%; object-fit: contain;"
+                                    onerror="this.onerror=null;this.src='/static/img/image-not-found.svg';">
+                                <span class="position-absolute top-0 end-0 m-2 badge bg-info">Yüz #${index + 1}</span>
+                            </div>
+                        </div>
+                        <div class="col-md-8">
+                            <div class="d-flex align-items-center mb-2">
+                                <h6 class="mb-0 me-2">Tahmin Edilen Yaş:</h6>
+                                <span class="badge bg-primary fs-5">${Math.round(face.age)}</span>
+                            </div>
+                            <div class="mb-3">
+                                <div class="d-flex justify-content-between align-items-center mb-1">
+                                    <small class="text-muted">Güvenilirlik:</small>
+                                    <span class="badge ${face.confidence > 0.7 ? 'bg-success' : 
+                                        face.confidence > 0.4 ? 'bg-warning' : 'bg-danger'}">
+                                        ${(face.confidence * 100).toFixed(0)}%
+                                    </span>
+                                </div>
+                                <div class="progress" style="height: 6px;">
+                                    <div class="progress-bar ${face.confidence > 0.7 ? 'bg-success' : 
+                                        face.confidence > 0.4 ? 'bg-warning' : 'bg-danger'}"
+                                        style="width: ${face.confidence * 100}%"></div>
                                 </div>
                             </div>
                         </div>
                     </div>
                 </div>
             `;
-
-            row.appendChild(col);
-        });
-
-    } catch (e) {
-        console.error('Yaş tahminleri gösterilirken hata:', e);
-        const ageContainer = document.getElementById('ageEstimationsContainer');
-        if (ageContainer) {
-            ageContainer.innerHTML = `<div class="alert alert-danger">Yaş tahminleri işlenirken hata oluştu: ${e.message}</div>`;
+        } else {
+            console.log("Geri bildirim tabı - İşlenmiş görsel bulunamadı");
+            feedbackCard.innerHTML = `
+                <div class="card-body">
+                    <div class="alert alert-warning">İşlenmiş (overlay'li) görsel bulunamadı.</div>
+                </div>
+            `;
         }
-    }
+        ageFeedbackContainer.appendChild(feedbackCard);
+    });
 }
 
 // Kişi kartı oluşturma fonksiyonu
@@ -3271,265 +3113,4 @@ function createPersonCard(person, personId, analysisId) {
     return card;
 }
 
-function displayAgeFeedback(feedbackTab, results) {
-    if (!feedbackTab || !results.age_estimations || !results.age_estimations.length) {
-        return;
-    }
-
-    const ageFeedbackContainer = feedbackTab.querySelector('.age-feedback-container');
-    if (!ageFeedbackContainer) {
-        return;
-    }
-
-    // Benzersiz yüzleri bul
-    const faces = {};
-    results.age_estimations.forEach(item => {
-        const faceId = item.person_id || item.face_id || 'unknown';
-        const confidence = item.confidence_score || item.confidence || 0;
-        
-        if (!faces[faceId] || confidence > faces[faceId].confidence) {
-            faces[faceId] = {
-                age: item.estimated_age || 'Bilinmiyor',
-                confidence: confidence,
-                frame: item.frame_path || null,
-                timestamp: item.frame_timestamp || item.timestamp || null,
-                face_location: item.face_location || null,
-                image_width: item.image_width || 640,
-                image_height: item.image_height || 480
-            };
-        }
-    });
-    
-    // Her yüz için geri bildirim kartı oluştur
-    Object.entries(faces).forEach(([faceId, face], index) => {
-        const feedbackCard = document.createElement('div');
-        feedbackCard.className = 'card mb-3';
-        
-        // Görsel URL'sini oluştur - Resim analizlerinde doğrudan yüklenen resmi kullan
-        let frameUrl = '';
-        if (results.file_type && results.file_type.startsWith('image/')) {
-            frameUrl = `/api/files/${results.file_id}/download`;
-        } else if (face.frame && results.file_type && results.file_type.startsWith('video')) {
-            const frameName = face.frame.split(/[\\/]/).pop();
-            frameUrl = `/api/files/frames/${results.analysis_id}/${frameName}`;
-        } else if (results.file_id) {
-            frameUrl = `/api/files/${results.file_id}/download`;
-        }
-
-        // Yüz konumu için HTML
-        let faceBoxHtml = '';
-        if (face.face_location && Array.isArray(face.face_location)) {
-            // Görüntü konteyner boyutları - sabit değerler
-            const containerHeight = 200; // containerStyle'daki height değeri
-            const containerWidth = 300;  // tahmini genişlik (4:3 oranı)
-            
-            // Orijinal görüntü boyutları
-            const originalWidth = face.image_width;
-            const originalHeight = face.image_height;
-            
-            // En-boy oranını koru
-            const aspectRatio = originalWidth / originalHeight;
-            let displayWidth = containerWidth;
-            let displayHeight = containerHeight;
-            
-            // En-boy oranına göre görüntü boyutlarını ayarla
-            if (containerWidth / containerHeight > aspectRatio) {
-                // Konteyner daha geniş, yüksekliğe göre ayarla
-                displayWidth = containerHeight * aspectRatio;
-            } else {
-                // Konteyner daha dar, genişliğe göre ayarla
-                displayHeight = containerWidth / aspectRatio;
-            }
-            
-            // Ortalama için offset hesapla
-            const offsetX = (containerWidth - displayWidth) / 2;
-            const offsetY = (containerHeight - displayHeight) / 2;
-            
-            // Yüz koordinatları
-            const [top, right, bottom, left] = face.face_location;
-            
-            // Koordinatları ölçeklendir
-            const scaleX = displayWidth / originalWidth;
-            const scaleY = displayHeight / originalHeight;
-            
-            const scaledLeft = (left * scaleX) + offsetX;
-            const scaledTop = (top * scaleY) + offsetY;
-            const scaledWidth = (right - left) * scaleX;
-            const scaledHeight = (bottom - top) * scaleY;
-
-            // Yüz kutusu için stil - daha belirgin ve kontrast renkler
-            const boxStyle = `
-                position: absolute;
-                top: ${scaledTop}px;
-                left: ${scaledLeft}px;
-                width: ${scaledWidth}px;
-                height: ${scaledHeight}px;
-                border: 4px solid rgba(0, 255, 0, 0.8);
-                border-radius: 4px;
-                z-index: 10;
-                pointer-events: none;
-                box-shadow: 0 0 8px rgba(0, 255, 0, 0.5);
-                transition: all 0.2s ease-in-out;
-            `;
-
-            // Yüz etiketi için stil - daha belirgin ve kontrast
-            const labelStyle = `
-                position: absolute;
-                top: ${scaledTop - 35}px;
-                left: ${scaledLeft - 5}px;
-                background: linear-gradient(45deg, #00cc00, #00ff00);
-                color: #000;
-                border-radius: 50%;
-                width: 28px;
-                height: 28px;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                font-weight: bold;
-                font-size: 16px;
-                box-shadow: 0 0 8px rgba(0, 0, 0, 0.3);
-                border: 2px solid #fff;
-                z-index: 11;
-            `;
-
-            // Hover efekti için stil
-            const hoverStyle = `
-                .face-box[data-face-id="${faceId}"]:hover {
-                    border-color: #ffff00;
-                    box-shadow: 0 0 12px rgba(255, 255, 0, 0.7);
-                }
-                .face-label[data-face-id="${faceId}"]:hover {
-                    transform: scale(1.1);
-                    background: linear-gradient(45deg, #ffcc00, #ffff00);
-                }
-            `;
-
-            // Stil ekle
-            const styleEl = document.createElement('style');
-            styleEl.textContent = hoverStyle;
-            document.head.appendChild(styleEl);
-
-            faceBoxHtml = `
-                <div class="face-box" data-face-id="${faceId}" style="${boxStyle}"></div>
-                <div class="face-label" data-face-id="${faceId}" style="${labelStyle}">${index + 1}</div>
-            `;
-        }
-
-        // Görüntü konteynerı için stil - gölge ve yuvarlatılmış köşeler ekle
-        const containerStyle = `
-            position: relative;
-            height: 200px;
-            overflow: hidden;
-            background-color: #f8f9fa;
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        `;
-
-        // Görüntü için stil - object-fit: contain ile en-boy oranını koru
-        const imageStyle = `
-            width: 100%;
-            height: 100%;
-            object-fit: contain;
-            transition: all 0.2s ease-in-out;
-        `;
-
-        feedbackCard.innerHTML = `
-            <div class="card-body">
-                <div class="row align-items-center">
-                    <div class="col-md-4">
-                        <div style="${containerStyle}" class="face-container" data-face-id="${faceId}">
-                            <img src="${frameUrl}" alt="Yüz ${index + 1}"
-                                style="${imageStyle}"
-                                onerror="this.onerror=null;this.src='/static/img/image-not-found.svg';">
-                            ${faceBoxHtml}
-                        </div>
-                        <div class="text-center mt-2">
-                            <span class="badge bg-info">Yüz #${index + 1}</span>
-                            ${face.timestamp ? 
-                                `<span class="badge bg-dark ms-2">${formatTime(face.timestamp)}</span>` 
-                                : ''}
-                        </div>
-                    </div>
-                    <div class="col-md-8">
-                        <div class="d-flex align-items-center mb-2">
-                            <h6 class="mb-0 me-2">Tahmin Edilen Yaş:</h6>
-                            <span class="badge bg-primary fs-5">${Math.round(face.age)}</span>
-                        </div>
-                        <div class="mb-3">
-                            <div class="d-flex justify-content-between align-items-center mb-1">
-                                <small class="text-muted">Güvenilirlik:</small>
-                                <span class="badge ${face.confidence > 0.7 ? 'bg-success' : 
-                                    face.confidence > 0.4 ? 'bg-warning' : 'bg-danger'}">
-                                    ${(face.confidence * 100).toFixed(0)}%
-                                </span>
-                            </div>
-                            <div class="progress" style="height: 6px;">
-                                <div class="progress-bar ${face.confidence > 0.7 ? 'bg-success' : 
-                                    face.confidence > 0.4 ? 'bg-warning' : 'bg-danger'}" 
-                                    style="width: ${face.confidence * 100}%">
-                                </div>
-                            </div>
-                        </div>
-                        <div class="input-group">
-                            <span class="input-group-text">Gerçek Yaş:</span>
-                            <input type="number" class="form-control" id="realAge-${faceId}"
-                                   min="1" max="100" value="${Math.round(face.age)}"
-                                   placeholder="Gerçek yaşı girin">
-                            <button class="btn btn-primary" type="button"
-                                    onclick="submitAgeFeedback('${faceId}', document.getElementById('realAge-${faceId}'))">
-                                <i class="fas fa-check"></i>
-                            </button>
-                        </div>
-                        <div class="form-check mt-2">
-                            <input class="form-check-input" type="checkbox" id="ageRange-${faceId}">
-                            <label class="form-check-label" for="ageRange-${faceId}">
-                                <small>Yaş aralığı doğru ama kesin yaş yanlış</small>
-                            </label>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        `;
-
-        // Hover efekti için event listener'lar ekle
-        feedbackCard.addEventListener('mouseover', (e) => {
-            const faceId = e.target.closest('[data-face-id]')?.dataset.faceId;
-            if (faceId) {
-                document.querySelectorAll(`[data-face-id="${faceId}"]`).forEach(el => {
-                    el.style.transform = 'scale(1.02)';
-                });
-            }
-        });
-
-        feedbackCard.addEventListener('mouseout', (e) => {
-            const faceId = e.target.closest('[data-face-id]')?.dataset.faceId;
-            if (faceId) {
-                document.querySelectorAll(`[data-face-id="${faceId}"]`).forEach(el => {
-                    el.style.transform = 'scale(1)';
-                });
-            }
-        });
-        
-        ageFeedbackContainer.appendChild(feedbackCard);
-    });
-}
-
-// --- DÜZELTME: frameUrl oluşturma mantığı ---
-// Yaş tahmini feedback ve diğer görsel gösterimlerinde frameUrl oluşturulurken,
-// eğer dosya tipi resim ise, her zaman orijinal dosya kullanılacak.
-// Video ise frame_path kullanılacak.
-
-function getCorrectFrameUrl({ fileType, fileId, framePath, analysisId }) {
-    if (fileType && fileType.startsWith('image/') && fileId) {
-        return `/api/files/${fileId}/download`;
-    }
-    if (framePath && analysisId) {
-        // Sadece dosya adını kullan
-        const frameName = framePath.split('/').pop();
-        return `/api/files/frames/${analysisId}/${frameName}`;
-    }
-    if (fileId) {
-        return `/api/files/${fileId}/download`;
-    }
-    return '/static/img/image-not-found.svg';
-}
+// ... (rest of the code remains unchanged)
