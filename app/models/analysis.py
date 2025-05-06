@@ -47,6 +47,7 @@ class Analysis(db.Model):
     overall_harassment_score = db.Column(db.Float, default=0)
     overall_weapon_score = db.Column(db.Float, default=0)
     overall_drug_score = db.Column(db.Float, default=0)
+    overall_safe_score = db.Column(db.Float, default=0)  # Güvenli içerik skoru
     
     # En yüksek riskli çerçeve bilgileri
     highest_risk_frame = db.Column(db.String(255))  # En riskli kare dosya yolu
@@ -127,6 +128,7 @@ class Analysis(db.Model):
             'overall_harassment_score': self.overall_harassment_score,
             'overall_weapon_score': self.overall_weapon_score,
             'overall_drug_score': self.overall_drug_score,
+            'overall_safe_score': self.overall_safe_score,
             'highest_risk_frame': self.highest_risk_frame,
             'highest_risk_frame_timestamp': self.highest_risk_frame_timestamp,
             'highest_risk_score': self.highest_risk_score,
@@ -154,6 +156,7 @@ class ContentDetection(db.Model):
     harassment_score = db.Column(db.Float, default=0)
     weapon_score = db.Column(db.Float, default=0)
     drug_score = db.Column(db.Float, default=0)
+    safe_score = db.Column(db.Float, default=0)  # Güvenli içerik skoru
     
     # Tespit edilen nesneler JSON formatında
     _detected_objects = db.Column(db.Text)  # JSON olarak saklanan tespit edilen nesneler
@@ -225,6 +228,7 @@ class ContentDetection(db.Model):
             'harassment_score': self.harassment_score,
             'weapon_score': self.weapon_score,
             'drug_score': self.drug_score,
+            'safe_score': self.safe_score,
             'detected_objects': self.get_detected_objects()
         }
 

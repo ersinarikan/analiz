@@ -613,7 +613,7 @@ def analyze_image(analysis):
     """
     Bir resmi analiz eder.
     Bu fonksiyon resim dosyaları için içerik analizi yapar ve sonuçları veritabanına kaydeder.
-    Şiddet, yetişkin içeriği, taciz, silah ve madde kullanımı gibi kategorileri değerlendirir.
+    Şiddet, yetişkin içeriği, taciz, silah, madde kullanımı ve güvenli analizi yapar.
     
     Args:
         analysis: Analiz nesnesi
@@ -629,71 +629,9 @@ def analyze_image(analysis):
         if image is None:
             return False, "Resim yüklenemedi"
         
-        # İçerik analizi yap (şiddet, yetişkin içeriği, taciz, silah, madde kullanımı)
+        # İçerik analizi yap
         content_analyzer = ContentAnalyzer()
-        violence_score, adult_content_score, harassment_score, weapon_score, drug_score, detected_objects = content_analyzer.analyze_image(file.file_path)
-        
-        # Her skor ve nesneyi ayrı ayrı dönüştür
-        violence_score = float(violence_score)
-        adult_content_score = float(adult_content_score)
-        harassment_score = float(harassment_score)
-        weapon_score = float(weapon_score)
-        drug_score = float(drug_score)
-        
-        # Nesneleri manuel olarak güvenli hale getir
-        safe_objects = []
-        try:
-            # Her bir nesneyi doğrudan Python tiplerine dönüştür
-            for obj in detected_objects:
-                safe_obj = {}
-                # Box değerlerini kontrol et ve dönüştür
-                if 'box' in obj and isinstance(obj['box'], (list, tuple, np.ndarray)):
-                    box_vals = []
-                    for val in obj['box']:
-                        if isinstance(val, (np.integer, np.int8, np.int16, np.int32, np.int64)):
-                            box_vals.append(int(val))  # NumPy int -> Python int
-                        elif isinstance(val, (np.floating, np.float16, np.float32, np.float64)):
-                            box_vals.append(float(val))  # NumPy float -> Python float
-                        else:
-                            box_vals.append(val)  # Diğer tipler
-                    safe_obj['box'] = box_vals
-                else:
-                    # Box değeri yoksa veya beklenen tipte değilse, boş bir liste kullan
-                    safe_obj['box'] = []
-                
-                # Label değerini doğrudan kopyala
-                if 'label' in obj:
-                    safe_obj['label'] = str(obj['label'])  # Her ihtimale karşı string'e dönüştür
-                else:
-                    safe_obj['label'] = "unknown"
-                
-                # Confidence değerini dönüştür
-                if 'confidence' in obj:
-                    if isinstance(obj['confidence'], (np.floating, np.float16, np.float32, np.float64)):
-                        safe_obj['confidence'] = float(obj['confidence'])
-                    elif isinstance(obj['confidence'], (np.integer, np.int8, np.int16, np.int32, np.int64)):
-                        safe_obj['confidence'] = float(int(obj['confidence']))  # Önce int'e, sonra float'a dönüştür
-                    else:
-                        safe_obj['confidence'] = float(obj['confidence'])  # Doğrudan float'a dönüştürmeyi dene
-                else:
-                    safe_obj['confidence'] = 0.0
-                
-                # Güvenlik kontrolü
-                for key, value in safe_obj.items():
-                    if isinstance(value, (np.integer, np.int8, np.int16, np.int32, np.int64)):
-                        safe_obj[key] = int(value)
-                    elif isinstance(value, (np.floating, np.float16, np.float32, np.float64)):
-                        safe_obj[key] = float(value)
-                
-                safe_objects.append(safe_obj)
-            
-            # JSON uyumluluğu için test JSON düzeyinde
-            json_text = json.dumps(safe_objects)
-        except Exception as ser_err:
-            logger.error(f"Nesneleri dönüştürme hatası: {str(ser_err)}")
-            logger.error(f"Hata izi: {traceback.format_exc()}")
-            logger.error(f"Orjinal nesne: {detected_objects[:2] if detected_objects else []}")
-            safe_objects = []
+        violence_score, adult_content_score, harassment_score, weapon_score, drug_score, safe_score, detected_objects = content_analyzer.analyze_image(file.file_path)
         
         # Analiz sonuçlarını veritabanına kaydet
         detection = ContentDetection(
@@ -707,10 +645,11 @@ def analyze_image(analysis):
         detection.harassment_score = float(harassment_score)
         detection.weapon_score = float(weapon_score)
         detection.drug_score = float(drug_score)
+        detection.safe_score = float(safe_score)
         
         # JSON uyumlu nesneyi kaydet
         try:
-            detection.set_detected_objects(safe_objects)
+            detection.set_detected_objects(detected_objects)
         except Exception as e:
             logger.error(f"set_detected_objects hatası: {str(e)}")
             logger.error(f"Hata izi: {traceback.format_exc()}")
@@ -830,7 +769,7 @@ def analyze_video(analysis):
     """
     Bir videoyu analiz eder.
     Bu fonksiyon video dosyaları için içerik analizi yapar, video karelerini çıkararak 
-    her kare için şiddet, yetişkin içeriği, taciz, silah ve madde kullanımı analizi yapar.
+    her kare için şiddet, yetişkin içeriği, taciz, silah, madde kullanımı ve güvenli analizi yapar.
     Ayrıca istenirse yüz tespiti ve yaş tahmini de gerçekleştirir.
     
     Args:
@@ -864,7 +803,7 @@ def analyze_video(analysis):
         analysis.status_message = f"Video analizi: {len(frame_paths)} kare işlenecek"
         db.session.commit()
         
-        # İçerik analizörü hazırla - Mock analizöre geri dönüşü kaldırıyoruz
+        # İçerik analizörü hazırla
         content_analyzer = ContentAnalyzer()
         logger.info(f"ContentAnalyzer başarıyla yüklendi: Analiz #{analysis.id}")
         
@@ -908,8 +847,8 @@ def analyze_video(analysis):
                 logger.error(f"[DEBUG] Video analizi - Kare okunamadı: {frame_path}")
                 continue
             
-            # İçerik analizi yap - Mock analizöre geri dönüşü kaldırıyoruz
-            violence_score, adult_content_score, harassment_score, weapon_score, drug_score, detected_objects = content_analyzer.analyze_image(frame_path)
+            # İçerik analizi yap
+            violence_score, adult_content_score, harassment_score, weapon_score, drug_score, safe_score, detected_objects = content_analyzer.analyze_image(frame_path)
             
             # Her skor ve nesneyi ayrı ayrı dönüştür
             violence_score = float(violence_score)
@@ -917,12 +856,13 @@ def analyze_video(analysis):
             harassment_score = float(harassment_score)
             weapon_score = float(weapon_score)
             drug_score = float(drug_score)
+            safe_score = float(safe_score)
             
             # Yüksek risk skorlu kareleri say
-            max_score = max(violence_score, adult_content_score, harassment_score, weapon_score, drug_score)
-            if max_score >= risk_threshold:
+            max_risk_score = max(violence_score, adult_content_score, harassment_score, weapon_score, drug_score)
+            if max_risk_score >= risk_threshold:
                 high_risk_frames_count += 1
-                score_str = f"Şiddet: {violence_score:.2f}, Yetişkin: {adult_content_score:.2f}, Taciz: {harassment_score:.2f}, Silah: {weapon_score:.2f}, Madde: {drug_score:.2f}"
+                score_str = f"Şiddet: {violence_score:.2f}, Yetişkin: {adult_content_score:.2f}, Taciz: {harassment_score:.2f}, Silah: {weapon_score:.2f}, Madde: {drug_score:.2f}, Güvenli: {safe_score:.2f}"
                 logger.info(f"Yüksek riskli kare tespit edildi: Analiz #{analysis.id}, Kare {i+1}, Zaman {timestamp:.2f}s, Skorlar: {score_str}")
             
             # Nesneleri manuel olarak güvenli hale getir
@@ -954,6 +894,7 @@ def analyze_video(analysis):
             detection.harassment_score = float(harassment_score)
             detection.weapon_score = float(weapon_score)
             detection.drug_score = float(drug_score)
+            detection.safe_score = float(safe_score)
             detection.set_detected_objects(safe_objects)
             
             # Nesnenin serileştirilebilir olup olmadığını kontrol et
@@ -1206,6 +1147,23 @@ def analyze_video(analysis):
                 # Socket.io ile anlık ilerleme bilgisi gönder
                 try:
                     from app import socketio
+                    # Kategori skorlarını da ekleyelim
+                    scores = {
+                        'violence': violence_score,
+                        'adult_content': adult_content_score,
+                        'harassment': harassment_score,
+                        'weapon': weapon_score, 
+                        'drug': drug_score,
+                        'safe': safe_score
+                    }
+                    
+                    # Skorlar toplamı 1 olacak şekilde normalize et (UI için)
+                    total = sum(scores.values())
+                    if total > 0:
+                        normalized_scores = {k: v/total for k, v in scores.items()}
+                    else:
+                        normalized_scores = scores
+                        
                     socketio.emit('analysis_progress', {
                         'analysis_id': analysis.id,
                         'file_id': analysis.file_id,
@@ -1215,7 +1173,8 @@ def analyze_video(analysis):
                         'timestamp': timestamp,
                         'detected_faces': detected_faces_count,
                         'high_risk_frames': high_risk_frames_count,
-                        'status': status_message
+                        'status': status_message,
+                        'scores': normalized_scores  # Normalize edilmiş skorları ekle
                     })
                 except Exception as socket_err:
                     logger.warning(f"Socket.io ilerleme bildirimi hatası: {str(socket_err)}")
@@ -1332,6 +1291,7 @@ def calculate_overall_scores(analysis):
         harassment_scores = [d.harassment_score for d in detections]
         weapon_scores = [d.weapon_score for d in detections]
         drug_scores = [d.drug_score for d in detections]
+        safe_scores = [d.safe_score for d in detections]
         
         # Genel skorları ortalama alarak hesapla
         analysis.overall_violence_score = sum(violence_scores) / len(violence_scores) if violence_scores else 0
@@ -1339,8 +1299,26 @@ def calculate_overall_scores(analysis):
         analysis.overall_harassment_score = sum(harassment_scores) / len(harassment_scores) if harassment_scores else 0
         analysis.overall_weapon_score = sum(weapon_scores) / len(weapon_scores) if weapon_scores else 0
         analysis.overall_drug_score = sum(drug_scores) / len(drug_scores) if drug_scores else 0
+        analysis.overall_safe_score = sum(safe_scores) / len(safe_scores) if safe_scores else 0
         
-        # En yüksek riskli kareyi bul (en yüksek skorlu kare)
+        # Skorların toplamının %100 olmasını sağla
+        total_score = (analysis.overall_violence_score + analysis.overall_adult_content_score + 
+                      analysis.overall_harassment_score + analysis.overall_weapon_score + 
+                      analysis.overall_drug_score + analysis.overall_safe_score)
+        
+        if total_score > 0:
+            # Her skoru normalize et (toplamı 1.0 olacak şekilde)
+            analysis.overall_violence_score /= total_score
+            analysis.overall_adult_content_score /= total_score
+            analysis.overall_harassment_score /= total_score
+            analysis.overall_weapon_score /= total_score
+            analysis.overall_drug_score /= total_score
+            analysis.overall_safe_score /= total_score
+            
+            # Toplam skorun 1.0 olduğunu doğrula
+            logger.info(f"Normalize edilmiş toplam skor: {analysis.overall_violence_score + analysis.overall_adult_content_score + analysis.overall_harassment_score + analysis.overall_weapon_score + analysis.overall_drug_score + analysis.overall_safe_score}")
+        
+        # En yüksek riskli kareyi bul (en yüksek riskli kare "safe" hariç)
         highest_risk_score = 0
         highest_risk_category = None
         highest_risk_detection = None

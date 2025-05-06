@@ -200,7 +200,7 @@ class ContentAnalyzer:
             image_path: Analiz edilecek resmin dosya yolu
             
         Returns:
-            tuple: (şiddet skoru, yetişkin içerik skoru, taciz skoru, silah skoru, madde kullanımı skoru, tespit edilen nesneler)
+            tuple: (şiddet skoru, yetişkin içerik skoru, taciz skoru, silah skoru, madde kullanımı skoru, güvenli skoru, tespit edilen nesneler)
         """
         try:
             # Görüntüyü yükle
@@ -305,15 +305,40 @@ class ContentAnalyzer:
             weapon_score = min(max(weapon_score, 0.0), 1.0)
             drug_score = min(max(drug_score, 0.0), 1.0)
             
+            # Güvenli skorunu hesapla - diğer kategorilerin tersi olarak
+            # (Diğer tüm kategorilerin puanlarının maksimumu çıkarılır)
+            risk_scores = [violence_score, adult_content_score, harassment_score, weapon_score, drug_score]
+            max_risk_score = max(risk_scores)
+            safe_score = max(0.0, 1.0 - max_risk_score)
+            
+            # Tüm puanları %100 toplam olacak şekilde normalize et
+            normalized_scores = self._normalize_scores({
+                'violence': violence_score,
+                'adult_content': adult_content_score,
+                'harassment': harassment_score,
+                'weapon': weapon_score,
+                'drug': drug_score,
+                'safe': safe_score
+            })
+            
+            # Normalize edilmiş skorları al
+            violence_score = normalized_scores['violence']
+            adult_content_score = normalized_scores['adult_content']
+            harassment_score = normalized_scores['harassment']
+            weapon_score = normalized_scores['weapon']
+            drug_score = normalized_scores['drug']
+            safe_score = normalized_scores['safe']
+            
             # NumPy türlerini Python türlerine dönüştür - yeni utils modülünü kullan
             safe_objects = convert_numpy_types_to_python(detected_objects)
             
             # Tüm değerleri Python standart türlerine dönüştürerek döndür
-            return float(violence_score), float(adult_content_score), float(harassment_score), float(weapon_score), float(drug_score), safe_objects
+            return (float(violence_score), float(adult_content_score), float(harassment_score), 
+                   float(weapon_score), float(drug_score), float(safe_score), safe_objects)
         except Exception as e:
             logger.error(f"Görüntü analizi hatası: {str(e)}")
             raise
-    
+            
     def _analyze_with_model(self, image, model):
         """
         Verilen modeli kullanarak görüntüyü analiz eder.
@@ -431,3 +456,37 @@ class ContentAnalyzer:
         except Exception as e:
             logger.error(f"Cilt tonu tespiti hatası: {str(e)}")
             return False 
+    
+    def _normalize_scores(self, scores):
+        """
+        Kategorik skorları normalize eder, böylece toplam %100 olur.
+        
+        Args:
+            scores: Kategori skorlarını içeren sözlük
+            
+        Returns:
+            dict: Normalize edilmiş skorları içeren sözlük
+        """
+        try:
+            # Skorların toplamını hesapla
+            total = sum(scores.values())
+            
+            # Eğer toplam 0'sa, güvenli skoru 1 yapıp diğer skorları 0 olarak belirle
+            if total <= 0.001:  # Çok küçük değerler için
+                normalized_scores = {key: 0.0 for key in scores}
+                normalized_scores['safe'] = 1.0
+                return normalized_scores
+            
+            # Her skoru, toplama bölerek normalize et (%100 olacak şekilde)
+            normalized_scores = {key: (value / total) for key, value in scores.items()}
+            
+            # Log çıktısı
+            logger.info(f"Skorlar normalize edildi. Toplam: {sum(normalized_scores.values()):.2f}")
+            for key, value in normalized_scores.items():
+                logger.info(f"  {key}: {value:.4f} (%{value * 100:.1f})")
+                
+            return normalized_scores
+        except Exception as e:
+            logger.error(f"Skor normalizasyonu hatası: {str(e)}")
+            # Hata durumunda orijinal skorları döndür
+            return scores 

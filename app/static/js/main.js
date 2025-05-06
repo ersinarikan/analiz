@@ -1108,6 +1108,10 @@ function displayAnalysisResults(fileId, results) {
         
         const scores = results.overall_scores;
         
+        // Güven skorlarını kontrol et
+        const confidenceScores = results.confidence_scores || results.score_confidences || {};
+        const hasConfidenceScores = Object.keys(confidenceScores).length > 0;
+        
         for (const [category, score] of Object.entries(scores)) {
             const scoreElement = document.createElement('div');
             scoreElement.className = 'mb-2';
@@ -1120,37 +1124,79 @@ function displayAnalysisResults(fileId, results) {
                 case 'harassment': categoryName = 'Taciz'; break;
                 case 'weapon': categoryName = 'Silah'; break;
                 case 'drug': categoryName = 'Madde Kullanımı'; break;
+                case 'safe': categoryName = 'Güvenli'; break;
             }
             
             // Risk seviyesi
             let riskLevel = '';
             let riskClass = '';
             
-            if (score >= 0.7) {
-                riskLevel = 'Yüksek Risk';
-                riskClass = 'risk-level-high';
-            } else if (score >= 0.3) {
-                riskLevel = 'Orta Risk';
-                riskClass = 'risk-level-medium';
+            if (category === 'safe') {
+                // Güvenli kategori için farklı risk yorumlaması
+                if (score >= 0.7) {
+                    riskLevel = 'Yüksek Güven';
+                    riskClass = 'risk-level-low'; // Yeşil renk
+                } else if (score >= 0.3) {
+                    riskLevel = 'Orta Güven';
+                    riskClass = 'risk-level-medium'; // Sarı renk
+                } else {
+                    riskLevel = 'Düşük Güven';
+                    riskClass = 'risk-level-high'; // Kırmızı renk
+                }
             } else {
-                riskLevel = 'Düşük Risk';
-                riskClass = 'risk-level-low';
+                // Diğer kategoriler için normal risk yorumlaması
+                if (score >= 0.7) {
+                    riskLevel = 'Yüksek Risk';
+                    riskClass = 'risk-level-high';
+                } else if (score >= 0.3) {
+                    riskLevel = 'Orta Risk';
+                    riskClass = 'risk-level-medium';
+                } else {
+                    riskLevel = 'Düşük Risk';
+                    riskClass = 'risk-level-low';
+                }
             }
             
             // Şüpheli skor ise işaretle
             const isSuspicious = suspiciousScores.includes(categoryName);
             
-            // Skor elementi HTML'i
+            // Kategori rengini belirle
+            let progressBarClass = '';
+            if (category === 'safe') {
+                // Güvenli kategorisi için yeşil ton kullan, değer yükseldikçe daha koyu yeşil
+                progressBarClass = score >= 0.7 ? 'bg-success' : score >= 0.3 ? 'bg-info' : 'bg-warning';
+            } else {
+                // Diğer kategoriler için risk arttıkça kırmızılaşan renk
+                progressBarClass = riskClass === 'risk-level-high' ? 'bg-danger' : 
+                                  riskClass === 'risk-level-medium' ? 'bg-warning' : 'bg-success';
+            }
+            
+            // Varsa güven skorunu al
+            const confidenceScore = hasConfidenceScores ? (confidenceScores[category] || 0) : 0;
+            const showConfidence = hasConfidenceScores && confidenceScore > 0;
+            
+            // Skor elementi HTML'i - güven skoru varsa ekle
             scoreElement.innerHTML = `
                 <div class="d-flex justify-content-between align-items-center">
                     <span>${categoryName} ${isSuspicious ? '<i class="fas fa-question-circle text-warning" title="Bu kategori skoru tutarsız olabilir"></i>' : ''}</span>
                     <span class="risk-score ${riskClass}">${(score * 100).toFixed(0)}% - ${riskLevel}</span>
                 </div>
-                <div class="progress">
-                    <div class="progress-bar ${riskClass === 'risk-level-high' ? 'bg-danger' : riskClass === 'risk-level-medium' ? 'bg-warning' : 'bg-success'}" 
+                <div class="progress mb-1">
+                    <div class="progress-bar ${progressBarClass}" 
                          role="progressbar" style="width: ${score * 100}%" 
                          aria-valuenow="${score * 100}" aria-valuemin="0" aria-valuemax="100"></div>
                 </div>
+                ${showConfidence ? `
+                <div class="d-flex justify-content-between align-items-center small text-muted">
+                    <span>Güven Skoru:</span>
+                    <span>${(confidenceScore * 100).toFixed(0)}%</span>
+                </div>
+                <div class="progress" style="height: 4px;">
+                    <div class="progress-bar bg-info" 
+                         role="progressbar" style="width: ${confidenceScore * 100}%" 
+                         aria-valuenow="${confidenceScore * 100}" aria-valuemin="0" aria-valuemax="100"></div>
+                </div>
+                ` : ''}
             `;
             
             riskScoresContainer.appendChild(scoreElement);
@@ -1233,6 +1279,10 @@ function displayAnalysisResults(fileId, results) {
                         categoryName = 'Madde Kullanımı'; 
                         badgeClass = 'bg-warning';
                         break;
+                    case 'safe': 
+                        categoryName = 'Güvenli'; 
+                        badgeClass = 'bg-success';
+                        break;
                 }
                 
                 if (highestRiskCategory) {
@@ -1305,7 +1355,8 @@ function displayAnalysisResults(fileId, results) {
                     'adult_content': null,
                     'harassment': null,
                     'weapon': null,
-                    'drug': null
+                    'drug': null,
+                    'safe': null
                 };
                 
                 // Her kategori için en yüksek skorlu kareleri bul
@@ -1319,7 +1370,8 @@ function displayAnalysisResults(fileId, results) {
                         'adult_content': detection.adult_content_score,
                         'harassment': detection.harassment_score,
                         'weapon': detection.weapon_score,
-                        'drug': detection.drug_score
+                        'drug': detection.drug_score,
+                        'safe': detection.safe_score
                     };
                     
                     console.log('Tespit edilen skorlar:', categoryScores);
@@ -1374,6 +1426,10 @@ function displayAnalysisResults(fileId, results) {
                         case 'drug': 
                             categoryName = 'Madde Kullanımı'; 
                             badgeClass = (detection.score >= 0.7) ? 'bg-danger' : (detection.score >= 0.3) ? 'bg-warning' : 'bg-success';
+                            break;
+                        case 'safe': 
+                            categoryName = 'Güvenli'; 
+                            badgeClass = (detection.score >= 0.7) ? 'bg-success' : (detection.score >= 0.3) ? 'bg-info' : 'bg-warning';
                             break;
                     }
                     
@@ -1855,6 +1911,7 @@ function displayContentModelMetrics(data) {
                 case 'harassment': categoryName = 'Taciz'; break;
                 case 'weapon': categoryName = 'Silah'; break;
                 case 'drug': categoryName = 'Madde Kullanımı'; break;
+                case 'safe': categoryName = 'Güvenli'; break;
             }
             
             const row = document.createElement('tr');
@@ -2588,6 +2645,11 @@ function detectSuspiciousScores(results) {
     const suspiciousCategories = [];
     const scores = results.overall_scores;
     
+    // Güvenli skoru yüksek ama diğer kategorilerde de yüksek skorlar varsa
+    if (scores.safe > 0.5 && (scores.violence > 0.4 || scores.adult_content > 0.4 || scores.harassment > 0.4 || scores.weapon > 0.4 || scores.drug > 0.4)) {
+        suspiciousCategories.push('Güvenli');
+    }
+    
     // Anormal skor kombinasyonları
     if (scores.drug > 0.8 && scores.violence < 0.4 && scores.weapon < 0.3) {
         suspiciousCategories.push('Madde Kullanımı');
@@ -2695,7 +2757,8 @@ function displayHighRiskFramesByCategory(results) {
         adult_content: 0,
         harassment: 0,
         weapon: 0,
-        drug: 0
+        drug: 0,
+        safe: 0
     };
     
     let highestFrames = {
@@ -2703,7 +2766,8 @@ function displayHighRiskFramesByCategory(results) {
         adult_content: null,
         harassment: null,
         weapon: null,
-        drug: null
+        drug: null,
+        safe: null
     };
     
     // İçerik tespitlerini gözden geçir ve en yüksek skorları bul
@@ -2749,29 +2813,43 @@ function displayHighRiskFramesByCategory(results) {
                     timestamp: detection.frame_timestamp
                 };
             }
+            
+            if (detection.safe_score > highestScores.safe) {
+                highestScores.safe = detection.safe_score;
+                highestFrames.safe = {
+                    processed_image_path: detection.processed_image_path,
+                    timestamp: detection.frame_timestamp
+                };
+            }
         });
     }
     
     console.log("Bulunan en yüksek kategoriler:", highestFrames);
     
     // Her kategori için en yüksek riskli kareyi göster
-    const categories = ['violence', 'adult_content', 'harassment', 'weapon', 'drug'];
+    const categories = ['violence', 'adult_content', 'harassment', 'weapon', 'drug', 'safe'];
     const grid = document.getElementById('categoryFramesGrid');
     if (!grid) return;
     
     grid.innerHTML = '';
     
     categories.forEach(category => {
-        if (highestScores[category] >= 0.3) { // Eşik değeri: %30 ve üzeri skorlar için göster
+        // Güvenli kategori için farklı eşik değeri (en az %50)
+        const threshold = category === 'safe' ? 0.5 : 0.3;
+        
+        if (highestScores[category] >= threshold) { 
             const frameData = highestFrames[category];
             if (!frameData || !frameData.processed_image_path) return;
             
-            const categoryName = getCategoryDisplayName(category);
+            let categoryName = getCategoryDisplayName(category);
             const cardDiv = document.createElement('div');
             cardDiv.className = 'col-md-4 mb-4';
             
             const frameUrl = `/${frameData.processed_image_path}`;  // /api/files/ prefix'ini kaldırdık
             console.log(`${categoryName} için frame URL:`, frameUrl);
+            
+            // Kategori badge'inin rengini belirle
+            let badgeClass = getCategoryBadgeClass(category);
             
             cardDiv.innerHTML = `
                 <div class="card h-100">
@@ -2781,17 +2859,17 @@ function displayHighRiskFramesByCategory(results) {
                                 style="width: 100%; height: 100%; object-fit: cover;"
                                 onerror="this.onerror=null;this.src='/static/img/image-not-found.svg';">
                         </div>
-                        <span class="position-absolute top-0 end-0 m-2 badge ${getCategoryBadgeClass(category)}">${categoryName}</span>
+                        <span class="position-absolute top-0 end-0 m-2 badge ${badgeClass}">${categoryName}</span>
                         ${frameData.timestamp ? `<span class="position-absolute bottom-0 start-0 m-2 badge bg-dark">${formatTime(frameData.timestamp)}</span>` : ''}
                     </div>
                     <div class="card-body">
                         <h6 class="card-title">${categoryName}</h6>
                         <div class="d-flex justify-content-between mb-1">
-                            <span>Risk Skoru:</span>
+                            <span>${category === 'safe' ? 'Güven Skoru:' : 'Risk Skoru:'}</span>
                             <strong>${(highestScores[category] * 100).toFixed(0)}%</strong>
                         </div>
                         <div class="progress">
-                            <div class="progress-bar ${getCategoryBadgeClass(category)}" 
+                            <div class="progress-bar ${badgeClass}" 
                                 style="width: ${highestScores[category] * 100}%" 
                                 role="progressbar" 
                                 aria-valuenow="${highestScores[category] * 100}" 
@@ -2896,7 +2974,7 @@ function displayAgeEstimations(results) {
                                         <img src="${frameUrl}" 
                                              alt="Yüz ${index + 1}"
                                              style="width: 100%; height: 100%; object-fit: contain;"
-                                             onerror="console.error('[DEBUG] Görsel yüklenemedi:', this.src); this.onerror=null; this.src='/static/img/image-not-found.svg';"
+                                             onerror="this.onerror=null;this.src='/static/img/image-not-found.svg';"
                                              onload="console.log('[DEBUG] Görsel başarıyla yüklendi:', this.src)">
                                         <span class="position-absolute top-0 end-0 m-2 badge bg-info">Yüz #${index + 1}</span>
                                     </div>

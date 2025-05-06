@@ -351,7 +351,8 @@ def get_detailed_results(analysis_id):
                 'adult_content': analysis.overall_adult_content_score,
                 'harassment': analysis.overall_harassment_score,
                 'weapon': analysis.overall_weapon_score,
-                'drug': analysis.overall_drug_score
+                'drug': analysis.overall_drug_score,
+                'safe': analysis.overall_safe_score
             },
             'highest_risk': {
                 'frame': frame_url,
