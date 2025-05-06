@@ -4,7 +4,7 @@ from app import db, socketio
 from app.models.file import File
 from app.models.analysis import Analysis, ContentDetection, AgeEstimation, AnalysisFeedback
 from app.models.feedback import Feedback
-from app.services.analysis_service import AnalysisService
+from app.services.analysis_service import AnalysisService, get_analysis_results
 from app.json_encoder import json_dumps_numpy
 
 logger = logging.getLogger(__name__)

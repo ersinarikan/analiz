@@ -22,6 +22,9 @@ def upgrade():
         batch_op.add_column(sa.Column('progress', sa.Float(), nullable=True))
         batch_op.add_column(sa.Column('status_message', sa.String(length=255), nullable=True))
 
+    with op.batch_alter_table('age_estimations', schema=None) as batch_op:
+        batch_op.add_column(sa.Column('processed_image_path', sa.String(length=255), nullable=True))
+
     # ### end Alembic commands ###
 
 
@@ -30,5 +33,8 @@ def downgrade():
     with op.batch_alter_table('analyses', schema=None) as batch_op:
         batch_op.drop_column('status_message')
         batch_op.drop_column('progress')
+
+    with op.batch_alter_table('age_estimations', schema=None) as batch_op:
+        batch_op.drop_column('processed_image_path')
 
     # ### end Alembic commands ###

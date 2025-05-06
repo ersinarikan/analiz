@@ -736,18 +736,36 @@ def analyze_image(analysis):
                         ages_to_try = list(range(max(1, int(face.age)-5), min(100, int(face.age)+6)))
                         prompts = [f"{age} years old person" for age in ages_to_try]
                         inputs = clip.tokenize(prompts).to(clip_device)
-                        face_pil = Image.fromarray(cv2.cvtColor(image[y1:y2, x1:x2], cv2.COLOR_BGR2RGB))
-                        image_input = clip_preprocess(face_pil).unsqueeze(0).to(clip_device)
-                        with torch.no_grad():
-                            image_features = clip_model.encode_image(image_input)
-                            text_features = clip_model.encode_text(inputs)
-                            similarities = (image_features @ text_features.T).squeeze().cpu().numpy()
-                            probs = np.exp(similarities) / np.sum(np.exp(similarities))
-                            best_idx = np.argmax(probs)
-                            best_prob = probs[best_idx]
-                            second_prob = np.partition(probs.flatten(), -2)[-2] if len(probs) > 1 else 0.0
-                            confidence = float(0.7 * best_prob + 0.3 * (best_prob - second_prob))
-                            logger.info(f"CLIP yaş tahmini confidence: {confidence:.4f} (person_id={person_id})")
+                        
+                        # Görüntü sınırlarını kontrol et ve düzelt
+                        x2 = min(x1 + w, image.shape[1])
+                        y2 = min(y1 + h, image.shape[0])
+                        x1 = max(0, x1)
+                        y1 = max(0, y1)
+                        
+                        # Görüntüyü dilimle ve renk dönüşümü yap
+                        face_roi = image[y1:y2, x1:x2]
+                        if face_roi.size == 0:
+                            logger.warning(f"Boş yüz bölgesi: x1={x1}, y1={y1}, x2={x2}, y2={y2}")
+                            confidence = 0.5  # Boş yüz bölgesi durumunda varsayılan değer
+                        else:
+                            face_pil = Image.fromarray(cv2.cvtColor(face_roi, cv2.COLOR_BGR2RGB))
+                            image_input = clip_preprocess(face_pil).unsqueeze(0).to(clip_device)
+                            with torch.no_grad():
+                                image_features = clip_model.encode_image(image_input)
+                                text_features = clip_model.encode_text(inputs)
+                                similarities = (image_features @ text_features.T).squeeze().cpu().numpy()
+                                probs = np.exp(similarities) / np.sum(np.exp(similarities))
+                                best_idx = np.argmax(probs)
+                                best_prob = probs[best_idx]
+                                second_prob = np.partition(probs.flatten(), -2)[-2] if len(probs) > 1 else 0.0
+                                confidence = float(0.7 * best_prob + 0.3 * (best_prob - second_prob))
+                                
+                        if confidence is None:
+                            logger.warning(f"CLIP güven skoru None, varsayılan değer kullanılıyor: person_id={person_id}")
+                            confidence = 0.5
+                        else:
+                            logger.info(f"CLIP güven skoru: {confidence:.4f} (person_id={person_id})")
                     except Exception as clip_err:
                         logger.error(f"CLIP confidence hesaplama hatası: {clip_err}")
                         confidence = 0.50
@@ -784,6 +802,7 @@ def analyze_image(analysis):
                         age_estimation.set_face_location(x1, y1, w, h)
                         age_estimation.processed_image_path = rel_path
                         db.session.add(age_estimation)
+                        db.session.commit()  # Her güncellemeden sonra commit
                         logger.info(f"[DEBUG] Yaş tahmini sonucu - age={face.age}, confidence={confidence}, person_id={person_id}")
                         logger.info(f"[DEBUG] API yanıtı - processed_image_path={age_estimation.processed_image_path}")
                         if not age_estimation.processed_image_path:
@@ -881,7 +900,6 @@ def analyze_video(analysis):
                                f"Zaman {timestamp:.2f}s, İlerleme: %{progress:.1f}")
             
             # Kareyi yükle
-            logger.info(f"[DEBUG] Video analizi - Kare okunuyor: {frame_path}, exists={os.path.exists(frame_path)}")
             image = cv2.imread(frame_path)
             if image is None:
                 logger.error(f"[DEBUG] Video analizi - Kare okunamadı: {frame_path}")
@@ -948,76 +966,235 @@ def analyze_video(analysis):
             
             # Yaş analizi yapılacaksa yüz tespiti ve yaş tahmini yap
             if age_estimator and tracker:
-                faces = age_estimator.model.get(image)
-                logger.info(f"Kare: {frame_path}, {len(faces) if faces else 0} yüz bulundu.")
-                if not faces or len(faces) == 0:
-                    logger.warning(f"Karede hiç yüz tespit edilemedi: {frame_path}, overlay oluşturulmayacak.")
-                    continue
-                for idx, face in enumerate(faces):
-                    logger.warning(f"Kare: {frame_path}, Yüz {idx} - face objesi: {face.__dict__ if hasattr(face, '__dict__') else face}")
-                    logger.info(f"Kare: {frame_path}, Yüz {idx}: age={getattr(face, 'age', None)}, confidence={getattr(face, 'confidence', None)}")
-                    x1, y1, x2, y2 = [int(v) for v in face.bbox]
-                    w = x2 - x1
-                    h = y2 - y1
-                    bbox = [x1, y1, w, h]
-                    embedding = face.embedding
-                    detections.append({
-                        'bbox': bbox,
-                        'embedding': embedding,
-                        'face': face
-                    })
-                # DeepSORT ile takip
-                tracks = tracker.update_tracks(
-                    [ (d['bbox'], 1.0, "face") for d in detections ],  # bbox, confidence, class
-                    embeds=[d['embedding'] for d in detections],
-                    frame=image
-                )
-                for det, track in zip(detections, tracks):
-                    if not track.is_confirmed():
-                        continue
-                    track_id = f"{analysis.id}_person_{track.track_id}"
-                    face = det['face']
-                    x1, y1, w, h = det['bbox']
-                    age = face.age
-                    # CLIP ile güven skoru hesapla (iyileştirilmiş)
-                    ages_to_try = list(range(max(1, age-5), min(100, age+6)))
-                    prompts = [f"{age} years old person" for age in ages_to_try]
-                    inputs = clip.tokenize(prompts).to(clip_device)
-                    face_pil = Image.fromarray(cv2.cvtColor(image[y1:y2, x1:x2], cv2.COLOR_BGR2RGB))
-                    image_input = clip_preprocess(face_pil).unsqueeze(0).to(clip_device)
-                    with torch.no_grad():
-                        image_features = clip_model.encode_image(image_input)
-                        text_features = clip_model.encode_text(inputs)
-                        similarities = (image_features @ text_features.T).squeeze().cpu().numpy()
-                        # Softmax ile olasılıklara çevir
-                        probs = np.exp(similarities) / np.sum(np.exp(similarities))
-                        best_idx = np.argmax(probs)
-                        best_prob = probs[best_idx]
-                        second_prob = np.partition(probs.flatten(), -2)[-2] if len(probs) > 1 else 0.0
-                        confidence = float(0.7 * best_prob + 0.3 * (best_prob - second_prob))
+                try:
+                    faces = age_estimator.model.get(image)
+                    logger.info(f"Kare: {frame_path}, {len(faces) if faces else 0} yüz bulundu.")
                     
-                    # Kişi için en iyi kareyi güncelle
-                    if (track_id not in person_best_frames) or (confidence > person_best_frames[track_id]['confidence']):
-                        person_best_frames[track_id] = {
-                            'confidence': confidence,
-                            'frame_path': frame_path,
-                            'timestamp': timestamp,
-                            'bbox': (x1, y1, w, h),
-                            'age': age
-                        }
-                    # AgeEstimation eklemeden önce confidence kontrolü
-                    if confidence is None:
-                        confidence = 0.50
-                    age_estimation = AgeEstimation(
-                        analysis_id=analysis.id,
-                        person_id=track_id,
-                        frame_path=frame_path,
-                        frame_timestamp=timestamp,
-                        estimated_age=float(age),
-                        confidence_score=float(confidence)
-                    )
-                    age_estimation.set_face_location(x1, y1, w, h)
-                    db.session.add(age_estimation)
+                    if not faces or len(faces) == 0:
+                        logger.warning(f"Karede hiç yüz tespit edilemedi: {frame_path}, overlay oluşturulmayacak.")
+                        continue
+                        
+                    detections = []
+                    for idx, face in enumerate(faces):
+                        try:
+                            # Yüz özelliklerini kontrol et
+                            if not hasattr(face, 'age') or not hasattr(face, 'confidence') or not hasattr(face, 'bbox'):
+                                logger.warning(f"Yüz {idx} için gerekli özellikler eksik: {face}")
+                                continue
+                                
+                            age = face.age
+                            confidence = face.confidence
+                            
+                            # Eğer confidence None ise 0.5 olarak ayarla
+                            if confidence is None:
+                                confidence = 0.5
+                            
+                            # Yaş ve güven skorunu kontrol et
+                            if not isinstance(age, (int, float)) or not isinstance(confidence, (int, float)):
+                                logger.warning(f"Geçersiz yaş veya güven skoru: age={age}, confidence={confidence}")
+                                continue
+                                
+                            if age < 1 or age > 100 or confidence < 0.1:
+                                logger.warning(f"Geçersiz yaş aralığı veya düşük güven: age={age}, confidence={confidence}")
+                                continue
+                                
+                            # Bounding box'ı kontrol et
+                            try:
+                                x1, y1, x2, y2 = [int(v) for v in face.bbox]
+                                if x1 < 0 or y1 < 0 or x2 <= x1 or y2 <= y1:
+                                    logger.warning(f"Geçersiz bounding box: x1={x1}, y1={y1}, x2={x2}, y2={y2}")
+                                    continue
+                            except (ValueError, TypeError) as bbox_err:
+                                logger.warning(f"Bounding box dönüşüm hatası: {str(bbox_err)}")
+                                continue
+                                
+                            w = x2 - x1
+                            h = y2 - y1
+                            bbox = [x1, y1, w, h]
+                            
+                            # Embedding kontrolü
+                            if not hasattr(face, 'embedding') or face.embedding is None:
+                                logger.warning(f"Yüz {idx} için embedding bulunamadı")
+                                continue
+                                
+                            embedding = face.embedding
+                            
+                            detections.append({
+                                'bbox': bbox,
+                                'embedding': embedding,
+                                'face': face
+                            })
+                            
+                            logger.info(f"Kare: {frame_path}, Yüz {idx}: age={age}, confidence={confidence}")
+                            
+                        except Exception as face_err:
+                            logger.error(f"Yüz {idx} işlenirken hata: {str(face_err)}")
+                            continue
+                            
+                    if not detections:
+                        logger.warning(f"İşlenebilir yüz bulunamadı: {frame_path}")
+                        continue
+                        
+                    # DeepSORT ile takip
+                    try:
+                        tracks = tracker.update_tracks(
+                            [(d['bbox'], 1.0, "face") for d in detections],
+                            embeds=[d['embedding'] for d in detections],
+                            frame=image
+                        )
+                        
+                        for det, track in zip(detections, tracks):
+                            if not track.is_confirmed():
+                                continue
+                                
+                            track_id = f"{analysis.id}_person_{track.track_id}"
+                            face = det['face']
+                            x1, y1, w, h = det['bbox']
+                            age = face.age
+                            
+                            # CLIP ile güven skoru hesapla
+                            try:
+                                ages_to_try = list(range(max(1, age-5), min(100, age+6)))
+                                prompts = [f"{age} years old person" for age in ages_to_try]
+                                inputs = clip.tokenize(prompts).to(clip_device)
+                                
+                                # Görüntü sınırlarını kontrol et
+                                x2 = min(x1 + w, image.shape[1])
+                                y2 = min(y1 + h, image.shape[0])
+                                x1 = max(0, x1)
+                                y1 = max(0, y1)
+                                
+                                # Görüntüyü dilimle
+                                face_roi = image[y1:y2, x1:x2]
+                                if face_roi.size == 0:
+                                    logger.warning(f"Boş yüz bölgesi: x1={x1}, y1={y1}, x2={x2}, y2={y2}")
+                                    confidence = 0.5  # Boş yüz bölgesi durumunda varsayılan değer
+                                else:
+                                    face_pil = Image.fromarray(cv2.cvtColor(face_roi, cv2.COLOR_BGR2RGB))
+                                    image_input = clip_preprocess(face_pil).unsqueeze(0).to(clip_device)
+                                    with torch.no_grad():
+                                        image_features = clip_model.encode_image(image_input)
+                                        text_features = clip_model.encode_text(inputs)
+                                        similarities = (image_features @ text_features.T).squeeze().cpu().numpy()
+                                        probs = np.exp(similarities) / np.sum(np.exp(similarities))
+                                        best_idx = np.argmax(probs)
+                                        best_prob = probs[best_idx]
+                                        second_prob = np.partition(probs.flatten(), -2)[-2] if len(probs) > 1 else 0.0
+                                        confidence = float(0.7 * best_prob + 0.3 * (best_prob - second_prob))
+                                        
+                                if confidence is None:
+                                    logger.warning(f"CLIP güven skoru None, varsayılan değer kullanılıyor: person_id={track_id}")
+                                    confidence = 0.5
+                                else:
+                                    logger.info(f"CLIP güven skoru: {confidence:.4f} (person_id={track_id})")
+                                    
+                            except Exception as clip_err:
+                                logger.error(f"CLIP güven skoru hesaplama hatası: {str(clip_err)}")
+                                confidence = 0.5  # Hata durumunda varsayılan değer
+                                
+                            # Kişi için en iyi kareyi güncelle
+                            if (track_id not in person_best_frames) or (confidence > person_best_frames[track_id]['confidence']):
+                                person_best_frames[track_id] = {
+                                    'confidence': confidence,
+                                    'frame_path': frame_path,
+                                    'timestamp': timestamp,
+                                    'bbox': (x1, y1, w, h),
+                                    'age': age
+                                }
+                                
+                                # AgeEstimation kaydını oluştur veya güncelle
+                                try:
+                                    age_est = AgeEstimation.query.filter_by(
+                                        analysis_id=analysis.id,
+                                        person_id=track_id
+                                    ).first()
+                                    
+                                    if not age_est:
+                                        age_est = AgeEstimation(
+                                            analysis_id=analysis.id,
+                                            person_id=track_id,
+                                            frame_path=frame_path,
+                                            estimated_age=age,
+                                            confidence_score=confidence
+                                        )
+                                    else:
+                                        # Sadece daha yüksek güven skorlu sonuçları güncelle
+                                        if confidence > age_est.confidence_score:
+                                            age_est.frame_path = frame_path
+                                            age_est.estimated_age = age
+                                            age_est.confidence_score = confidence
+                                            
+                                    db.session.add(age_est)
+                                    
+                                    # Overlay oluştur
+                                    out_dir = os.path.join(current_app.config['PROCESSED_FOLDER'], f"frames_{analysis.id}", "overlays")
+                                    os.makedirs(out_dir, exist_ok=True)
+                                    out_name = f"{track_id}_{os.path.basename(frame_path)}"
+                                    out_path = os.path.join(out_dir, out_name)
+                                    
+                                    try:
+                                        # Görüntüyü kopyala ve overlay ekle
+                                        image_with_overlay = image.copy()
+                                        x2, y2 = x1 + w, y1 + h
+                                        
+                                        # Sınırları kontrol et
+                                        x1 = max(0, x1)
+                                        y1 = max(0, y1)
+                                        x2 = min(image.shape[1], x2)
+                                        y2 = min(image.shape[0], y2)
+                                        
+                                        # Çerçeve çiz
+                                        cv2.rectangle(image_with_overlay, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                                        
+                                        # Metin için arka plan oluştur
+                                        text = f"ID: {track_id.split('_')[-1]}  YAS: {int(age)}"
+                                        text_size = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.7, 2)[0]
+                                        text_y = y1 - 10 if y1 > 20 else y1 + h + 25
+                                        
+                                        # Metin arka planı için koordinatları hesapla
+                                        text_bg_x1 = x1
+                                        text_bg_y1 = text_y - text_size[1] - 5
+                                        text_bg_x2 = x1 + text_size[0] + 10
+                                        text_bg_y2 = text_y + 5
+                                        
+                                        # Arka plan çiz
+                                        cv2.rectangle(image_with_overlay, 
+                                                    (text_bg_x1, text_bg_y1),
+                                                    (text_bg_x2, text_bg_y2),
+                                                    (0, 0, 0),
+                                                    -1)
+                                        
+                                        # Metni çiz
+                                        cv2.putText(image_with_overlay, text, (x1 + 5, text_y), 
+                                                  cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+                                        
+                                        # Overlay'i kaydet
+                                        success = cv2.imwrite(out_path, image_with_overlay)
+                                        if not success:
+                                            logger.error(f"Overlay kaydedilemedi: {out_path}")
+                                            continue
+                                            
+                                        # Göreceli yolu hesapla ve kaydet
+                                        rel_path = os.path.relpath(out_path, current_app.config['STORAGE_FOLDER']).replace('\\', '/')
+                                        age_est.processed_image_path = rel_path
+                                        db.session.add(age_est)
+                                        logger.info(f"[DEBUG] Overlay başarıyla oluşturuldu: person_id={track_id}, frame={frame_path}, path={rel_path}")
+                                        
+                                    except Exception as overlay_err:
+                                        logger.error(f"Overlay oluşturma hatası (person_id={track_id}): {str(overlay_err)}")
+                                        continue
+                                        
+                                except Exception as db_err:
+                                    logger.error(f"Veritabanı işlemi hatası (person_id={track_id}): {str(db_err)}")
+                                    continue
+                                    
+                    except Exception as track_err:
+                        logger.error(f"DeepSORT takip hatası: {str(track_err)}")
+                        continue
+                        
+                except Exception as age_err:
+                    logger.error(f"Yaş analizi hatası: {str(age_err)}")
+                    continue
             
             # Belirli aralıklarla işlemleri veritabanına kaydet (her 10 karede bir)
             if i % 10 == 0:
@@ -1086,13 +1263,16 @@ def analyze_video(analysis):
                     # AgeEstimation kaydını güncelle (en yüksek confidence'lı olanı bul)
                     best_est = AgeEstimation.query.filter_by(analysis_id=analysis.id, person_id=person_id).order_by(AgeEstimation.confidence_score.desc()).first()
                     if best_est:
+                        logger.info(f"[DEBUG] Overlay güncelleme: person_id={person_id}, rel_path={rel_path}, DB'deki eski path={best_est.processed_image_path}")
                         best_est.processed_image_path = rel_path
                         db.session.add(best_est)
-                        logger.info(f"[DEBUG] Overlay DB'ye yazıldı - path={rel_path}")
-                        if not best_est.processed_image_path:
-                            logger.warning(f"[DEBUG] Overlay path boş! person_id={person_id}, kare={out_path}")
+                        db.session.commit()
+                        logger.info(f"[DEBUG] Overlay DB'ye yazıldı - person_id={person_id}, rel_path={rel_path}, DB'deki yeni path={best_est.processed_image_path}")
+                        # DB'den tekrar oku ve logla
+                        kontrol_est = AgeEstimation.query.filter_by(id=best_est.id).first()
+                        logger.info(f"[DEBUG] DB'den tekrar okundu: id={best_est.id}, processed_image_path={kontrol_est.processed_image_path}")
                     else:
-                        # Eğer yoksa yeni bir kayıt oluştur
+                        logger.info(f"[DEBUG] Overlay yeni kayıt: person_id={person_id}, rel_path={rel_path}")
                         new_est = AgeEstimation(
                             analysis_id=analysis.id,
                             person_id=person_id,
@@ -1103,6 +1283,11 @@ def analyze_video(analysis):
                         new_est.set_face_location(x1, y1, w, h)
                         new_est.processed_image_path = rel_path
                         db.session.add(new_est)
+                        db.session.commit()
+                        logger.info(f"[DEBUG] Overlay yeni kayıt DB'ye yazıldı - person_id={person_id}, rel_path={rel_path}, DB'deki path={new_est.processed_image_path}")
+                        # DB'den tekrar oku ve logla
+                        kontrol_est = AgeEstimation.query.filter_by(id=new_est.id).first()
+                        logger.info(f"[DEBUG] DB'den tekrar okundu: id={new_est.id}, processed_image_path={kontrol_est.processed_image_path}")
                 except Exception as overlay_err:
                     logger.warning(f"[DEBUG] Overlay oluşturulamadı (person_id={person_id}, kare={src_path})")
                     # Overlay hatası olursa orijinal kare klasörde kalır
