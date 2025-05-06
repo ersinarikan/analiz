@@ -112,6 +112,12 @@ def initialize_app(app):
         # Sadece upload ve processed klasörlerini temizle
         clean_folder(app.config['UPLOAD_FOLDER'])
         clean_folder(app.config['PROCESSED_FOLDER'])
+        
+        # Analiz kuyruğu servisini başlat
+        from app.services.queue_service import start_processor
+        print("Analiz kuyruğu servisi başlatılıyor...")
+        start_processor()
+        print("Analiz kuyruğu servisi başlatıldı.")
 
     # Global route'ları kaydet
     register_global_routes(app)

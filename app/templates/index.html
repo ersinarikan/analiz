@@ -96,19 +96,27 @@
                 </div>
             </div>
             
-            <!-- Global İlerleme Bölümü -->
-            <div class="col-lg-12 mb-4" id="globalProgressSection" style="display: none;">
-                <div class="card">
-                    <div class="card-header">
-                        <i class="fas fa-tasks me-2"></i> Genel İlerleme
-                    </div>
-                    <div class="card-body">
-                        <div class="progress mb-3">
-                            <div id="globalProgressBar" class="progress-bar" role="progressbar" style="width: 0%;" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">0%</div>
-                        </div>
-                        <div id="analysisStatus" class="text-center">0 / 0 dosya analizi tamamlandı</div>
-                        <div id="completedMessage" class="alert alert-success mt-3" style="display: none;">
-                            <i class="fas fa-check-circle me-2"></i> Tüm analizler tamamlandı!
+            <!-- Global İlerleme Çubuğu -->
+            <div id="globalProgressSection" class="mt-4 mb-2 container-fluid" style="display:none;">
+                <div class="row">
+                    <div class="col-12">
+                        <div class="card">
+                            <div class="card-body">
+                                <h5 class="card-title">Analiz İlerlemesi</h5>
+                                <div class="d-flex justify-content-between align-items-center mb-2">
+                                    <span id="analysisStatus">Dosyalar analiz ediliyor...</span>
+                                    <span id="queueStatus" style="display:none;" class="text-secondary">
+                                        <i class="fas fa-hourglass-half"></i> Kuyruk: 0 dosya bekliyor
+                                    </span>
+                                </div>
+                                <div class="progress">
+                                    <div id="globalProgressBar" class="progress-bar bg-primary progress-bar-striped progress-bar-animated" 
+                                          role="progressbar" style="width: 0%" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">0%</div>
+                                </div>
+                                <div id="completedMessage" class="alert alert-success mt-2" style="display:none;">
+                                    <i class="fas fa-check-circle"></i> Tüm dosyaların analizi tamamlandı!
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>

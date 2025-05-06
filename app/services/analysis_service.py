@@ -171,12 +171,11 @@ class AnalysisService:
             except Exception as socket_err:
                 logger.warning(f"Socket.io analiz başlangıç bildirimi hatası: {str(socket_err)}")
             
-            # Analizi doğrudan başlat (Thread oluştur)
-            thread = threading.Thread(target=self._process_analysis, args=(analysis.id,))
-            thread.daemon = True  # Daemon thread olarak işaretle
-            thread.start()
+            # Analizi kuyruğa ekle (thread yerine kuyruk kullan)
+            from app.services.queue_service import add_to_queue
+            add_to_queue(analysis.id)
             
-            logger.info(f"Analiz thread başlatıldı: #{analysis.id}")
+            logger.info(f"Analiz kuyruğa eklendi: #{analysis.id}")
             
             return analysis
                 
@@ -185,9 +184,10 @@ class AnalysisService:
             db.session.rollback()
             return None
     
-    def _process_analysis(self, analysis_id):
+    def _process_analysis_legacy(self, analysis_id):
         """
-        Analiz işlemini gerçekleştirir (Celery task yerine doğrudan çalışır)
+        [LEGACY/UNUSED] Bu metod artık kullanılmıyor, queue_service tarafından yönetiliyor.
+        Eski analiz işlemini gerçekleştirirdi (Celery task yerine doğrudan çalışır)
         
         Args:
             analysis_id: Analiz edilecek analizin ID'si
@@ -197,7 +197,7 @@ class AnalysisService:
         from flask import current_app
         
         start_time = time.time()
-        logger.info(f"Analiz işlemi başlatılıyor: #{analysis_id}")
+        logger.info(f"[LEGACY] Analiz işlemi başlatılıyor: #{analysis_id}")
         
         # Flask uygulama bağlamını al
         from app import create_app
@@ -388,8 +388,11 @@ class AnalysisService:
             db.session.add(new_analysis)
             db.session.commit()
             
-            # Analizi doğrudan başlat (Celery yerine)
-            threading.Thread(target=self._process_analysis, args=(new_analysis.id,)).start()
+            # Analizi kuyruğa ekle (thread yerine)
+            from app.services.queue_service import add_to_queue
+            add_to_queue(new_analysis.id)
+            
+            logger.info(f"Tekrar analiz kuyruğa eklendi: #{new_analysis.id}")
             
             return new_analysis
             

@@ -46,6 +46,39 @@ function initializeSocket() {
         console.log('WebSocket bağlantısı kesildi.');
     });
     
+    // Kuyruk durumu güncellemeleri
+    socket.on('queue_status', (data) => {
+        console.log('Kuyruk durumu güncellendi:', data);
+        updateQueueStatus(data);
+    });
+    
+    // Analiz durumu güncelleme (yeni, tüm status değişikliklerini takip eder)
+    socket.on('analysis_status_update', (data) => {
+        console.log('Analiz durumu güncellendi:', data);
+        const { analysis_id, file_id, status, progress, message } = data;
+        
+        // Dosya ID'sini bul
+        const file = uploadedFiles.find(f => f.fileId == file_id);
+        if (file) {
+            // Dosya durumunu güncelle
+            fileStatuses.set(file.id, status);
+            
+            // UI güncelle
+            updateFileStatus(file.id, status, progress);
+            
+            // Eğer tamamlandıysa sonuçları göster
+            if (status === 'completed') {
+                // Analiz ID'sini kaydet
+                file.analysisId = analysis_id;
+                fileAnalysisMap.set(file.id, analysis_id);
+                getAnalysisResults(file.id, analysis_id);
+            }
+            
+            // Genel ilerlemeyi güncelle
+            updateGlobalProgress();
+        }
+    });
+    
     // Analiz başladı
     socket.on('analysis_started', (data) => {
         console.log('Analiz başladı:', data);
@@ -80,11 +113,15 @@ function initializeSocket() {
             
             // İlerleme detaylarını tooltip'te göster
             const fileCard = document.getElementById(file.id);
-            const statusElement = fileCard.querySelector('.file-status-text');
-            statusElement.title = `İşlenen kare: ${current_frame}/${total_frames}
+            if (fileCard) {
+                const statusElement = fileCard.querySelector('.file-status-text');
+                if (statusElement) {
+                    statusElement.title = `İşlenen kare: ${current_frame}/${total_frames}
 Tespit edilen yüz: ${detected_faces || 0}
 Yüksek riskli kare: ${high_risk_frames || 0}
 İlerleme: %${progress.toFixed(1)}`;
+                }
+            }
             
             // Her 10 karede bir mesaj göster
             if (current_frame % 10 === 0 || current_frame === total_frames) {
@@ -230,6 +267,69 @@ function initializeEventListeners() {
             removeFile(fileCard.id);
         }
     });
+    
+    // Uygulama başlangıcında kuyruk durumu kontrolünü başlat
+    startQueueStatusChecker();
+}
+
+// Sayfa yüklendiğinde kuyruk durumunu periyodik olarak kontrol et
+function startQueueStatusChecker() {
+    // İlk kontrol
+    checkQueueStatus();
+    
+    // 5 saniyede bir kontrol et
+    setInterval(checkQueueStatus, 5000);
+}
+
+// Kuyruk durumunu kontrol et
+function checkQueueStatus() {
+    fetch('/api/debug/queue-status')
+    .then(response => {
+        if (!response.ok) {
+            throw new Error(`HTTP error! Status: ${response.status}`);
+        }
+        return response.json();
+    })
+    .then(data => {
+        updateQueueStatus(data);
+    })
+    .catch(error => {
+        console.error('Kuyruk durumu kontrol hatası:', error);
+    });
+}
+
+// Kuyruk durumunu güncelle
+function updateQueueStatus(data) {
+    const queueStatusElement = document.getElementById('queueStatus');
+    if (!queueStatusElement) return;
+    
+    if (data && (data.active || data.size > 0)) {
+        // Kuyruk aktif veya bekleyen dosya varsa
+        const waitingCount = data.size || 0;
+        const statusText = `Kuyruk: ${waitingCount} dosya bekliyor`;
+        
+        queueStatusElement.innerHTML = `
+            <i class="fas fa-hourglass-half"></i> ${statusText}
+        `;
+        queueStatusElement.style.display = 'block';
+        
+        // Global ilerleme alanını da göster
+        const globalProgressSection = document.getElementById('globalProgressSection');
+        if (globalProgressSection) {
+            globalProgressSection.style.display = 'block';
+        }
+        
+        // Analiz durumu metnini de güncelle
+        const statusElement = document.getElementById('analysisStatus');
+        if (statusElement) {
+            const completedCount = getCompletedAnalysesCount();
+            const totalCount = fileStatuses.size;
+            statusElement.textContent = `${completedCount} / ${totalCount} dosya analizi tamamlandı`;
+        }
+    } else {
+        // Kuyruk aktif değilse ve bekleyen dosya yoksa
+        queueStatusElement.style.display = 'none';
+    }
 }
 
 // Dosya seçimini işle
@@ -548,8 +648,15 @@ function startAnalysis(fileId, serverFileId, framesPerSecond, includeAgeAnalysis
     .then(response => {
         console.log("Analysis started", response);
         
-        // Analiz ID'sini kaydet - response.analysis_id yerine response.analysis.id kullan
-        const analysisId = response.analysis ? response.analysis.id : null;
+        // Analiz ID'sini doğru şekilde çıkar
+        let analysisId = null;
+        if (response.analysis && response.analysis.id) {
+            // Yeni API formatı (response.analysis.id)
+            analysisId = response.analysis.id;
+        } else if (response.analysis_id) {
+            // Eski API formatı (response.analysis_id)
+            analysisId = response.analysis_id;
+        }
         
         if (!analysisId) {
             console.error("Analiz ID alınamadı:", response);
@@ -624,21 +731,47 @@ function checkAnalysisStatus(analysisId, fileId) {
         
         // Dosya durumunu güncelle
         fileStatuses.set(fileId, status);
-        updateFileStatus(fileId, status, progress);
         
-        // Genel ilerlemeyi güncelle
-        updateGlobalProgress();
+        // Dosya nesnesini bul ve güncelle
+        const fileIndex = uploadedFiles.findIndex(f => f.id === fileId);
+        if (fileIndex !== -1) {
+            uploadedFiles[fileIndex].analysisId = analysisId;
+            uploadedFiles[fileIndex].status = status;
+        }
         
-        if (status === "completed") {
+        // Kuyrukta bekliyor durumu için özel mesaj
+        if (status === "queued") {
+            const queueMessage = "Sırada";
+            updateFileStatus(fileId, queueMessage, 0);
+            
+            // Kuyrukta bekleyen öğeyi kontrol etmeye devam et
+            setTimeout(() => checkAnalysisStatus(analysisId, fileId), 2000);
+        } else if (status === "processing") {
+            // İşlem yapılıyorsa ilerleyişi göster
+            updateFileStatus(fileId, status, progress);
+            
+            // Analiz devam ediyorsa durumu kontrol etmeye devam et
+            setTimeout(() => checkAnalysisStatus(analysisId, fileId), 2000);
+        } else if (status === "completed") {
             // Analiz tamamlandıysa sonuçları göster
+            updateFileStatus(fileId, status, 100);
             getAnalysisResults(fileId, analysisId);
         } else if (status === "failed") {
             // Analiz başarısız olduysa hata mesajı göster
+            updateFileStatus(fileId, status, 0);
             showError(`${fileNameFromId(fileId)} dosyası için analiz başarısız oldu: ${response.error || "Bilinmeyen hata"}`);
-        } else if (status === "processing" || status === "queued") {
-            // Analiz devam ediyorsa durumu kontrol etmeye devam et
-            setTimeout(() => checkAnalysisStatus(analysisId, fileId), 2000);
+        } else {
+            // Diğer durumlar için (cancelled vb)
+            updateFileStatus(fileId, status, progress);
+            
+            // İşlem devam ediyorsa kontrol etmeye devam et
+            if (status !== "completed" && status !== "failed") {
+                setTimeout(() => checkAnalysisStatus(analysisId, fileId), 2000);
+            }
         }
+        
+        // Genel ilerlemeyi güncelle
+        updateGlobalProgress();
     })
     .catch(error => {
         console.error(`Error checking analysis status for ${analysisId}:`, error);

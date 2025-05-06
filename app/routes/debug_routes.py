@@ -3,9 +3,20 @@ import logging
 from app.services.debug_service import test_numpy_serialization, debug_object
 import numpy as np
 import json
+import os
+import sys
+import subprocess
+import platform
+import time
+import psutil
+import threading
+
+from app.models.analysis import Analysis
+from app.services.analysis_service import AnalysisService
+from app.services.queue_service import get_queue_status
 
 logger = logging.getLogger(__name__)
-bp = Blueprint('debug', __name__, url_prefix='/debug')
+bp = Blueprint('debug', __name__, url_prefix='/api/debug')
 
 @bp.route('/test_serialization', methods=['GET'])
 def test_serialization():
@@ -76,3 +87,88 @@ def test_content_detection():
             'error': str(e),
             'traceback': traceback.format_exc()
         }), 500 
+
+@bp.route('/system-info', methods=['GET'])
+def system_info():
+    """
+    Sistem bilgilerini döndürür.
+    """
+    try:
+        import numpy as np
+        import cv2
+        import tensorflow as tf
+        
+        # Python ve kütüphane bilgileri
+        python_info = {
+            'version': sys.version,
+            'platform': platform.platform(),
+            'numpy_version': np.__version__,
+            'cv2_version': cv2.__version__,
+            'tensorflow_version': tf.__version__
+        }
+        
+        # İşletim sistemi ve donanım bilgileri
+        system = {
+            'os': platform.system(),
+            'release': platform.release(),
+            'cpu_count': os.cpu_count(),
+            'memory_total': psutil.virtual_memory().total / (1024**3),  # GB
+            'memory_available': psutil.virtual_memory().available / (1024**3)  # GB
+        }
+        
+        # GPU bilgisi (NVIDIA için)
+        gpu_info = {}
+        try:
+            if platform.system() == 'Linux':
+                result = subprocess.run(['nvidia-smi', '--query-gpu=name,memory.total,memory.used', 
+                                        '--format=csv,noheader,nounits'], capture_output=True, text=True)
+                if result.returncode == 0:
+                    gpu_data = []
+                    for line in result.stdout.strip().split('\n'):
+                        parts = line.split(',')
+                        if len(parts) >= 3:
+                            gpu_data.append({
+                                'name': parts[0].strip(),
+                                'memory_total': float(parts[1].strip()),
+                                'memory_used': float(parts[2].strip())
+                            })
+                    gpu_info['devices'] = gpu_data
+            elif platform.system() == 'Windows':
+                result = subprocess.run(['wmic', 'path', 'win32_VideoController', 'get', 'name'], 
+                                      capture_output=True, text=True)
+                if result.returncode == 0:
+                    gpu_names = [line.strip() for line in result.stdout.strip().split('\n')[1:] if line.strip()]
+                    gpu_info['devices'] = [{'name': name} for name in gpu_names]
+        except Exception as e:
+            gpu_info['error'] = str(e)
+        
+        # Thread bilgileri
+        current_threads = threading.enumerate()
+        thread_info = [{'name': t.name, 'daemon': t.daemon} for t in current_threads]
+        
+        # Toplam bilgiler
+        return jsonify({
+            'python': python_info,
+            'system': system,
+            'gpu': gpu_info,
+            'threads': thread_info,
+            'timestamp': time.time()
+        })
+        
+    except Exception as e:
+        logger.error(f"Sistem bilgisi alınırken hata: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@bp.route('/queue-status', methods=['GET'])
+def queue_status():
+    """
+    Kuyruk durumunu döndürür.
+    """
+    from app.services.queue_service import get_queue_status
+    
+    try:
+        status = get_queue_status()
+        return jsonify(status), 200
+    except Exception as e:
+        logger.error(f"Kuyruk durumu alınırken hata: {str(e)}")
+        return jsonify({'error': f'Kuyruk durumu alınırken bir hata oluştu: {str(e)}'}), 500 
