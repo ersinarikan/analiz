@@ -1108,11 +1108,30 @@ function displayAnalysisResults(fileId, results) {
         
         const scores = results.overall_scores;
         
+        // Skorların formatını incele
+        console.log("Skorların ham değerleri:", scores);
+        
+        // Skorlar 0-1 aralığında geliyorsa 0-100 aralığına dönüştür
+        const normalizedScores = {};
+        for (const [category, score] of Object.entries(scores)) {
+            // Eğer skor 0-1 aralığındaysa (yani 1'den küçükse), 100 ile çarp
+            if (score <= 1.0) {
+                normalizedScores[category] = score * 100;
+                console.log(`${category} skoru normalize edildi: ${score} → ${normalizedScores[category]}`);
+            } else {
+                // Skor zaten 0-100 aralığındaysa olduğu gibi kullan
+                normalizedScores[category] = score;
+            }
+        }
+        
+        // Orijinal scores değişkeni yerine normalizedScores kullan
+        const scoresForDisplay = normalizedScores;
+        
         // Güven skorlarını kontrol et
         const confidenceScores = results.confidence_scores || results.score_confidences || {};
         const hasConfidenceScores = Object.keys(confidenceScores).length > 0;
         
-        for (const [category, score] of Object.entries(scores)) {
+        for (const [category, score] of Object.entries(scoresForDisplay)) {
             const scoreElement = document.createElement('div');
             scoreElement.className = 'mb-2';
             
@@ -1133,10 +1152,10 @@ function displayAnalysisResults(fileId, results) {
             
             if (category === 'safe') {
                 // Güvenli kategori için farklı risk yorumlaması
-                if (score >= 0.7) {
+                if (score >= 70) {
                     riskLevel = 'Yüksek Güven';
                     riskClass = 'risk-level-low'; // Yeşil renk
-                } else if (score >= 0.3) {
+                } else if (score >= 30) {
                     riskLevel = 'Orta Güven';
                     riskClass = 'risk-level-medium'; // Sarı renk
                 } else {
@@ -1145,10 +1164,10 @@ function displayAnalysisResults(fileId, results) {
                 }
             } else {
                 // Diğer kategoriler için normal risk yorumlaması
-                if (score >= 0.7) {
+                if (score >= 70) {
                     riskLevel = 'Yüksek Risk';
                     riskClass = 'risk-level-high';
-                } else if (score >= 0.3) {
+                } else if (score >= 30) {
                     riskLevel = 'Orta Risk';
                     riskClass = 'risk-level-medium';
                 } else {
@@ -1164,7 +1183,7 @@ function displayAnalysisResults(fileId, results) {
             let progressBarClass = '';
             if (category === 'safe') {
                 // Güvenli kategorisi için yeşil ton kullan, değer yükseldikçe daha koyu yeşil
-                progressBarClass = score >= 0.7 ? 'bg-success' : score >= 0.3 ? 'bg-info' : 'bg-warning';
+                progressBarClass = score >= 70 ? 'bg-success' : score >= 30 ? 'bg-info' : 'bg-warning';
             } else {
                 // Diğer kategoriler için risk arttıkça kırmızılaşan renk
                 progressBarClass = riskClass === 'risk-level-high' ? 'bg-danger' : 
@@ -1179,12 +1198,12 @@ function displayAnalysisResults(fileId, results) {
             scoreElement.innerHTML = `
                 <div class="d-flex justify-content-between align-items-center">
                     <span>${categoryName} ${isSuspicious ? '<i class="fas fa-question-circle text-warning" title="Bu kategori skoru tutarsız olabilir"></i>' : ''}</span>
-                    <span class="risk-score ${riskClass}">${(score * 100).toFixed(0)}% - ${riskLevel}</span>
+                    <span class="risk-score ${riskClass}">${score.toFixed(0)}% - ${riskLevel}</span>
                 </div>
                 <div class="progress mb-1">
                     <div class="progress-bar ${progressBarClass}" 
-                         role="progressbar" style="width: ${score * 100}%" 
-                         aria-valuenow="${score * 100}" aria-valuemin="0" aria-valuemax="100"></div>
+                         role="progressbar" style="width: ${score}%" 
+                         aria-valuenow="${score}" aria-valuemin="0" aria-valuemax="100"></div>
                 </div>
                 ${showConfidence ? `
                 <div class="d-flex justify-content-between align-items-center small text-muted">
@@ -1296,7 +1315,16 @@ function displayAnalysisResults(fileId, results) {
                 }
                 
                 if (highestRiskScore) {
-                    highestRiskScore.textContent = `Skor: ${(results.highest_risk.score * 100).toFixed(0)}%`;
+                    // Skor muhtemelen 0-1 aralığında, kontrol edip 0-100 aralığına dönüştür
+                    let displayScore = results.highest_risk.score;
+                    
+                    // Eğer skor 0-1 aralığındaysa
+                    if (displayScore <= 1.0) {
+                        displayScore = displayScore * 100;
+                        console.log(`En yüksek risk skoru normalize edildi: ${results.highest_risk.score} → ${displayScore}`);
+                    }
+                    
+                    highestRiskScore.textContent = `Skor: ${displayScore.toFixed(0)}%`;
                 }
                 
                 // Zaman bilgisini ekle
@@ -1359,6 +1387,16 @@ function displayAnalysisResults(fileId, results) {
                     'safe': null
                 };
                 
+                // En yüksek skoru takip etmek için değişken tanımla
+                const highestScores = {
+                    'violence': 0,
+                    'adult_content': 0,
+                    'harassment': 0,
+                    'weapon': 0,
+                    'drug': 0,
+                    'safe': 0
+                };
+                
                 // Her kategori için en yüksek skorlu kareleri bul
                 contentDetections.forEach(detection => {
                     // Eski kontrol:
@@ -1379,13 +1417,21 @@ function displayAnalysisResults(fileId, results) {
                     // Her kategori için skoru kontrol et
                     for (const [category, score] of Object.entries(categoryScores)) {
                         if (score && !isNaN(score)) {
-                            if (!categoryTopDetections[category] || score > categoryTopDetections[category].score) {
-                                console.log(`Daha yüksek ${category} skoru bulundu:`, score);
+                            // Skor 0-1 aralığında mı kontrol et
+                            let normalizedScore = score;
+                            if (score <= 1.0) {
+                                normalizedScore = score * 100;
+                                console.log(`Detay tabı ${category} skoru normalize edildi: ${score} → ${normalizedScore}`);
+                            }
+                            
+                            if (!categoryTopDetections[category] || normalizedScore > highestScores[category]) {
+                                console.log(`Daha yüksek ${category} skoru bulundu:`, normalizedScore);
                                 categoryTopDetections[category] = {
-                                    score: score,
+                                    score: normalizedScore, // normalize edilmiş skoru kullan
                                     frame_path: detection.frame_path,
                                     timestamp: detection.frame_timestamp // frame_timestamp alanını kullan
                                 };
+                                highestScores[category] = normalizedScore; // En yüksek skoru güncelle
                             }
                         }
                     }
@@ -1409,27 +1455,27 @@ function displayAnalysisResults(fileId, results) {
                     switch (category) {
                         case 'violence': 
                             categoryName = 'Şiddet'; 
-                            badgeClass = (detection.score >= 0.7) ? 'bg-danger' : (detection.score >= 0.3) ? 'bg-warning' : 'bg-success';
+                            badgeClass = (detection.score >= 70) ? 'bg-danger' : (detection.score >= 30) ? 'bg-warning' : 'bg-success';
                             break;
                         case 'adult_content': 
                             categoryName = 'Yetişkin İçeriği'; 
-                            badgeClass = (detection.score >= 0.7) ? 'bg-danger' : (detection.score >= 0.3) ? 'bg-warning' : 'bg-success';
+                            badgeClass = (detection.score >= 70) ? 'bg-danger' : (detection.score >= 30) ? 'bg-warning' : 'bg-success';
                             break;
                         case 'harassment': 
                             categoryName = 'Taciz'; 
-                            badgeClass = (detection.score >= 0.7) ? 'bg-danger' : (detection.score >= 0.3) ? 'bg-warning' : 'bg-success';
+                            badgeClass = (detection.score >= 70) ? 'bg-danger' : (detection.score >= 30) ? 'bg-warning' : 'bg-success';
                             break;
                         case 'weapon': 
                             categoryName = 'Silah'; 
-                            badgeClass = (detection.score >= 0.7) ? 'bg-danger' : (detection.score >= 0.3) ? 'bg-warning' : 'bg-success';
+                            badgeClass = (detection.score >= 70) ? 'bg-danger' : (detection.score >= 30) ? 'bg-warning' : 'bg-success';
                             break;
                         case 'drug': 
                             categoryName = 'Madde Kullanımı'; 
-                            badgeClass = (detection.score >= 0.7) ? 'bg-danger' : (detection.score >= 0.3) ? 'bg-warning' : 'bg-success';
+                            badgeClass = (detection.score >= 70) ? 'bg-danger' : (detection.score >= 30) ? 'bg-warning' : 'bg-success';
                             break;
                         case 'safe': 
                             categoryName = 'Güvenli'; 
-                            badgeClass = (detection.score >= 0.7) ? 'bg-success' : (detection.score >= 0.3) ? 'bg-info' : 'bg-warning';
+                            badgeClass = (detection.score >= 70) ? 'bg-success' : (detection.score >= 30) ? 'bg-info' : 'bg-warning';
                             break;
                     }
                     
@@ -1477,13 +1523,17 @@ function displayAnalysisResults(fileId, results) {
                             <div class="card-body">
                                 <h6 class="card-title">${categoryName}</h6>
                                 <div class="d-flex justify-content-between mb-1">
-                                    <span>Risk Skoru:</span>
-                                    <strong>${(detection.score * 100).toFixed(0)}%</strong>
+                                    <span>${category === 'safe' ? 'Güven Skoru:' : 'Risk Skoru:'}</span>
+                                    <strong>${highestScores[category].toFixed(0)}%</strong>
                                 </div>
                                 <div class="progress">
-                                    <div class="progress-bar ${badgeClass}" style="width: ${detection.score * 100}%" 
-                                         role="progressbar" aria-valuenow="${detection.score * 100}" 
-                                         aria-valuemin="0" aria-valuemax="100"></div>
+                                    <div class="progress-bar ${badgeClass}" 
+                                        style="width: ${highestScores[category]}%" 
+                                        role="progressbar" 
+                                        aria-valuenow="${highestScores[category]}" 
+                                        aria-valuemin="0" 
+                                        aria-valuemax="100">
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -2731,7 +2781,7 @@ function displayHighestRiskFrame(results) {
             const categoryName = getCategoryDisplayName(results.highest_risk.category);
             const scoreLabel = document.createElement('div');
             scoreLabel.className = 'position-absolute bottom-0 end-0 bg-danger text-white px-2 py-1 rounded-start';
-            scoreLabel.innerHTML = `${categoryName}: ${Math.round(results.highest_risk.score * 100)}%`;
+            scoreLabel.innerHTML = `${categoryName}: ${Math.round(results.highest_risk.score)}%`;
             container.appendChild(scoreLabel);
             
             // Zaman bilgisi varsa ekle
@@ -2866,13 +2916,13 @@ function displayHighRiskFramesByCategory(results) {
                         <h6 class="card-title">${categoryName}</h6>
                         <div class="d-flex justify-content-between mb-1">
                             <span>${category === 'safe' ? 'Güven Skoru:' : 'Risk Skoru:'}</span>
-                            <strong>${(highestScores[category] * 100).toFixed(0)}%</strong>
+                            <strong>${highestScores[category].toFixed(0)}%</strong>
                         </div>
                         <div class="progress">
                             <div class="progress-bar ${badgeClass}" 
-                                style="width: ${highestScores[category] * 100}%" 
+                                style="width: ${highestScores[category]}%" 
                                 role="progressbar" 
-                                aria-valuenow="${highestScores[category] * 100}" 
+                                aria-valuenow="${highestScores[category]}" 
                                 aria-valuemin="0" 
                                 aria-valuemax="100">
                             </div>
