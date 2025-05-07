@@ -672,86 +672,117 @@ def analyze_image(analysis):
                 h = y2 - y1
                 if x1 >= 0 and y1 >= 0 and w > 0 and h > 0 and x1+w <= image.shape[1] and y1+h <= image.shape[0]:
                     person_id = f"{analysis.id}_person_{i}"
-                    confidence = 0.50  # Varsayılan değer
-                    # CLIP ile confidence hesapla
-                    try:
-                        ages_to_try = list(range(max(1, int(face.age)-5), min(100, int(face.age)+6)))
-                        prompts = [f"{age} years old person" for age in ages_to_try]
-                        inputs = clip.tokenize(prompts).to(clip_device)
-                        
-                        # Görüntü sınırlarını kontrol et ve düzelt
-                        x2 = min(x1 + w, image.shape[1])
-                        y2 = min(y1 + h, image.shape[0])
-                        x1 = max(0, x1)
-                        y1 = max(0, y1)
-                        
-                        # Görüntüyü dilimle ve renk dönüşümü yap
-                        face_roi = image[y1:y2, x1:x2]
-                        if face_roi.size == 0:
-                            logger.warning(f"Boş yüz bölgesi: x1={x1}, y1={y1}, x2={x2}, y2={y2}")
-                            confidence = 0.5  # Boş yüz bölgesi durumunda varsayılan değer
-                        else:
-                            face_pil = Image.fromarray(cv2.cvtColor(face_roi, cv2.COLOR_BGR2RGB))
-                            image_input = clip_preprocess(face_pil).unsqueeze(0).to(clip_device)
-                            with torch.no_grad():
-                                image_features = clip_model.encode_image(image_input)
-                                text_features = clip_model.encode_text(inputs)
-                                similarities = (image_features @ text_features.T).squeeze().cpu().numpy()
-                                probs = np.exp(similarities) / np.sum(np.exp(similarities))
-                                best_idx = np.argmax(probs)
-                                best_prob = probs[best_idx]
-                                second_prob = np.partition(probs.flatten(), -2)[-2] if len(probs) > 1 else 0.0
-                                confidence = float(0.7 * best_prob + 0.3 * (best_prob - second_prob))
+                    
+                    # Yüz görüntüsünü çıkar
+                    face_roi = image[y1:y2, x1:x2]
+                    
+                    # Yaş tahmini ve güven skoru hesapla
+                    estimated_age, confidence = age_estimator.estimate_age(face_roi)
+                    
+                    if estimated_age is None:
+                        logger.warning(f"Kare #{i}: Yaş tahmini yapılamadı (track {person_id})")
+                        continue
                                 
-                        if confidence is None:
-                            logger.warning(f"CLIP güven skoru None, varsayılan değer kullanılıyor: person_id={person_id}")
-                            confidence = 0.5
-                        else:
-                            logger.info(f"CLIP güven skoru: {confidence:.4f} (person_id={person_id})")
-                    except Exception as clip_err:
-                        logger.error(f"CLIP confidence hesaplama hatası: {clip_err}")
-                        confidence = 0.50
-                    image_with_overlay = image.copy()
+                    age = float(estimated_age)
+                    
+                    logger.info(f"Kare #{i}: Yaş: {age:.1f}, Güven: {confidence:.2f} (track {person_id})")
+                    
+                    # Takipteki kişi için en iyi kareyi kaydet (yüksek güven skoru varsa)
+                    if person_id not in persons or confidence > persons[person_id]['confidence']:
+                        persons[person_id] = {
+                            'confidence': confidence,
+                            'frame_path': file.file_path,
+                            'timestamp': None,
+                            'bbox': (x1, y1, w, h),
+                            'age': age
+                        }
+                    
+                    # AgeEstimation kaydını oluştur veya güncelle
                     try:
-                        cv2.rectangle(image_with_overlay, (x1, y1), (x2, y2), (0, 255, 0), 2)
-                        text = f"ID: {i+1}  YAS: {int(face.age)}"
-                        text_y = y1 - 10 if y1 > 20 else y1 + h + 25
-                        cv2.putText(image_with_overlay, text, (x1, text_y), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+                        age_est = AgeEstimation.query.filter_by(
+                            analysis_id=analysis.id,
+                            person_id=person_id
+                        ).first()
+                        
+                        if not age_est:
+                            age_est = AgeEstimation(
+                                analysis_id=analysis.id,
+                                person_id=person_id,
+                                frame_path=file.file_path,
+                                estimated_age=age,
+                                confidence_score=confidence
+                            )
+                        else:
+                            # Sadece daha yüksek güven skorlu sonuçları güncelle
+                            if confidence > age_est.confidence_score:
+                                age_est.frame_path = file.file_path
+                                age_est.estimated_age = age
+                                age_est.confidence_score = confidence
+                            
+                        db.session.add(age_est)
+                        
+                        # Overlay oluştur
                         out_dir = os.path.join(current_app.config['PROCESSED_FOLDER'], f"frames_{analysis.id}", "overlays")
                         os.makedirs(out_dir, exist_ok=True)
-                        out_name = f"{person_id}.jpg"
+                        out_name = f"{person_id}_{os.path.basename(file.file_path)}"
                         out_path = os.path.join(out_dir, out_name)
-                        logger.info(f"[DEBUG] Resim analizi - Overlay oluşturuluyor: {out_dir}")
-                        logger.info(f"[DEBUG] Resim analizi - Kare path: {file.file_path}, exists={os.path.exists(file.file_path)}")
-                        image = cv2.imread(file.file_path)
-                        if image is None:
-                            logger.error(f"[DEBUG] Resim analizi - Kare okunamadı: {file.file_path}")
+                        
+                        try:
+                            # Görüntüyü kopyala ve overlay ekle
+                            image_with_overlay = image.copy()
+                            x2, y2 = x1 + w, y1 + h
+                            
+                            # Sınırları kontrol et
+                            x1 = max(0, x1)
+                            y1 = max(0, y1)
+                            x2 = min(image.shape[1], x2)
+                            y2 = min(image.shape[0], y2)
+                            
+                            # Çerçeve çiz
+                            cv2.rectangle(image_with_overlay, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                            
+                            # Metin için arka plan oluştur
+                            text = f"ID: {person_id.split('_')[-1]}  YAS: {int(age)}"
+                            text_size = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.7, 2)[0]
+                            text_y = y1 - 10 if y1 > 20 else y1 + h + 25
+                            
+                            # Metin arka planı için koordinatları hesapla
+                            text_bg_x1 = x1
+                            text_bg_y1 = text_y - text_size[1] - 5
+                            text_bg_x2 = x1 + text_size[0] + 10
+                            text_bg_y2 = text_y + 5
+                            
+                            # Arka plan çiz
+                            cv2.rectangle(image_with_overlay, 
+                                        (text_bg_x1, text_bg_y1),
+                                        (text_bg_x2, text_bg_y2),
+                                        (0, 0, 0),
+                                        -1)
+                            
+                            # Metni çiz
+                            cv2.putText(image_with_overlay, text, (x1 + 5, text_y), 
+                                      cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+                            
+                            # Overlay'i kaydet
+                            success = cv2.imwrite(out_path, image_with_overlay)
+                            if not success:
+                                logger.error(f"Overlay kaydedilemedi: {out_path}")
+                                continue
+                                
+                            # Göreceli yolu hesapla ve kaydet
+                            rel_path = os.path.relpath(out_path, current_app.config['STORAGE_FOLDER']).replace('\\', '/')
+                            age_est.processed_image_path = rel_path
+                            db.session.add(age_est)
+                            logger.info(f"[DEBUG] Overlay başarıyla oluşturuldu: person_id={person_id}, frame={file.file_path}, path={rel_path}")
+                            
+                        except Exception as overlay_err:
+                            logger.error(f"Overlay oluşturma hatası (person_id={person_id}): {str(overlay_err)}")
                             continue
-                        cv2.imwrite(out_path, image_with_overlay)
-                        logger.info(f"[DEBUG] Overlay kaydedildi - path={out_path}, exists={os.path.exists(out_path)}")
-                        rel_path = os.path.relpath(out_path, current_app.config['STORAGE_FOLDER']).replace('\\', '/')
-                        logger.info(f"[DEBUG] Overlay DB path - rel_path={rel_path}")
-                        # AgeEstimation eklemeden önce confidence kontrolü
-                        if confidence is None:
-                            confidence = 0.50
-                        age_estimation = AgeEstimation(
-                            analysis_id=analysis.id,
-                            person_id=person_id,
-                            frame_path=file.file_path,
-                            estimated_age=float(face.age),
-                            confidence_score=float(confidence)
-                        )
-                        age_estimation.set_face_location(x1, y1, w, h)
-                        age_estimation.processed_image_path = rel_path
-                        db.session.add(age_estimation)
-                        db.session.commit()  # Her güncellemeden sonra commit
-                        logger.info(f"[DEBUG] Yaş tahmini sonucu - age={face.age}, confidence={confidence}, person_id={person_id}")
-                        logger.info(f"[DEBUG] API yanıtı - processed_image_path={age_estimation.processed_image_path}")
-                        if not age_estimation.processed_image_path:
-                            logger.warning(f"[DEBUG] Overlay path boş! person_id={person_id}, kare={out_path}")
-                    except Exception as overlay_err:
-                        logger.error(f"Overlay işlemi sırasında hata oluştu (yüz {i}): {overlay_err}")
+                            
+                    except Exception as db_err:
+                        logger.error(f"Veritabanı işlemi hatası (person_id={person_id}): {str(db_err)}")
                         continue
+            
             db.session.commit()
         
         # Değişiklikleri veritabanına kaydet
@@ -996,142 +1027,119 @@ def analyze_video(analysis):
                             x1, y1, w, h = det['bbox']
                             age = face.age
                             
-                            # CLIP ile güven skoru hesapla
-                            try:
-                                ages_to_try = list(range(max(1, age-5), min(100, age+6)))
-                                prompts = [f"{age} years old person" for age in ages_to_try]
-                                inputs = clip.tokenize(prompts).to(clip_device)
+                            # Yaş tahmini ve güven skoru hesapla
+                            face_roi = image[y1:y2, x1:x2]
+                            if face_roi.size == 0:
+                                logger.warning(f"Kare #{i}: Boş yüz bölgesi (track {track_id})")
+                                continue
                                 
-                                # Görüntü sınırlarını kontrol et
-                                x2 = min(x1 + w, image.shape[1])
-                                y2 = min(y1 + h, image.shape[0])
-                                x1 = max(0, x1)
-                                y1 = max(0, y1)
+                            # Yeni güncellendi - doğrudan estimate_age fonksiyonunu kullan
+                            estimated_age, confidence = age_estimator.estimate_age(face_roi)
+                            
+                            if estimated_age is None:
+                                logger.warning(f"Kare #{i}: Yaş tahmini yapılamadı (track {track_id})")
+                                continue
                                 
-                                # Görüntüyü dilimle
-                                face_roi = image[y1:y2, x1:x2]
-                                if face_roi.size == 0:
-                                    logger.warning(f"Boş yüz bölgesi: x1={x1}, y1={y1}, x2={x2}, y2={y2}")
-                                    confidence = 0.5  # Boş yüz bölgesi durumunda varsayılan değer
-                                else:
-                                    face_pil = Image.fromarray(cv2.cvtColor(face_roi, cv2.COLOR_BGR2RGB))
-                                    image_input = clip_preprocess(face_pil).unsqueeze(0).to(clip_device)
-                                    with torch.no_grad():
-                                        image_features = clip_model.encode_image(image_input)
-                                        text_features = clip_model.encode_text(inputs)
-                                        similarities = (image_features @ text_features.T).squeeze().cpu().numpy()
-                                        probs = np.exp(similarities) / np.sum(np.exp(similarities))
-                                        best_idx = np.argmax(probs)
-                                        best_prob = probs[best_idx]
-                                        second_prob = np.partition(probs.flatten(), -2)[-2] if len(probs) > 1 else 0.0
-                                        confidence = float(0.7 * best_prob + 0.3 * (best_prob - second_prob))
-                                        
-                                if confidence is None:
-                                    logger.warning(f"CLIP güven skoru None, varsayılan değer kullanılıyor: person_id={track_id}")
-                                    confidence = 0.5
-                                else:
-                                    logger.info(f"CLIP güven skoru: {confidence:.4f} (person_id={track_id})")
-                                    
-                            except Exception as clip_err:
-                                logger.error(f"CLIP güven skoru hesaplama hatası: {str(clip_err)}")
-                                confidence = 0.5  # Hata durumunda varsayılan değer
-                                
-                            # Kişi için en iyi kareyi güncelle
-                            if (track_id not in person_best_frames) or (confidence > person_best_frames[track_id]['confidence']):
+                            age = float(estimated_age)
+                            
+                            logger.info(f"Kare #{i}: Yaş: {age:.1f}, Güven: {confidence:.2f} (track {track_id})")
+                            
+                            # Takipteki kişi için en iyi kareyi kaydet (yüksek güven skoru varsa)
+                            if track_id not in person_best_frames or confidence > person_best_frames[track_id]['confidence']:
                                 person_best_frames[track_id] = {
                                     'confidence': confidence,
-                                    'frame_path': frame_path,
+                                    'frame_path': frame_path, 
                                     'timestamp': timestamp,
                                     'bbox': (x1, y1, w, h),
                                     'age': age
                                 }
+                            
+                            # AgeEstimation kaydını oluştur veya güncelle
+                            try:
+                                age_est = AgeEstimation.query.filter_by(
+                                    analysis_id=analysis.id,
+                                    person_id=track_id
+                                ).first()
                                 
-                                # AgeEstimation kaydını oluştur veya güncelle
-                                try:
-                                    age_est = AgeEstimation.query.filter_by(
+                                if not age_est:
+                                    age_est = AgeEstimation(
                                         analysis_id=analysis.id,
-                                        person_id=track_id
-                                    ).first()
+                                        person_id=track_id,
+                                        frame_path=frame_path,
+                                        estimated_age=age,
+                                        confidence_score=confidence
+                                    )
+                                else:
+                                    # Sadece daha yüksek güven skorlu sonuçları güncelle
+                                    if confidence > age_est.confidence_score:
+                                        age_est.frame_path = frame_path
+                                        age_est.estimated_age = age
+                                        age_est.confidence_score = confidence
+                            
+                                db.session.add(age_est)
+                                
+                                # Overlay oluştur
+                                out_dir = os.path.join(current_app.config['PROCESSED_FOLDER'], f"frames_{analysis.id}", "overlays")
+                                os.makedirs(out_dir, exist_ok=True)
+                                out_name = f"{track_id}_{os.path.basename(frame_path)}"
+                                out_path = os.path.join(out_dir, out_name)
+                                
+                                try:
+                                    # Görüntüyü kopyala ve overlay ekle
+                                    image_with_overlay = image.copy()
+                                    x2, y2 = x1 + w, y1 + h
                                     
-                                    if not age_est:
-                                        age_est = AgeEstimation(
-                                            analysis_id=analysis.id,
-                                            person_id=track_id,
-                                            frame_path=frame_path,
-                                            estimated_age=age,
-                                            confidence_score=confidence
-                                        )
-                                    else:
-                                        # Sadece daha yüksek güven skorlu sonuçları güncelle
-                                        if confidence > age_est.confidence_score:
-                                            age_est.frame_path = frame_path
-                                            age_est.estimated_age = age
-                                            age_est.confidence_score = confidence
-                                            
-                                    db.session.add(age_est)
+                                    # Sınırları kontrol et
+                                    x1 = max(0, x1)
+                                    y1 = max(0, y1)
+                                    x2 = min(image.shape[1], x2)
+                                    y2 = min(image.shape[0], y2)
                                     
-                                    # Overlay oluştur
-                                    out_dir = os.path.join(current_app.config['PROCESSED_FOLDER'], f"frames_{analysis.id}", "overlays")
-                                    os.makedirs(out_dir, exist_ok=True)
-                                    out_name = f"{track_id}_{os.path.basename(frame_path)}"
-                                    out_path = os.path.join(out_dir, out_name)
+                                    # Çerçeve çiz
+                                    cv2.rectangle(image_with_overlay, (x1, y1), (x2, y2), (0, 255, 0), 2)
                                     
-                                    try:
-                                        # Görüntüyü kopyala ve overlay ekle
-                                        image_with_overlay = image.copy()
-                                        x2, y2 = x1 + w, y1 + h
-                                        
-                                        # Sınırları kontrol et
-                                        x1 = max(0, x1)
-                                        y1 = max(0, y1)
-                                        x2 = min(image.shape[1], x2)
-                                        y2 = min(image.shape[0], y2)
-                                        
-                                        # Çerçeve çiz
-                                        cv2.rectangle(image_with_overlay, (x1, y1), (x2, y2), (0, 255, 0), 2)
-                                        
-                                        # Metin için arka plan oluştur
-                                        text = f"ID: {track_id.split('_')[-1]}  YAS: {int(age)}"
-                                        text_size = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.7, 2)[0]
-                                        text_y = y1 - 10 if y1 > 20 else y1 + h + 25
-                                        
-                                        # Metin arka planı için koordinatları hesapla
-                                        text_bg_x1 = x1
-                                        text_bg_y1 = text_y - text_size[1] - 5
-                                        text_bg_x2 = x1 + text_size[0] + 10
-                                        text_bg_y2 = text_y + 5
-                                        
-                                        # Arka plan çiz
-                                        cv2.rectangle(image_with_overlay, 
-                                                    (text_bg_x1, text_bg_y1),
-                                                    (text_bg_x2, text_bg_y2),
-                                                    (0, 0, 0),
-                                                    -1)
-                                        
-                                        # Metni çiz
-                                        cv2.putText(image_with_overlay, text, (x1 + 5, text_y), 
-                                                  cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-                                        
-                                        # Overlay'i kaydet
-                                        success = cv2.imwrite(out_path, image_with_overlay)
-                                        if not success:
-                                            logger.error(f"Overlay kaydedilemedi: {out_path}")
-                                            continue
-                                            
-                                        # Göreceli yolu hesapla ve kaydet
-                                        rel_path = os.path.relpath(out_path, current_app.config['STORAGE_FOLDER']).replace('\\', '/')
-                                        age_est.processed_image_path = rel_path
-                                        db.session.add(age_est)
-                                        logger.info(f"[DEBUG] Overlay başarıyla oluşturuldu: person_id={track_id}, frame={frame_path}, path={rel_path}")
-                                        
-                                    except Exception as overlay_err:
-                                        logger.error(f"Overlay oluşturma hatası (person_id={track_id}): {str(overlay_err)}")
+                                    # Metin için arka plan oluştur
+                                    text = f"ID: {track_id.split('_')[-1]}  YAS: {int(age)}"
+                                    text_size = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.7, 2)[0]
+                                    text_y = y1 - 10 if y1 > 20 else y1 + h + 25
+                                    
+                                    # Metin arka planı için koordinatları hesapla
+                                    text_bg_x1 = x1
+                                    text_bg_y1 = text_y - text_size[1] - 5
+                                    text_bg_x2 = x1 + text_size[0] + 10
+                                    text_bg_y2 = text_y + 5
+                                    
+                                    # Arka plan çiz
+                                    cv2.rectangle(image_with_overlay, 
+                                                (text_bg_x1, text_bg_y1),
+                                                (text_bg_x2, text_bg_y2),
+                                                (0, 0, 0),
+                                                -1)
+                                    
+                                    # Metni çiz
+                                    cv2.putText(image_with_overlay, text, (x1 + 5, text_y), 
+                                              cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+                                    
+                                    # Overlay'i kaydet
+                                    success = cv2.imwrite(out_path, image_with_overlay)
+                                    if not success:
+                                        logger.error(f"Overlay kaydedilemedi: {out_path}")
                                         continue
                                         
-                                except Exception as db_err:
-                                    logger.error(f"Veritabanı işlemi hatası (person_id={track_id}): {str(db_err)}")
+                                    # Göreceli yolu hesapla ve kaydet
+                                    rel_path = os.path.relpath(out_path, current_app.config['STORAGE_FOLDER']).replace('\\', '/')
+                                    age_est.processed_image_path = rel_path
+                                    db.session.add(age_est)
+                                    logger.info(f"[DEBUG] Overlay başarıyla oluşturuldu: person_id={track_id}, frame={frame_path}, path={rel_path}")
+                                    
+                                except Exception as overlay_err:
+                                    logger.error(f"Overlay oluşturma hatası (person_id={track_id}): {str(overlay_err)}")
                                     continue
                                     
+                            except Exception as db_err:
+                                logger.error(f"Veritabanı işlemi hatası (person_id={track_id}): {str(db_err)}")
+                                continue
+                            
                     except Exception as track_err:
                         logger.error(f"DeepSORT takip hatası: {str(track_err)}")
                         continue

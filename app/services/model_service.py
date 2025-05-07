@@ -369,54 +369,41 @@ def load_model(model_name):
         # ContentAnalyzer örneğini al (Singleton)
         if model_name in ['violence_detection', 'harassment_detection', 'adult_content_detection', 
                          'weapon_detection', 'substance_detection']:
-            # ContentAnalyzer'ı kullan
+            # ContentAnalyzer artık CLIP tabanlı çalışıyor
             content_analyzer = ContentAnalyzer()
-            
-            # Model adına göre doğru modeli al
-            if model_name == 'violence_detection':
-                model = content_analyzer.violence_model
-            elif model_name == 'harassment_detection':
-                model = content_analyzer.harassment_model
-            elif model_name == 'adult_content_detection':
-                model = content_analyzer.adult_model
-            elif model_name == 'weapon_detection':
-                model = content_analyzer.weapon_model
-            elif model_name == 'substance_detection':
-                model = content_analyzer.drug_model
+            if content_analyzer.initialized:
+                logger.info(f"ContentAnalyzer başarıyla yüklendi (model: {model_name})")
+                _model_cache[model_name] = content_analyzer
+                return content_analyzer
             else:
-                logger.error(f"Tanımlanmamış model adı: {model_name}")
+                logger.error(f"ContentAnalyzer yükleme başarısız oldu: initialized=False")
                 return None
-            
-            # Modeli önbelleğe al
-            if model:
-                _model_cache[model_name] = model
-                logger.info(f"{model_name} modeli ContentAnalyzer'dan başarıyla yüklendi")
+        elif model_name == 'detection':
+            # Nesne tespiti için YOLO modelini al
+            content_analyzer = ContentAnalyzer()
+            if content_analyzer.initialized and hasattr(content_analyzer, 'yolo_model'):
+                logger.info("YOLO detection modeli başarıyla yüklendi")
+                _model_cache[model_name] = content_analyzer.yolo_model
+                return content_analyzer.yolo_model
             else:
-                logger.error(f"{model_name} modeli ContentAnalyzer'da bulunamadı!")
+                logger.error("YOLO detection modeli yüklenemedi")
                 return None
-            return model
+        elif model_name == 'clip':
+            # CLIP modeli için
+            content_analyzer = ContentAnalyzer()
+            if content_analyzer.initialized and hasattr(content_analyzer, 'clip_model'):
+                logger.info("CLIP modeli başarıyla yüklendi")
+                _model_cache[model_name] = content_analyzer.clip_model
+                return content_analyzer.clip_model
+            else:
+                logger.error("CLIP modeli yüklenemedi")
+                return None
         else:
-            # Diğer model tipleri (yaş tahmini, vb.)
-            model_path = MODEL_PATHS.get(model_name)
+            logger.error(f"Bilinmeyen model adı: {model_name}")
+            return None
             
-            if not model_path:
-                logger.error(f"Tanımlanmamış model adı: {model_name}")
-                return None
-            
-            if not os.path.exists(model_path):
-                logger.error(f"Model dosyası bulunamadı: {model_path}")
-                return None
-            
-            logger.info(f"{model_name} modeli yükleniyor: {model_path}")
-            model = tf.saved_model.load(model_path)
-            
-            # Modeli önbelleğe al
-            _model_cache[model_name] = model
-            
-            return model
-        
     except Exception as e:
-        logger.error(f"Model yüklenirken hata oluştu ({model_name}): {str(e)}")
+        logger.error(f"Model yükleme hatası ({model_name}): {str(e)}")
         return None
 
 def run_image_analysis(model, image_path):
@@ -1000,4 +987,26 @@ def calculate_f1(predictions, ground_truth, threshold=0.5):
     if precision + recall == 0:
         return 0
     
-    return 2 * (precision * recall) / (precision + recall) 
+    return 2 * (precision * recall) / (precision + recall)
+
+def get_model_version(model_name):
+    """
+    Belirtilen modelin version bilgisini döndürür
+    
+    Args:
+        model_name: Version bilgisi alınacak model adı
+        
+    Returns:
+        str: Model version bilgisi
+    """
+    model_versions = {
+        'violence_detection': 'CLIP-integrated-v1.0',
+        'harassment_detection': 'CLIP-integrated-v1.0',
+        'adult_content_detection': 'CLIP-integrated-v1.0',
+        'weapon_detection': 'CLIP-integrated-v1.0',
+        'substance_detection': 'CLIP-integrated-v1.0',
+        'detection': 'YOLOv8n-v1.0',
+        'clip': 'ViT-L/14@336px'
+    }
+    
+    return model_versions.get(model_name, 'unknown') 
