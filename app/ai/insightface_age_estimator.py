@@ -185,9 +185,11 @@ class InsightFaceAgeEstimator:
         Returns:
             float: 0.0 ile 1.0 arasında güven skoru
         """
+        # CLIP veya yüz görüntüsü eksikse düşük varsayılan değer döndür
+        # Değişiklik: 0.5 yerine 0.15 kullanıyoruz (kötü kareler için düşük skor)
         if self.clip_model is None or face_image.size == 0:
-            logger.warning("CLIP modeli kullanılamıyor veya yüz görüntüsü geçersiz, varsayılan güven skoru (0.5) döndürülüyor")
-            return 0.5  # Varsayılan güven skoru
+            logger.warning("CLIP modeli kullanılamıyor veya yüz görüntüsü geçersiz, düşük güven skoru (0.15) döndürülüyor")
+            return 0.15  # Düşük varsayılan güven skoru
             
         try:
             # Görüntüyü RGB'ye dönüştür ve PIL formatına çevir
@@ -336,16 +338,26 @@ class InsightFaceAgeEstimator:
             # Sigmoid fonksiyonu ile 0-1 aralığına normalize et
             # İsteğe bağlı olarak sıcaklık parametresi ile keskinliği ayarla
             temperature = 2.0  # Daha yüksek = daha keskin ayrım
-            normalized_confidence = 1.0 / (1.0 + math.exp(-temperature * (confidence_score - 0.5)))
+            base_confidence = 1.0 / (1.0 + math.exp(-temperature * (confidence_score - 0.5)))
             
-            logger.info(f"CLIP ile yaş tahmini güven skoru: {normalized_confidence:.4f} (raw: {confidence_score:.4f}, avg_sim: {avg_similarity:.4f}, inv_contrast: {inverted_contrast:.4f})")
+            # YENİ: Güven skorunu yeniden ölçeklendir - düşük taban değeri + CLIP skoru
+            # Bu yaklaşım, CLIP'in bir değer döndürdüğü tüm durumların None döndürülen 
+            # durumlardan (0.15) daha yüksek skor almasını sağlar
+            BASE_VALUE = 0.15  # CLIP None döndürdüğünde kullanılan değer
+            MAX_VALUE = 0.95   # İzin verilen maksimum değer
+            
+            # ÖNEMLİ: Taban değerin üzerine ekle ve maksimum değerle sınırla
+            normalized_confidence = BASE_VALUE + ((MAX_VALUE - BASE_VALUE) * base_confidence)
+            normalized_confidence = min(normalized_confidence, MAX_VALUE)  # En fazla 0.95 olabilir
+            
+            logger.info(f"CLIP ile yaş tahmini güven skoru: {normalized_confidence:.4f} (raw: {confidence_score:.4f}, base: {base_confidence:.4f}, avg_sim: {avg_similarity:.4f}, inv_contrast: {inverted_contrast:.4f})")
             
             return normalized_confidence
             
         except Exception as e:
             logger.error(f"CLIP güven skoru hesaplama hatası: {str(e)}")
-            logger.warning("Güven skoru hatası, varsayılan değer (0.5) döndürülüyor")
-            return 0.5  # Hata durumunda varsayılan değer
+            logger.warning("Güven skoru hatası, düşük değer (0.15) döndürülüyor")
+            return 0.15  # Hata durumunda düşük varsayılan değer
 
     def compute_face_encoding(self, face_image: np.ndarray):
         """
