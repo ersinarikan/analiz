@@ -207,46 +207,100 @@ class InsightFaceAgeEstimator:
                 f"This is a clear photo of a person who is exactly {age} years old",
                 f"This face appears to be {age} years old",
                 f"A person who is approximately {age-2}-{age+2} years old",
-                f"This photo shows a typical face of someone in their {age_decade}s"
+                f"This photo shows a typical face of someone in their {age_decade}s",
+                f"The facial features suggest a {age} year old person",
+                f"Based on skin texture and facial structure, this person is {age} years old",
+                f"The face in this image has characteristics of a {age}-year-old individual"
             ]
             
-            # 2. Yaş kategorileri prompt'ları
+            # 2. Yaş ile ilgili fiziksel özellikler için ek promptlar
+            physical_feature_prompts = [
+                f"This face shows typical skin texture for a {age} year old",
+                f"The facial features and proportions match a {age} year old",
+                f"This face shows typical age markers for someone {age} years old",
+                f"The aging signs in this face are consistent with a {age}-year-old person"
+            ]
+            
+            # 3. Yaş kategorileri prompt'ları (daha detaylı ve ayrıntılı)
             category_prompts = []
             if age < 3:
-                category_prompts.append("This is a baby or infant (0-2 years old)")
-            elif age < 10:
-                category_prompts.append("This is a young child (3-9 years old)")
+                category_prompts.extend([
+                    "This is a baby or infant (0-2 years old)",
+                    "This is the face of an infant with baby features"
+                ])
+            elif age < 7:
+                category_prompts.extend([
+                    "This is a young child (3-6 years old)",
+                    "This is a preschool or kindergarten age child"
+                ])
             elif age < 13:
-                category_prompts.append("This is a pre-teen child (10-12 years old)")
-            elif age < 20:
-                category_prompts.append("This is a teenager (13-19 years old)")
-            elif age < 30:
-                category_prompts.append("This is a young adult in their twenties (20-29)")
-            elif age < 40:
-                category_prompts.append("This is an adult in their thirties (30-39)")
-            elif age < 50:
-                category_prompts.append("This is a middle-aged person in their forties (40-49)")
-            elif age < 60:
-                category_prompts.append("This is a middle-aged person in their fifties (50-59)")
-            elif age < 70:
-                category_prompts.append("This is a senior in their sixties (60-69)")
+                category_prompts.extend([
+                    "This is a pre-teen child (7-12 years old)",
+                    "This is an elementary school age child"
+                ])
+            elif age < 18:
+                category_prompts.extend([
+                    "This is a teenager (13-17 years old)",
+                    "This is an adolescent face with teenage features"
+                ])
+            elif age < 25:
+                category_prompts.extend([
+                    "This is a young adult (18-24 years old)",
+                    "This is a college-age young adult"
+                ])
+            elif age < 35:
+                category_prompts.extend([
+                    "This is an adult in their late twenties or early thirties",
+                    "This is a young professional adult (25-34)"
+                ])
+            elif age < 45:
+                category_prompts.extend([
+                    "This is an adult in their late thirties or early forties",
+                    "This is a mid-career adult (35-44)"
+                ])
+            elif age < 55:
+                category_prompts.extend([
+                    "This is a middle-aged person in their late forties or early fifties",
+                    "This is an adult with early signs of aging (45-54)"
+                ])
+            elif age < 65:
+                category_prompts.extend([
+                    "This is a person in their late fifties or early sixties",
+                    "This is an older adult approaching retirement age"
+                ])
+            elif age < 75:
+                category_prompts.extend([
+                    "This is a senior in their late sixties or early seventies",
+                    "This is a retirement-age senior adult"
+                ])
             else:
-                category_prompts.append("This is an elderly person (70+ years old)")
+                category_prompts.extend([
+                    "This is an elderly person (75+ years old)",
+                    "This is an older senior with advanced age features"
+                ])
                 
-            # 3. Karşıt prompt'lar (daha belirgin sonuçlar için)
+            # 4. Karşıt prompt'lar (daha belirgin sonuçlar için)
             contrast_prompts = []
             if age < 18:
-                contrast_prompts.append("This is an adult over 18 years old")
+                contrast_prompts.extend([
+                    "This is an adult over 18 years old",
+                    "This face has mature adult features"
+                ])
             else:
-                contrast_prompts.append("This is a child under 18 years old")
+                contrast_prompts.extend([
+                    "This is a child under 18 years old",
+                    "This face has juvenile features"
+                ])
                 
-            if age < 40:
-                contrast_prompts.append("This is a middle-aged or elderly person (40+ years)")
+            if age < 30:
+                contrast_prompts.append("This is a middle-aged or older person (over 45)")
+            elif age < 60:
+                contrast_prompts.append("This is either a very young person (under 25) or very old person (over 70)")
             else:
                 contrast_prompts.append("This is a young person under 40")
                 
             # Tüm prompt'ları birleştir
-            all_prompts = age_prompts + category_prompts + contrast_prompts
+            all_prompts = age_prompts + physical_feature_prompts + category_prompts + contrast_prompts
             logger.debug(f"CLIP için kullanılan prompt'lar: {all_prompts}")
             
             # Prompt'ları tokenize et
