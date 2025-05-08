@@ -132,11 +132,11 @@ class InsightFaceAgeEstimator:
         if not faces:
             logger.warning("Görüntüde yüz tespit edilemedi")
             # None yerine varsayılan değer döndür
-            return 25.0, 0.15  # En düşük güven skoruyla varsayılan yaş
+            return None, 0.15  # En düşük güven skoruyla None döndür
         
         face = faces[0]
         # DEBUG: InsightFace'in döndürdüğü ham yüz özelliklerini logla
-        logger.info(f"DEBUG - InsightFace Ham Yüz Verileri: face.age={face.age}, face.confidence={face.confidence}, face.gender={getattr(face, 'gender', 'N/A')}")
+        logger.info(f"DEBUG - InightFace Ham Değerler: Yüz #0, Yaş={face.age}, InsightFace Güven Skoru={face.confidence}")
         
         # Yüz bölgesini çıkar
         x1, y1, x2, y2 = [int(v) for v in face.bbox]
@@ -162,9 +162,9 @@ class InsightFaceAgeEstimator:
             except Exception as e:
                 logger.error(f"Özel model ile yaş tahmini hatası: {str(e)}")
                 logger.info("Varsayılan InsightFace yaş tahminine geçiliyor")
-                estimated_age = face.age if face.age is not None else 25  # Varsayılan yaş
+                estimated_age = face.age  # InsightFace yaşını kullan
         else:
-            estimated_age = face.age if face.age is not None else 25  # Varsayılan yaş
+            estimated_age = face.age  # InsightFace yaşını kullan
             logger.info(f"InsightFace ile yaş tahmini yapıldı: {estimated_age:.1f} yaş")
         
         # Yaş tahmini None ise varsayılan değer kullan
