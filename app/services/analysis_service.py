@@ -720,7 +720,7 @@ def analyze_image(analysis):
                     estimated_age, confidence = age_estimator.estimate_age(face_roi)
                     
                     # DEBUG: CLIP modeli ile hesaplanan güven skorunu ve önceki InsightFace güven skorunu karşılaştır
-                    logger.info(f"DEBUG - Güven Skorları Karşılaştırma - Kare #{i}: InsightFace={face.confidence}, CLIP={confidence}")
+                    logger.info(f"DEBUG - Güven Skorları Karşılaştırma - Kare #{i}: CLIP={confidence}")
                     
                     if estimated_age is None:
                         logger.warning(f"Kare #{i}: Yaş tahmini yapılamadı (track {person_id})")
@@ -1028,7 +1028,7 @@ def analyze_video(analysis):
                             confidence = face.confidence
                             
                             # DEBUG: InightFace modelinin kendi güven skorunu logla
-                            logger.info(f"DEBUG - InightFace Ham Değerler: Yüz #{idx}, Yaş={age}, InsightFace Güven Skoru={confidence}")
+                            logger.info(f"DEBUG - InightFace Ham Değerler: Yüz #{idx}, Yaş={age}, ")
                             
                             # Eğer confidence None ise 0.5 olarak ayarla
                             if confidence is None:
@@ -1210,15 +1210,22 @@ def analyze_video(analysis):
                             estimated_age, confidence = age_estimator.estimate_age(face_roi)
                             
                             # DEBUG: CLIP modeli ile hesaplanan güven skorunu ve önceki InsightFace güven skorunu karşılaştır
-                            logger.info(f"DEBUG - Güven Skorları Karşılaştırma - Kare #{i}: InsightFace={face.confidence}, CLIP={confidence}")
+                            logger.info(f"DEBUG - Güven Skorları Karşılaştırma - Kare #{i}: YAŞ={estimated_age}, CLIP={confidence:.4f}")
                             
                             if estimated_age is None:
                                 logger.warning(f"Kare #{i}: Yaş tahmini yapılamadı (track {track_id})")
                                 continue
                                 
+                            # Güven skoru MIN_CONFIDENCE_THRESHOLD değerinden düşükse uyarı ver ama devam et
+                            # NOT: Daha önce 0.15 değeri ile karşılaştırma yapmıyorduk, şimdi ekliyoruz
+                            MIN_CONFIDENCE_THRESHOLD = 0.15
+                            if confidence <= MIN_CONFIDENCE_THRESHOLD:
+                                logger.warning(f"Kare #{i}: Düşük güven skoru ({confidence:.4f}) - Kişi: {track_id}, Yaş: {estimated_age:.1f}")
+                                # Düşük güven skorlu tahminleri de kabul ediyoruz, ama logda belirtiyoruz
+                                
                             age = float(estimated_age)
                             
-                            logger.info(f"Kare #{i}: Yaş: {age:.1f}, Güven: {confidence:.2f} (track {track_id})")
+                            logger.info(f"Kare #{i}: Yaş: {age:.1f}, Güven: {confidence:.4f} (track {track_id})")
                             
                             # Kıyafet ve vücut özellikleri analizi ekle
                             try:
@@ -1278,6 +1285,13 @@ def analyze_video(analysis):
                                     person_id=track_id
                                 ).first()
                                 
+                                # DEBUG: Yaş tahmini kayıt işlemini logla 
+                                if age_est:
+                                    logger.info(f"DEBUG - Mevcut yaş kaydı güncelleniyor: Kişi={track_id}, DB'deki yaş={age_est.estimated_age}, DB güven={age_est.confidence_score:.4f}")
+                                    logger.info(f"DEBUG - Yeni değerler: Yaş={age:.1f}, Güven={confidence:.4f}")
+                                else:
+                                    logger.info(f"DEBUG - Yeni yaş kaydı oluşturuluyor: Kişi={track_id}, Yaş={age:.1f}, Güven={confidence:.4f}")
+                                
                                 if not age_est:
                                     age_est = AgeEstimation(
                                         analysis_id=analysis.id,
@@ -1286,12 +1300,20 @@ def analyze_video(analysis):
                                         estimated_age=age,
                                         confidence_score=confidence
                                     )
+                                    logger.info(f"DEBUG - YENİ YAŞ KAYDI: Kişi={track_id}, Yaş={age:.1f}, Güven={confidence:.4f}")
                                 else:
                                     # Sadece daha yüksek güven skorlu sonuçları güncelle
                                     if confidence > age_est.confidence_score:
+                                        old_age = age_est.estimated_age
+                                        old_confidence = age_est.confidence_score
+                                        
                                         age_est.frame_path = frame_path
                                         age_est.estimated_age = age
                                         age_est.confidence_score = confidence
+                                        
+                                        logger.info(f"DEBUG - GÜNCELLENEN YAŞ KAYDI: Kişi={track_id}, Eski yaş={old_age:.1f}/güven={old_confidence:.4f} -> Yeni yaş={age:.1f}/güven={confidence:.4f}")
+                                    else:
+                                        logger.info(f"DEBUG - YAŞ KAYDI GÜNCELLENMEDİ (yeni güven skoru daha düşük): Kişi={track_id}, DB güven={age_est.confidence_score:.4f} > Yeni güven={confidence:.4f}")
                             
                                 db.session.add(age_est)
                                 

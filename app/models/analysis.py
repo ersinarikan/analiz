@@ -258,8 +258,10 @@ class AgeEstimation(db.Model):
     @confidence_score.setter
     def confidence_score(self, value):
         if value is None:
-            self._confidence_score = 0.50
+            # None değeri gelirse 0.15 ata (en düşük değer)
+            self._confidence_score = 0.15
         else:
+            # Değer varsa doğrudan kullan
             self._confidence_score = float(value)
 
     # DB column'u private olarak tanımla
