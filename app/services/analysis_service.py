@@ -28,6 +28,7 @@ import clip
 import torch
 from PIL import Image
 import cv2
+from sqlalchemy import desc
 
 logger = logging.getLogger(__name__)
 
@@ -668,8 +669,46 @@ def analyze_image(analysis):
                     logger.warning(f"Yüz {i} için yaş None, atlanıyor. Face: {face}")
                     continue
                 x1, y1, x2, y2 = [int(v) for v in face.bbox]
-                w = x2 - x1
-                h = y2 - y1
+                
+                # Bounding box'ı kontrol et
+                try:
+                    # 1. Negatif koordinatları düzelt
+                    x1 = max(0, x1)
+                    y1 = max(0, y1)
+                    
+                    # 2. Görüntünün dışına taşan koordinatları sınırlandır
+                    img_height, img_width = image.shape[:2]
+                    x2 = min(img_width, x2)
+                    y2 = min(img_height, y2)
+                    
+                    # 3. Geçersiz bounding box kontrolü
+                    if x2 <= x1 or y2 <= y1:
+                        logger.warning(f"Geçersiz bounding box boyutları (x2 <= x1 veya y2 <= y1): x1={x1}, y1={y1}, x2={x2}, y2={y2}")
+                        continue
+                    
+                    # 4. Yüz boyutu çok küçük mü?
+                    w = x2 - x1
+                    h = y2 - y1
+                    MIN_FACE_SIZE = 20  # 30x30 piksel altındaki yüzleri eleme
+                    if w < MIN_FACE_SIZE or h < MIN_FACE_SIZE:
+                        logger.warning(f"Yüz çok küçük, atlanıyor: w={w}, h={h}, min={MIN_FACE_SIZE}")
+                        continue
+                    
+                    # 5. Aspect ratio kontrolü - çok uzun veya geniş yüzleri eleme
+                    aspect_ratio = w / h if h > 0 else 0
+                    if aspect_ratio < 0.5 or aspect_ratio > 2.0:
+                        logger.warning(f"Anormal yüz oranı (aspect ratio), atlanıyor: w={w}, h={h}, ratio={aspect_ratio:.2f}")
+                        continue
+                    
+                    # Yüz alanı hesabı için boyutları güncelle
+                    bbox = [x1, y1, w, h]
+                    
+                    logger.info(f"Geçerli yüz bounding box: x1={x1}, y1={y1}, x2={x2}, y2={y2}, w={w}, h={h}, ratio={aspect_ratio:.2f}")
+                    
+                except (ValueError, TypeError) as bbox_err:
+                    logger.warning(f"Bounding box dönüşüm hatası: {str(bbox_err)}")
+                    continue
+                
                 if x1 >= 0 and y1 >= 0 and w > 0 and h > 0 and x1+w <= image.shape[1] and y1+h <= image.shape[0]:
                     person_id = f"{analysis.id}_person_{i}"
                     
@@ -678,6 +717,9 @@ def analyze_image(analysis):
                     
                     # Yaş tahmini ve güven skoru hesapla
                     estimated_age, confidence = age_estimator.estimate_age(face_roi)
+                    
+                    # DEBUG: CLIP modeli ile hesaplanan güven skorunu ve önceki InsightFace güven skorunu karşılaştır
+                    logger.info(f"DEBUG - Güven Skorları Karşılaştırma - Kare #{i}: InsightFace={face.confidence}, CLIP={confidence}")
                     
                     if estimated_age is None:
                         logger.warning(f"Kare #{i}: Yaş tahmini yapılamadı (track {person_id})")
@@ -767,6 +809,7 @@ def analyze_image(analysis):
                             success = cv2.imwrite(out_path, image_with_overlay)
                             if not success:
                                 logger.error(f"Overlay kaydedilemedi: {out_path}")
+                                logger.error(f"[OVERLAY HATASI] Dosya yazma hatası - Koordinatlar: x1={x1}, y1={y1}, x2={x2}, y2={y2}, w={w}, h={h}")
                                 continue
                                 
                             # Göreceli yolu hesapla ve kaydet
@@ -777,6 +820,9 @@ def analyze_image(analysis):
                             
                         except Exception as overlay_err:
                             logger.error(f"Overlay oluşturma hatası (person_id={person_id}): {str(overlay_err)}")
+                            logger.error(f"[DETAY] Overlay hatası detayları: Kare boyutu={image.shape if image is not None else 'None'}")
+                            logger.error(f"[DETAY] Overlay bölgesi: x1={x1}, y1={y1}, x2={x2}, y2={y2}, w={w}, h={h}")
+                            logger.error(f"[DETAY] Overlay hata traceback: {traceback.format_exc()}")
                             continue
                             
                     except Exception as db_err:
@@ -809,6 +855,15 @@ def analyze_video(analysis):
     Returns:
         tuple: (başarı durumu, mesaj)
     """
+    # Tüm logları bir dosyaya yaz - Bu şekilde tam analiz loglarını görebiliriz
+    log_file_path = os.path.join(current_app.config['PROCESSED_FOLDER'], f"analysis_{analysis.id}_full.log")
+    file_handler = logging.FileHandler(log_file_path)
+    file_handler.setLevel(logging.DEBUG)
+    file_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+    file_handler.setFormatter(file_formatter)
+    logger.addHandler(file_handler)
+    logger.info(f"[DETAY LOG] Detaylı analiz logu başlatıldı: {log_file_path}")
+    
     file = analysis.file
     frames_per_second = analysis.frames_per_second or 1  # Varsayılan saniyede 1 kare
     
@@ -840,9 +895,14 @@ def analyze_video(analysis):
         
         # Yaş tahmini için estimator hazırla
         if analysis.include_age_analysis:
-            age_estimator = InsightFaceAgeEstimator()
-            tracker = DeepSort(max_age=30, n_init=3, nms_max_overlap=1.0, embedder=None)
-            logger.info(f"DeepSORT tracker başlatıldı: Analiz #{analysis.id}")
+            age_estimator = InsightFaceAgeEstimator(det_size=(800, 800))
+            # Benzeşme eşik değerini 0.5'ten 0.3'e düşürerek farklı yüzlerin ayrı kişiler olarak tespit edilmesini sağla
+            tracker = DeepSort(max_age=45, n_init=2, nms_max_overlap=1.0, embedder=None, max_cosine_distance=0.3)
+            logger.info(f"DeepSORT tracker başlatıldı: Analiz #{analysis.id}, Parametreler:")
+            logger.info(f"  - max_age=45 (30 yerine): Yüzlerin görünmediği karelerde 45 kare boyunca takip edilmesi")
+            logger.info(f"  - n_init=2 (3 yerine): Yüzlerin track ID alması için min. 2 karede görünmesi yeterli")
+            logger.info(f"  - det_size=(800, 800): Daha detaylı yüz tespiti için büyük tespit boyutu")
+            logger.info(f"  - max_cosine_distance=0.3 (0.6 yerine): Farklı yüzleri daha kesin şekilde ayrı kişiler olarak tespit etmek için daha düşük eşik değeri")
         else:
             age_estimator = None
             tracker = None
@@ -960,8 +1020,12 @@ def analyze_video(analysis):
                             age = face.age
                             confidence = face.confidence
                             
+                            # DEBUG: InightFace modelinin kendi güven skorunu logla
+                            logger.info(f"DEBUG - InightFace Ham Değerler: Yüz #{idx}, Yaş={age}, InsightFace Güven Skoru={confidence}")
+                            
                             # Eğer confidence None ise 0.5 olarak ayarla
                             if confidence is None:
+                                logger.info(f"DEBUG - InightFace Güven Skoru NONE döndürdü, varsayılan 0.5 kullanılıyor - Yüz #{idx}")
                                 confidence = 0.5
                             
                             # Yaş ve güven skorunu kontrol et
@@ -976,17 +1040,44 @@ def analyze_video(analysis):
                             # Bounding box'ı kontrol et
                             try:
                                 x1, y1, x2, y2 = [int(v) for v in face.bbox]
-                                if x1 < 0 or y1 < 0 or x2 <= x1 or y2 <= y1:
-                                    logger.warning(f"Geçersiz bounding box: x1={x1}, y1={y1}, x2={x2}, y2={y2}")
+                                
+                                # 1. Negatif koordinatları düzelt
+                                x1 = max(0, x1)
+                                y1 = max(0, y1)
+                                
+                                # 2. Görüntünün dışına taşan koordinatları sınırlandır
+                                img_height, img_width = image.shape[:2]
+                                x2 = min(img_width, x2)
+                                y2 = min(img_height, y2)
+                                
+                                # 3. Geçersiz bounding box kontrolü
+                                if x2 <= x1 or y2 <= y1:
+                                    logger.warning(f"Geçersiz bounding box boyutları (x2 <= x1 veya y2 <= y1): x1={x1}, y1={y1}, x2={x2}, y2={y2}")
                                     continue
+                                
+                                # 4. Yüz boyutu çok küçük mü?
+                                w = x2 - x1
+                                h = y2 - y1
+                                MIN_FACE_SIZE = 20  # 30x30 piksel altındaki yüzleri eleme
+                                if w < MIN_FACE_SIZE or h < MIN_FACE_SIZE:
+                                    logger.warning(f"Yüz çok küçük, atlanıyor: w={w}, h={h}, min={MIN_FACE_SIZE}")
+                                    continue
+                                
+                                # 5. Aspect ratio kontrolü - çok uzun veya geniş yüzleri eleme
+                                aspect_ratio = w / h if h > 0 else 0
+                                if aspect_ratio < 0.5 or aspect_ratio > 2.0:
+                                    logger.warning(f"Anormal yüz oranı (aspect ratio), atlanıyor: w={w}, h={h}, ratio={aspect_ratio:.2f}")
+                                    continue
+                                
+                                # Yüz alanı hesabı için boyutları güncelle
+                                bbox = [x1, y1, w, h]
+                                
+                                logger.info(f"Geçerli yüz bounding box: x1={x1}, y1={y1}, x2={x2}, y2={y2}, w={w}, h={h}, ratio={aspect_ratio:.2f}")
+                                
                             except (ValueError, TypeError) as bbox_err:
                                 logger.warning(f"Bounding box dönüşüm hatası: {str(bbox_err)}")
                                 continue
                                 
-                            w = x2 - x1
-                            h = y2 - y1
-                            bbox = [x1, y1, w, h]
-                            
                             # Embedding kontrolü
                             if not hasattr(face, 'embedding') or face.embedding is None:
                                 logger.warning(f"Yüz {idx} için embedding bulunamadı")
@@ -1000,7 +1091,9 @@ def analyze_video(analysis):
                                 'face': face
                             })
                             
-                            logger.info(f"Kare: {frame_path}, Yüz {idx}: age={age}, confidence={confidence}")
+                            # Geçerli bir yüz tespiti yapıldığında sayacı artır
+                            detected_faces_count += 1
+                            logger.info(f"Kare: {frame_path}, Yüz {idx} geçerli, toplam tespit: {detected_faces_count}")
                             
                         except Exception as face_err:
                             logger.error(f"Yüz {idx} işlenirken hata: {str(face_err)}")
@@ -1028,6 +1121,7 @@ def analyze_video(analysis):
                             age = face.age
                             
                             # Yaş tahmini ve güven skoru hesapla
+                            x2, y2 = x1 + w, y1 + h  # Eksik satır: x2 ve y2 koordinatlarını hesapla
                             face_roi = image[y1:y2, x1:x2]
                             if face_roi.size == 0:
                                 logger.warning(f"Kare #{i}: Boş yüz bölgesi (track {track_id})")
@@ -1035,6 +1129,9 @@ def analyze_video(analysis):
                                 
                             # Yeni güncellendi - doğrudan estimate_age fonksiyonunu kullan
                             estimated_age, confidence = age_estimator.estimate_age(face_roi)
+                            
+                            # DEBUG: CLIP modeli ile hesaplanan güven skorunu ve önceki InsightFace güven skorunu karşılaştır
+                            logger.info(f"DEBUG - Güven Skorları Karşılaştırma - Kare #{i}: InsightFace={face.confidence}, CLIP={confidence}")
                             
                             if estimated_age is None:
                                 logger.warning(f"Kare #{i}: Yaş tahmini yapılamadı (track {track_id})")
@@ -1124,6 +1221,7 @@ def analyze_video(analysis):
                                     success = cv2.imwrite(out_path, image_with_overlay)
                                     if not success:
                                         logger.error(f"Overlay kaydedilemedi: {out_path}")
+                                        logger.error(f"[OVERLAY HATASI] Dosya yazma hatası - Koordinatlar: x1={x1}, y1={y1}, x2={x2}, y2={y2}, w={w}, h={h}")
                                         continue
                                         
                                     # Göreceli yolu hesapla ve kaydet
@@ -1134,6 +1232,9 @@ def analyze_video(analysis):
                                     
                                 except Exception as overlay_err:
                                     logger.error(f"Overlay oluşturma hatası (person_id={track_id}): {str(overlay_err)}")
+                                    logger.error(f"[DETAY] Overlay hatası detayları: Kare boyutu={image.shape if image is not None else 'None'}")
+                                    logger.error(f"[DETAY] Overlay bölgesi: x1={x1}, y1={y1}, x2={x2}, y2={y2}, w={w}, h={h}")
+                                    logger.error(f"[DETAY] Overlay hata traceback: {traceback.format_exc()}")
                                     continue
                                     
                             except Exception as db_err:
@@ -1231,7 +1332,7 @@ def analyze_video(analysis):
                     rel_path = os.path.relpath(out_path, current_app.config['STORAGE_FOLDER']).replace('\\', '/')
                     logger.info(f"[DEBUG] Overlay DB path - rel_path={rel_path}")
                     # AgeEstimation kaydını güncelle (en yüksek confidence'lı olanı bul)
-                    best_est = AgeEstimation.query.filter_by(analysis_id=analysis.id, person_id=person_id).order_by(AgeEstimation.confidence_score.desc()).first()
+                    best_est = AgeEstimation.query.filter_by(analysis_id=analysis.id, person_id=person_id).order_by(desc('confidence_score')).first()
                     if best_est:
                         logger.info(f"[DEBUG] Overlay güncelleme: person_id={person_id}, rel_path={rel_path}, DB'deki eski path={best_est.processed_image_path}")
                         best_est.processed_image_path = rel_path
@@ -1260,6 +1361,9 @@ def analyze_video(analysis):
                         logger.info(f"[DEBUG] DB'den tekrar okundu: id={new_est.id}, processed_image_path={kontrol_est.processed_image_path}")
                 except Exception as overlay_err:
                     logger.warning(f"[DEBUG] Overlay oluşturulamadı (person_id={person_id}, kare={src_path})")
+                    logger.error(f"[DETAY] Overlay hatası detayları: Kare boyutu={image.shape if image is not None else 'None'}")
+                    logger.error(f"[DETAY] Overlay bölgesi: x1={x1}, y1={y1}, x2={x2}, y2={y2}, w={w}, h={h}")
+                    logger.error(f"[DETAY] Overlay hata traceback: {traceback.format_exc()}")
                     # Overlay hatası olursa orijinal kare klasörde kalır
             except Exception as copy_err:
                 logger.error(f"[DEBUG] Kare kopyalama/overlay işlemi hatası (person_id={person_id}): {str(copy_err)}")
@@ -1269,10 +1373,24 @@ def analyze_video(analysis):
         if not person_best_frames:
             logger.warning(f"[DEBUG] Analiz sonunda hiç geçerli yüz (yaş/confidence) bulunamadı, overlay klasörü ve dosyası oluşmayacak: {overlay_dir}")
         
+        # Eklenen log handler'ını kaldır 
+        for handler in logger.handlers:
+            if isinstance(handler, logging.FileHandler) and handler.baseFilename == log_file_path:
+                logger.removeHandler(handler)
+                handler.close()
+                logger.info(f"[DETAY LOG] Detaylı analiz logu tamamlandı: {log_file_path}")
+                break
+        
         return True, "Video analizi tamamlandı"
     
     except Exception as e:
         logger.error(f"[DEBUG] Video analizi başarısız oldu: Analiz #{analysis.id}, Hata: {str(e)}")
+        # Hata durumunda da log handler'ını kaldır
+        for handler in logger.handlers:
+            if isinstance(handler, logging.FileHandler) and handler.baseFilename == log_file_path:
+                logger.removeHandler(handler)
+                handler.close()
+                break
         db.session.rollback()  # Hata durumunda değişiklikleri geri al
         return False, f"Video analizi hatası: {str(e)}"
 

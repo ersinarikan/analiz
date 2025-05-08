@@ -55,52 +55,64 @@ class ContentAnalyzer:
             # Daha spesifik, detaylı ve ayırt edici prompt'lar
             self.category_texts = {
                 "violence": [
-                    "a photo showing a physical altercation or fight",
-                    "image containing blood, visible injuries, or harm",
-                    "people engaged in violent combat or physical aggression",
-                    "scene depicting brutality, assault, or physical harm",
-                    "explicit visual of someone being attacked or hurt",
-                    "image NOT showing peaceful interaction or calm scene"
+                    "a graphic image showing actual physical violence between people",
+                    "a brutal image depicting blood and injuries from a violent encounter",
+                    "clear photographic evidence of a violent physical assault in progress",
+                    "disturbing footage of a severe physical altercation with visible injuries",
+                    "explicit documentary image of real-world violence and fighting",
+                    "unambiguous visual documentation of people engaged in violent combat",
+                    "news photograph of violent physical confrontation with weapons",
+                    "visual evidence of a violent crime scene with physical harm visible"
                 ],
                 "adult_content": [
-                    "explicit sexual imagery not suitable for minors",
-                    "photo displaying nudity or intimate body parts",
-                    "people engaged in sexual acts or revealing poses",
-                    "provocative content intended for adult audiences only",
-                    "sexually suggestive situation with minimal clothing",
-                    "image NOT showing family-friendly or workplace-appropriate content"
+                    "explicit sexual imagery showing inappropriate intimate exposure",
+                    "uncensored pornographic content showing full nudity and sexual acts",
+                    "sexually explicit material with exposed intimate body parts",
+                    "adult-only content featuring unclothed individuals in sexual positions",
+                    "graphic sexual imagery inappropriate for general audiences",
+                    "explicit intimate scene showing uncensored sexual activity",
+                    "sexually explicit photograph with complete nudity and intimate contact",
+                    "uncensored adult content showing explicit sexual behavior"
                 ],
                 "harassment": [
-                    "photo showing someone being intimidated or threatened",
-                    "visual evidence of bullying or emotional abuse",
-                    "scene depicting unwanted aggressive interaction",
-                    "image of person showing clear distress from others' actions",
-                    "situation where someone is cornered or mobbed",
-                    "image NOT showing consensual or positive social interaction"
+                    "clear documentation of targeted bullying or intimidation in progress",
+                    "visual evidence of someone being stalked or followed against their will",
+                    "unambiguous image of threatening behavior directed at a specific person",
+                    "photographic evidence of physical or verbal harassment occurring",
+                    "clear scene showing persistent unwanted intimidation of an individual",
+                    "documentary footage of deliberate public humiliation of a person",
+                    "obvious visual evidence of threatening or coercive behavior against someone",
+                    "clear image showing malicious intimidation or aggressive targeting of a person"
                 ],
                 "weapon": [
-                    "clearly visible gun, rifle, or firearm in threatening context",
-                    "person holding or aiming a weapon at others",
-                    "dangerous weapon like knife or sword displayed aggressively",
-                    "military or combat weapons in active use",
-                    "arsenal of weapons or ammunition visible in image",
-                    "image NOT showing sports equipment or kitchen implements"
+                    "clear image of a loaded firearm being aimed at a target or person",
+                    "close-up photograph of a deadly weapon being brandished threateningly",
+                    "explicit display of firearms or weapons in a threatening context",
+                    "realistic handgun or rifle being held in a confrontational manner",
+                    "dangerous weapon being displayed in a threatening way",
+                    "military-grade weapons being handled outside proper controlled environments",
+                    "improvised explosive device or homemade weapon designed to cause harm",
+                    "collection of weapons arranged in a concerning or threatening display"
                 ],
                 "drug": [
-                    "visible illegal substances or drugs",
-                    "people consuming drugs or using drug paraphernalia",
-                    "drug preparation materials like syringes, pipes, or rolling papers",
-                    "pills, powders, or substances arranged for consumption",
-                    "scene of intoxication or substance abuse",
-                    "image NOT showing prescribed medication or legal substances"
+                    "explicit visual evidence of illegal drug use or consumption in progress",
+                    "clear photograph of illegal narcotics or drug paraphernalia being used",
+                    "unambiguous image of illicit substance abuse or drug injection",
+                    "documentary image of drug manufacturing or drug dealing activity",
+                    "pills, powders, or controlled substances arranged for consumption",
+                    "clear visual documentation of substance abuse or intoxication",
+                    "unprocessed illegal narcotics or drug production materials",
+                    "clear imagery of drug use paraphernalia with visible residue"
                 ],
                 "safe": [
-                    "appropriate content suitable for all ages and contexts",
-                    "wholesome image showing positive interactions",
-                    "educational, informative, or neutral content",
-                    "family-friendly scene without concerning elements",
-                    "image completely free from violence, adult content, or dangerous items",
-                    "content that could safely be shown in a school or workplace"
+                    "completely appropriate content with no concerning elements whatsoever",
+                    "family-friendly image suitable for viewing by children and all ages",
+                    "professionally produced content appropriate for mainstream media",
+                    "educational material suitable for classroom or professional settings",
+                    "positive, wholesome image showing appropriate interactions",
+                    "content that contains no violence, adult content, or problematic material",
+                    "image that poses absolutely no risk of offending or disturbing viewers",
+                    "completely neutral and appropriate visual content for general audiences"
                 ]
             }
             
@@ -280,7 +292,7 @@ class ContentAnalyzer:
                 similarity_score = similarity.item()
                 
                 # logit scale ile sıcaklık ayarı (daha net skorlar için)
-                temperature = 10.0  # Daha düşük bir sıcaklık değeri kullanıyoruz 
+                temperature = 7.0  # Daha dengeli bir sıcaklık değeri (15.0'dan 7.0'a düşürüldü)
                 scaled_score = torch.sigmoid(similarity * temperature).item()
                 
                 raw_scores[category] = scaled_score
@@ -307,7 +319,7 @@ class ContentAnalyzer:
             for category, confidence in confidences.items():
                 logger.info(f"CLIP güven skoru: {confidence:.4f} (category={category})")
             
-            # Kategorilere göre skorları döndür
+            # Kategorilere göre skorları döndür - 0-100 arası değerler olarak
             violence_score = normalized_scores['violence']
             adult_content_score = normalized_scores['adult_content']
             harassment_score = normalized_scores['harassment']
@@ -335,57 +347,74 @@ class ContentAnalyzer:
         weapon_objects = ['gun', 'knife', 'rifle', 'pistol', 'shotgun', 'weapon']
         if any(obj in object_labels for obj in weapon_objects):
             # Silah varsa silah ve şiddet skorlarını artır
-            scores['weapon'] = min(scores['weapon'] * 1.5, 1.0)
-            scores['violence'] = min(scores['violence'] * 1.3, 1.0)
-            scores['safe'] = max(scores['safe'] * 0.5, 0.0)
+            scores['weapon'] = min(scores['weapon'] * 1.4, 0.95)
+            scores['violence'] = min(scores['violence'] * 1.25, 0.90)
+            scores['safe'] = max(scores['safe'] * 0.65, 0.05)
             logger.info("Tespit edilen silah nesneleri, silah/şiddet skorları artırıldı")
         
         # Madde kullanımı ile ilgili nesneler
         drug_objects = ['bottle', 'wine glass', 'cup', 'cigarette', 'syringe']
         if any(obj in object_labels for obj in drug_objects):
-            scores['drug'] = min(scores['drug'] * 1.2, 1.0)
-            logger.info("Tespit edilen madde kullanımı göstergeleri, madde skoru artırıldı")
+            # Madde kullanımı ile daha fazla ilişkilendirilen nesneler
+            high_risk_drugs = ['syringe', 'cigarette']
+            if any(obj in object_labels for obj in high_risk_drugs):
+                scores['drug'] = min(scores['drug'] * 1.35, 0.90)
+                logger.info("Tespit edilen madde kullanımı göstergeleri, madde skoru artırıldı")
+            else:
+                # Günlük eşyalar için daha küçük artış
+                scores['drug'] = min(scores['drug'] * 1.15, 0.80)
         
-        # Birden fazla kişi varsa ilişkilendirme
+        # Kişi sayısına göre ayarlamalar
         if person_count >= 2:
-            # Kişiler arası etkileşim olasılığını artır
-            scores['harassment'] = min(scores['harassment'] * (1.0 + (person_count * 0.1)), 1.0)
-            scores['adult_content'] = min(scores['adult_content'] * (1.0 + (person_count * 0.05)), 1.0)
+            # Kişi sayısına göre kademeli artışlar
+            harassment_boost = min(0.3, (person_count - 1) * 0.08)
+            adult_boost = min(0.2, (person_count - 1) * 0.05)
+            
+            scores['harassment'] = min(scores['harassment'] * (1.0 + harassment_boost), 0.90)
+            scores['adult_content'] = min(scores['adult_content'] * (1.0 + adult_boost), 0.90)
             logger.info(f"{person_count} kişi tespit edildi, kişilerarası etkileşim skorları ayarlandı")
     
     def _percentile_normalize(self, scores):
         """
         Skorları geçmiş analiz skorlarından oluşan bir veri setiyle karşılaştırarak
-        yüzdelik dilim sonuçları elde eder.
+        bağımsız risk skorları elde eder (0-100 arası).
         
         Args:
             scores: Mevcut analiz skorları
             
         Returns:
-            dict: Yüzdelik dilim skorları (0-1 arası)
+            dict: Bağımsız risk skorları (0-100 arası)
         """
         normalized_scores = {}
         
-        # Her kategori için percentile hesapla
+        # Her kategori için yüzdelik dilim hesapla ve 0-100 arasına ölçeklendir
         for category, score in scores.items():
             if category in self.score_history and len(self.score_history[category]) > 10:
                 # Bu kategori için geçmiş skorları sırala
                 history = sorted(self.score_history[category])
                 
-                # Bu skorun yüzdelik dilimini hesapla
+                # Bu skorun yüzdelik dilimini hesapla ve 0-100 arasına ölçeklendir
                 percentile = sum(1 for h in history if h <= score) / len(history)
-                normalized_scores[category] = percentile
-                logger.info(f"Percentile normalizasyon - {category}: {score:.4f} -> {percentile:.4f} (geçmiş: {len(history)} örnek)")
+                # Yüzdelik dilimi 0-100 arasına ölçeklendir
+                normalized_scores[category] = percentile * 100.0
+                logger.info(f"Percentile normalizasyon - {category}: {score:.4f} -> {normalized_scores[category]:.1f}% (geçmiş: {len(history)} örnek)")
             else:
-                # Yeterli tarihsel veri yoksa sigmoid ile normalize et
-                normalized_scores[category] = 1.0 / (1.0 + math.exp(-5 * (score - 0.5)))
-                logger.info(f"Sigmoid normalizasyon - {category}: {score:.4f} -> {normalized_scores[category]:.4f} (yeterli geçmiş veri yok)")
+                # Yeterli tarihsel veri yoksa sigmoid ile normalize et ve 0-100 arasına ölçeklendir
+                sigmoid_score = 1.0 / (1.0 + math.exp(-5 * (score - 0.5)))
+                normalized_scores[category] = sigmoid_score * 100.0
+                logger.info(f"Sigmoid normalizasyon - {category}: {score:.4f} -> {normalized_scores[category]:.1f}% (yeterli geçmiş veri yok)")
         
-        # Sonuçları toplam 1.0 olacak şekilde yeniden normalize et
-        total = sum(normalized_scores.values())
-        if total > 0:
-            for category in normalized_scores:
-                normalized_scores[category] = normalized_scores[category] / total
+        # Güvenli skoru hesapla: 100 - max(risk_skorları)
+        if 'safe' in normalized_scores:
+            risk_categories = ['violence', 'adult_content', 'harassment', 'weapon', 'drug']
+            risk_scores = [normalized_scores[cat] for cat in risk_categories if cat in normalized_scores]
+            
+            if risk_scores:
+                max_risk_score = max(risk_scores)
+                normalized_scores['safe'] = 100.0 - max_risk_score
+                logger.info(f"Güvenli skoru hesaplandı: 100 - {max_risk_score:.1f}% = {normalized_scores['safe']:.1f}%")
+            else:
+                normalized_scores['safe'] = 90.0  # Varsayılan güvenli skoru
         
         return normalized_scores
     
@@ -542,51 +571,43 @@ class ContentAnalyzer:
     
     def _normalize_scores(self, scores):
         """
-        Kategorik skorları normalize eder, böylece toplam %100 olur.
-        Daha ayırt edici sonuçlar için, skorları sıralar ve sıralamaya göre ağırlıklandırır.
+        Bağımsız kategori skorlarını 0-100 aralığında ölçeklendirir.
+        Fallback analiz için kullanılır.
         
         Args:
-            scores: Kategori skorlarını içeren sözlük
+            scores: Kategori skorlarını içeren sözlük (0-1 arası)
             
         Returns:
-            dict: Normalize edilmiş skorları içeren sözlük
+            dict: 0-100 arası ölçeklendirilmiş skorlar
         """
         try:
-            # Tüm skorlar çok düşükse (0.1'den küçük)
-            if all(score < 0.1 for score in scores.values()):
-                # Güvenli kategorisine daha yüksek değer ver
-                normalized_scores = {key: 0.05 for key in scores}
-                normalized_scores['safe'] = 0.75
-                return normalized_scores
+            # Skorları 0-100 aralığına ölçeklendir
+            normalized_scores = {category: score * 100.0 for category, score in scores.items()}
             
-            # Skorları büyükten küçüğe sırala
-            sorted_categories = sorted(scores.items(), key=lambda x: x[1], reverse=True)
+            # Güvenli skoru hesapla: 100 - max(risk_skorları)
+            risk_categories = ['violence', 'adult_content', 'harassment', 'weapon', 'drug']
+            risk_scores = [normalized_scores[cat] for cat in risk_categories if cat in normalized_scores]
             
-            # İlk üç kategoriye daha yüksek değerler ver (toplam 1.0 olacak şekilde)
-            normalized_scores = {key: 0.05 for key in scores}  # Başlangıç değeri
-            
-            # En yüksek skora sahip kategori %50, ikinci %20, üçüncü %10 alır
-            weights = [0.50, 0.20, 0.10]
-            remaining_weight = 0.20  # Kalan %20'yi diğer kategorilere dağıt
-            
-            # En yüksek skorlu 3 kategoriye özel ağırlıklar ver
-            for i, (category, _) in enumerate(sorted_categories[:min(3, len(sorted_categories))]):
-                if i < len(weights):
-                    normalized_scores[category] = weights[i]
-            
-            # Kalan kategoriler için toplam 'remaining_weight' dağıt
-            remaining_categories = len(sorted_categories) - min(3, len(sorted_categories))
-            if remaining_categories > 0:
-                for i, (category, _) in enumerate(sorted_categories[3:]):
-                    normalized_scores[category] = remaining_weight / remaining_categories
+            if risk_scores:
+                max_risk_score = max(risk_scores)
+                normalized_scores['safe'] = 100.0 - max_risk_score
+            else:
+                normalized_scores['safe'] = 90.0  # Varsayılan güvenli skoru
             
             # Log çıktısı
-            logger.info(f"Normalize edilmiş toplam skor: {sum(normalized_scores.values()):.4f}")
+            logger.info(f"Fallback analiz skorları:")
             for category, score in normalized_scores.items():
-                logger.info(f"  {category}: {score:.4f} (%{score * 100:.1f})")
+                logger.info(f"  {category}: {score:.1f}%")
             
             return normalized_scores
         except Exception as e:
             logger.error(f"Skor normalizasyonu hatası: {str(e)}")
-            # Hata durumunda orijinal skorları döndür
-            return scores 
+            # Hata durumunda varsayılan değerler
+            return {
+                'violence': 10.0, 
+                'adult_content': 10.0, 
+                'harassment': 10.0, 
+                'weapon': 10.0, 
+                'drug': 10.0, 
+                'safe': 90.0
+            } 

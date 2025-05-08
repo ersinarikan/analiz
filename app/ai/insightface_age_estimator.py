@@ -132,9 +132,12 @@ class InsightFaceAgeEstimator:
         if not faces:
             logger.warning("Görüntüde yüz tespit edilemedi")
             # None yerine varsayılan değer döndür
-            return 25.0, 0.5
+            return 25.0, 0.15  # En düşük güven skoruyla varsayılan yaş
         
         face = faces[0]
+        # DEBUG: InsightFace'in döndürdüğü ham yüz özelliklerini logla
+        logger.info(f"DEBUG - InsightFace Ham Yüz Verileri: face.age={face.age}, face.confidence={face.confidence}, face.gender={getattr(face, 'gender', 'N/A')}")
+        
         # Yüz bölgesini çıkar
         x1, y1, x2, y2 = [int(v) for v in face.bbox]
         # Geçerlilik kontrolü
@@ -173,7 +176,8 @@ class InsightFaceAgeEstimator:
         logger.info(f"CLIP ile güven skoru hesaplanıyor... (yaş={estimated_age})")
         confidence_score = self._calculate_confidence_with_clip(face_image, estimated_age)
         
-        logger.info(f"Yaş tahmini sonucu: {estimated_age:.1f} yaş, güven skoru: {confidence_score:.2f}")
+        # NOT: InsightFace'in güven skorunu tamamen yok sayıyor ve sadece CLIP'in güven skorunu kullanıyoruz
+        logger.info(f"Yaş tahmini sonucu: {estimated_age:.1f} yaş, CLIP güven skoru: {confidence_score:.2f}")
         return estimated_age, confidence_score
 
     def _calculate_confidence_with_clip(self, face_image, estimated_age):
@@ -212,7 +216,10 @@ class InsightFaceAgeEstimator:
                 f"This photo shows a typical face of someone in their {age_decade}s",
                 f"The facial features suggest a {age} year old person",
                 f"Based on skin texture and facial structure, this person is {age} years old",
-                f"The face in this image has characteristics of a {age}-year-old individual"
+                f"The face in this image has characteristics of a {age}-year-old individual",
+                f"This person appears to be around {age} years of age",
+                f"This is a typical {age} year old face with appropriate features",
+                f"The age of this person is visibly {age} years based on facial features"
             ]
             
             # 2. Yaş ile ilgili fiziksel özellikler için ek promptlar
@@ -220,7 +227,11 @@ class InsightFaceAgeEstimator:
                 f"This face shows typical skin texture for a {age} year old",
                 f"The facial features and proportions match a {age} year old",
                 f"This face shows typical age markers for someone {age} years old",
-                f"The aging signs in this face are consistent with a {age}-year-old person"
+                f"The aging signs in this face are consistent with a {age}-year-old person",
+                f"The complexion and facial structure indicate a {age} year old person",
+                f"The wrinkles and facial lines are typical for a {age} year old person",
+                f"The skin elasticity appears to match that of a {age} year old",
+                f"Facial bone structure suggests a person of {age} years"
             ]
             
             # 3. Yaş kategorileri prompt'ları (daha detaylı ve ayrıntılı)
@@ -228,57 +239,101 @@ class InsightFaceAgeEstimator:
             if age < 3:
                 category_prompts.extend([
                     "This is a baby or infant (0-2 years old)",
-                    "This is the face of an infant with baby features"
+                    "This is the face of an infant with baby features",
+                    "This is an infant with typical baby facial characteristics",
+                    "The rounded cheeks and facial structure indicate a baby",
+                    "This is a very young child with typical infant features",
+                    "The facial proportions are characteristic of a baby under 3 years old"
                 ])
             elif age < 7:
                 category_prompts.extend([
                     "This is a young child (3-6 years old)",
-                    "This is a preschool or kindergarten age child"
+                    "This is a preschool or kindergarten age child",
+                    "The facial features indicate a young child between 3-6 years",
+                    "This is a child of early elementary school age",
+                    "The face has proportions typical of a 3-6 year old child",
+                    "This is a young child with characteristic preschool-age features"
                 ])
             elif age < 13:
                 category_prompts.extend([
                     "This is a pre-teen child (7-12 years old)",
-                    "This is an elementary school age child"
+                    "This is an elementary school age child",
+                    "The facial development indicates a school-age child",
+                    "This face shows characteristics of a pre-teen child",
+                    "The facial structure is typical of a child aged 7-12 years",
+                    "This is a child approaching adolescence"
                 ])
             elif age < 18:
                 category_prompts.extend([
                     "This is a teenager (13-17 years old)",
-                    "This is an adolescent face with teenage features"
+                    "This is an adolescent face with teenage features",
+                    "This person is clearly in the middle of adolescent development",
+                    "The facial features show typical teenage characteristics",
+                    "This is a young person in adolescence with characteristic features",
+                    "This face shows the developmental features of a 13-17 year old"
                 ])
             elif age < 25:
                 category_prompts.extend([
                     "This is a young adult (18-24 years old)",
-                    "This is a college-age young adult"
+                    "This is a college-age young adult",
+                    "The facial features indicate an early 20s adult",
+                    "This is a young adult with fully developed facial features",
+                    "The face shows the characteristics of a young adult aged 18-24",
+                    "This person appears to be a young adult in their early twenties"
                 ])
             elif age < 35:
                 category_prompts.extend([
                     "This is an adult in their late twenties or early thirties",
-                    "This is a young professional adult (25-34)"
+                    "This is a young professional adult (25-34)",
+                    "The facial features indicate a person in their early thirties",
+                    "This is an adult with fully mature facial features in their late 20s",
+                    "The face shows characteristics of an adult in their early 30s",
+                    "This is a person in the prime of early adulthood"
                 ])
             elif age < 45:
                 category_prompts.extend([
                     "This is an adult in their late thirties or early forties",
-                    "This is a mid-career adult (35-44)"
+                    "This is a mid-career adult (35-44)",
+                    "The face shows early signs of aging consistent with early 40s",
+                    "This is a mature adult with well-defined facial features",
+                    "The facial structure is typical of someone in their late 30s",
+                    "This person shows the balanced maturity of middle adulthood"
                 ])
             elif age < 55:
                 category_prompts.extend([
                     "This is a middle-aged person in their late forties or early fifties",
-                    "This is an adult with early signs of aging (45-54)"
+                    "This is an adult with early signs of aging (45-54)",
+                    "The face shows defined wrinkles typical of early 50s",
+                    "This person has the facial characteristics of middle age",
+                    "The signs of aging in this face are consistent with someone in their late 40s",
+                    "This is a mature adult with visible aging markers in their early 50s"
                 ])
             elif age < 65:
                 category_prompts.extend([
                     "This is a person in their late fifties or early sixties",
-                    "This is an older adult approaching retirement age"
+                    "This is an older adult approaching retirement age",
+                    "The face shows pronounced aging signs of someone in their early 60s",
+                    "This person has the facial features typical of the early senior years",
+                    "The skin texture and wrinkles indicate a person around 60 years old",
+                    "This face shows the distinguished aging of late middle age"
                 ])
             elif age < 75:
                 category_prompts.extend([
                     "This is a senior in their late sixties or early seventies",
-                    "This is a retirement-age senior adult"
+                    "This is a retirement-age senior adult",
+                    "The face shows significant aging consistent with early 70s",
+                    "This person has the facial characteristics of a senior citizen",
+                    "The facial appearance matches that of someone in their late 60s",
+                    "This is an elderly person with well-defined aging features"
                 ])
             else:
                 category_prompts.extend([
                     "This is an elderly person (75+ years old)",
-                    "This is an older senior with advanced age features"
+                    "This is an older senior with advanced age features",
+                    "The face shows significant aging markers of someone over 75",
+                    "This person has the deep wrinkles and features of advanced age",
+                    "The facial structure is typical of someone in their late 70s or older",
+                    "This is an elderly person with prominent signs of advanced aging"
                 ])
                 
             # 4. Karşıt prompt'lar (daha belirgin sonuçlar için)
