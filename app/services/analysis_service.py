@@ -14,6 +14,7 @@ from app.models.analysis import Analysis, ContentDetection, AgeEstimation
 from app.models.file import File
 from app.utils.video_utils import extract_frames
 from app.utils.image_utils import load_image
+from app.utils.appearance_features import AppearanceFeatures
 from config import Config
 import json
 import uuid
@@ -896,19 +897,25 @@ def analyze_video(analysis):
         # Yaş tahmini için estimator hazırla
         if analysis.include_age_analysis:
             age_estimator = InsightFaceAgeEstimator(det_size=(800, 800))
-            # Benzeşme eşik değerini 0.5'ten 0.3'e düşürerek farklı yüzlerin ayrı kişiler olarak tespit edilmesini sağla
-            tracker = DeepSort(max_age=45, n_init=2, nms_max_overlap=1.0, embedder=None, max_cosine_distance=0.3)
+            # Benzeşme eşik değerini 0.5'ten 0.45'e düşürerek farklı yüzlerin doğru tespit edilmesini sağla
+            tracker = DeepSort(max_age=45, n_init=2, nms_max_overlap=1.0, embedder=None, max_cosine_distance=0.45)
             logger.info(f"DeepSORT tracker başlatıldı: Analiz #{analysis.id}, Parametreler:")
             logger.info(f"  - max_age=45 (30 yerine): Yüzlerin görünmediği karelerde 45 kare boyunca takip edilmesi")
             logger.info(f"  - n_init=2 (3 yerine): Yüzlerin track ID alması için min. 2 karede görünmesi yeterli")
             logger.info(f"  - det_size=(800, 800): Daha detaylı yüz tespiti için büyük tespit boyutu")
-            logger.info(f"  - max_cosine_distance=0.3 (0.6 yerine): Farklı yüzleri daha kesin şekilde ayrı kişiler olarak tespit etmek için daha düşük eşik değeri")
+            logger.info(f"  - max_cosine_distance=0.45 (0.3 yerine): Farklı yüzleri doğru tespit ederken aynı kişinin farklı görünümlerine izin vermek için orta seviye benzerlik eşiği")
+            
+            # Kıyafet ve vücut özellikleri için yardımcı sınıfı başlat
+            appearance_features = AppearanceFeatures()
+            logger.info(f"  - Kıyafet analizi ve vücut özellik takibi aktifleştirildi")
         else:
             age_estimator = None
             tracker = None
+            appearance_features = None
         
-        # Kişi takibi için yardımcı sözlük (aynı kişinin farklı karelerde izlenmesi için)
+        # Kişi takibi için yardımcı sözlükler
         person_tracker = {}
+        person_appearances = {}  # {person_id: {'histograms': [], 'colors': []}}
         
         # İşlenecek toplam kare sayısı ve diğer istatistikleri logla
         detected_faces_count = 0
@@ -1105,17 +1112,89 @@ def analyze_video(analysis):
                         
                     # DeepSORT ile takip
                     try:
+                        # Yüz embedding'lerini DeepSORT'a ver
                         tracks = tracker.update_tracks(
                             [(d['bbox'], 1.0, "face") for d in detections],
                             embeds=[d['embedding'] for d in detections],
                             frame=image
                         )
                         
-                        for det, track in zip(detections, tracks):
-                            if not track.is_confirmed():
-                                continue
-                                
-                            track_id = f"{analysis.id}_person_{track.track_id}"
+                        # İşlem görecek detection-track çiftlerini hazırla
+                        valid_detections = []
+                        
+                        # İlk önce onaylanmış trackleri işle - bunlar DeepSORT'un emin olduğu eşleşmeler
+                        for det_idx, (det, track) in enumerate(zip(detections, tracks)):
+                            if track.is_confirmed():
+                                track_id = f"{analysis.id}_person_{track.track_id}"
+                                valid_detections.append((det_idx, det, track, track_id))
+                        
+                        # Doğrulanmamış track'ler için kıyafet analizini kullan:
+                        # Bu kısım önemli - DeepSORT'un tam emin olmadığı durumlarda görünüm benzerliğini kullan
+                        if len(person_appearances) > 0:
+                            for det_idx, (det, track) in enumerate(zip(detections, tracks)):
+                                if not track.is_confirmed():
+                                    face = det['face']
+                                    x1, y1, w, h = det['bbox']
+                                    
+                                    # Üst vücut bölgesini çıkar
+                                    body_result = appearance_features.extract_upper_body_region(image, (x1, y1, w, h))
+                                    if not body_result:
+                                        continue
+                                        
+                                    body_region, _ = body_result
+                                    
+                                    # Renk histogramı ve baskın renkleri hesapla
+                                    current_hist = appearance_features.compute_color_histogram(body_region)
+                                    current_colors = appearance_features.identify_dominant_colors(body_region)
+                                    
+                                    if current_hist is None or current_colors is None:
+                                        continue
+                                    
+                                    # Mevcut tüm kişilerle kıyafet benzerliğini karşılaştır
+                                    best_similarity = 0.0
+                                    best_person_id = None
+                                    
+                                    for person_id, appearance_data in person_appearances.items():
+                                        if not appearance_data['histograms'] or not appearance_data['colors']:
+                                            continue
+                                            
+                                        # Son 5 histogramla ve renkle karşılaştır (en güncel görünümler)
+                                        recent_hists = appearance_data['histograms'][-5:]
+                                        recent_colors = appearance_data['colors'][-5:]
+                                        
+                                        # Tüm güncel histogramlarla karşılaştır ve en iyi benzerliği al
+                                        hist_similarities = [
+                                            appearance_features.compare_color_histograms(current_hist, hist)
+                                            for hist in recent_hists
+                                        ]
+                                        best_hist_similarity = max(hist_similarities) if hist_similarities else 0.0
+                                        
+                                        # Tüm güncel renklerle karşılaştır ve en iyi benzerliği al
+                                        color_similarities = [
+                                            appearance_features.compare_dominant_colors(current_colors, colors)
+                                            for colors in recent_colors
+                                        ]
+                                        best_color_similarity = max(color_similarities) if color_similarities else 0.0
+                                        
+                                        # Kombine benzerlik skoru hesapla
+                                        combined_similarity = appearance_features.combine_appearance_similarity(
+                                            best_hist_similarity, best_color_similarity
+                                        )
+                                        
+                                        # Eğer benzerlik yeterince yüksekse, eşleşme bul
+                                        if combined_similarity > 0.65 and combined_similarity > best_similarity:
+                                            best_similarity = combined_similarity
+                                            best_person_id = person_id
+                                    
+                                    # Eğer yüksek benzerlikli bir kişi bulunduysa, manuel olarak ID ata
+                                    if best_person_id and best_similarity > 0.65:
+                                        logger.info(f"Kıyafet benzerliğine göre kişi eşleştirildi: {best_person_id} (benzerlik: {best_similarity:.2f})")
+                                        # Orijinal track_id yerine eşleşen kişinin ID'sini kullan
+                                        track_id = best_person_id
+                                        valid_detections.append((det_idx, det, track, track_id))
+                        
+                        # Geçerli tespitleri işle
+                        for det_idx, det, track, track_id in valid_detections:
                             face = det['face']
                             x1, y1, w, h = det['bbox']
                             age = face.age
@@ -1140,6 +1219,47 @@ def analyze_video(analysis):
                             age = float(estimated_age)
                             
                             logger.info(f"Kare #{i}: Yaş: {age:.1f}, Güven: {confidence:.2f} (track {track_id})")
+                            
+                            # Kıyafet ve vücut özellikleri analizi ekle
+                            try:
+                                # Üst vücut bölgesini çıkar
+                                body_result = appearance_features.extract_upper_body_region(image, (x1, y1, w, h))
+                                
+                                if body_result:
+                                    body_region, body_bbox = body_result
+                                    
+                                    # Renk histogramı ve baskın renkleri hesapla
+                                    hist = appearance_features.compute_color_histogram(body_region)
+                                    dominant_colors = appearance_features.identify_dominant_colors(body_region)
+                                    
+                                    # Vücut oran özelliklerini hesapla
+                                    body_ratios = appearance_features.calculate_body_ratio_features(body_bbox)
+                                    
+                                    # Kişinin görünüm bilgilerini kaydet veya güncelle
+                                    if track_id not in person_appearances:
+                                        person_appearances[track_id] = {
+                                            'histograms': [hist] if hist is not None else [],
+                                            'colors': [dominant_colors] if dominant_colors is not None else [],
+                                            'ratios': [body_ratios] if body_ratios is not None else [],
+                                            'frames': [i]
+                                        }
+                                    else:
+                                        if hist is not None:
+                                            person_appearances[track_id]['histograms'].append(hist)
+                                        if dominant_colors is not None:
+                                            person_appearances[track_id]['colors'].append(dominant_colors)
+                                        if body_ratios is not None:
+                                            person_appearances[track_id]['ratios'].append(body_ratios)
+                                        person_appearances[track_id]['frames'].append(i)
+                                    
+                                    # Log görünüm bilgisi
+                                    if dominant_colors:
+                                        color_names = [f"{color[0]} ({color[1]:.2f})" for color in dominant_colors]
+                                        logger.info(f"Kare #{i}: Kişi {track_id} için baskın renkler: {', '.join(color_names)}")
+                                
+                            except Exception as appearance_err:
+                                logger.error(f"Görünüm özellikleri analiz hatası: {str(appearance_err)}")
+                                # Hata olursa devam et, kritik değil
                             
                             # Takipteki kişi için en iyi kareyi kaydet (yüksek güven skoru varsa)
                             if track_id not in person_best_frames or confidence > person_best_frames[track_id]['confidence']:
