@@ -6,6 +6,8 @@ from flask_migrate import Migrate
 from flask_cors import CORS
 from flask_socketio import SocketIO
 from config import config
+import logging
+from logging.handlers import RotatingFileHandler
 
 # Global extensions
 db = SQLAlchemy()
@@ -30,6 +32,22 @@ def create_app(config_name=None):
         config_name = os.environ.get('FLASK_CONFIG', 'development')
     
     app.config.from_object(config[config_name])
+    
+    if not app.debug and not app.testing:
+        # Loglama için 'processed' klasörünün var olduğundan emin ol
+        logs_folder = os.path.join(app.config['PROCESSED_FOLDER'], 'logs')
+        os.makedirs(logs_folder, exist_ok=True)
+        log_file_path = os.path.join(logs_folder, 'app.log')
+
+        file_handler = RotatingFileHandler(log_file_path, maxBytes=10240, backupCount=10)
+        file_handler.setFormatter(logging.Formatter(
+            '%(asctime)s %(levelname)s: %(message)s [in %(pathname)s:%(lineno)d]'
+        ))
+        file_handler.setLevel(logging.INFO)
+        app.logger.addHandler(file_handler)
+
+        app.logger.setLevel(logging.INFO)
+        app.logger.info('Uygulama başlatılıyor - Loglama aktif')
     
     # CORS yapılandırması
     CORS(app)

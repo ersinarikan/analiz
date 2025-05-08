@@ -672,15 +672,13 @@ def analyze_image(analysis):
                 h = y2 - y1
                 if x1 >= 0 and y1 >= 0 and w > 0 and h > 0 and x1+w <= image.shape[1] and y1+h <= image.shape[0]:
                     person_id = f"{analysis.id}_person_{i}"
-                    
-                    # Yüz görüntüsünü çıkar
-                    face_roi = image[y1:y2, x1:x2]
-                    
+                    logger.info(f"[SVC_LOG][IMG] Yüz #{i} (person_id={person_id}) için yaş tahmini çağrılıyor. BBox: [{x1},{y1},{w},{h}]")
                     # Yaş tahmini ve güven skoru hesapla
-                    estimated_age, confidence = age_estimator.estimate_age(face_roi)
-                    
-                    if estimated_age is None:
-                        logger.warning(f"Kare #{i}: Yaş tahmini yapılamadı (track {person_id})")
+                    estimated_age, confidence = age_estimator.estimate_age(image, face)
+                    logger.info(f"[SVC_LOG][IMG] Yüz #{i} (person_id={person_id}) için sonuç alındı: Yaş={estimated_age}, Güven={confidence}")
+
+                    if estimated_age is None or confidence is None:
+                        logger.warning(f"[SVC_LOG][IMG] Yüz #{i} için yaş/güven alınamadı, atlanıyor.")
                         continue
                                 
                     age = float(estimated_age)
@@ -712,13 +710,16 @@ def analyze_image(analysis):
                                 estimated_age=age,
                                 confidence_score=confidence
                             )
+                            logger.info(f"[SVC_LOG][IMG] Yeni AgeEstimation kaydı oluşturuldu: {person_id}")
                         else:
-                            # Sadece daha yüksek güven skorlu sonuçları güncelle
                             if confidence > age_est.confidence_score:
                                 age_est.frame_path = file.file_path
                                 age_est.estimated_age = age
                                 age_est.confidence_score = confidence
-                            
+                                logger.info(f"[SVC_LOG][IMG] AgeEstimation kaydı güncellendi (daha iyi güven): {person_id}, Yeni Güven: {confidence:.4f}")
+                            else:
+                                logger.info(f"[SVC_LOG][IMG] AgeEstimation kaydı güncellenmedi (güven düşük): {person_id}, Mevcut Güven: {age_est.confidence_score:.4f}")
+                        
                         db.session.add(age_est)
                         
                         # Overlay oluştur
@@ -773,14 +774,13 @@ def analyze_image(analysis):
                             rel_path = os.path.relpath(out_path, current_app.config['STORAGE_FOLDER']).replace('\\', '/')
                             age_est.processed_image_path = rel_path
                             db.session.add(age_est)
-                            logger.info(f"[DEBUG] Overlay başarıyla oluşturuldu: person_id={person_id}, frame={file.file_path}, path={rel_path}")
-                            
+
                         except Exception as overlay_err:
                             logger.error(f"Overlay oluşturma hatası (person_id={person_id}): {str(overlay_err)}")
                             continue
                             
                     except Exception as db_err:
-                        logger.error(f"Veritabanı işlemi hatası (person_id={person_id}): {str(db_err)}")
+                        logger.error(f"[SVC_LOG][IMG] DB hatası (person_id={person_id}): {str(db_err)}")
                         continue
             
             db.session.commit()
@@ -875,7 +875,7 @@ def analyze_video(analysis):
             # Kareyi yükle
             image = cv2.imread(frame_path)
             if image is None:
-                logger.error(f"[DEBUG] Video analizi - Kare okunamadı: {frame_path}")
+                logger.error(f"Video analizi - Kare okunamadı: {frame_path}")
                 continue
             
             # İçerik analizi yap
@@ -943,10 +943,10 @@ def analyze_video(analysis):
             if age_estimator and tracker:
                 try:
                     faces = age_estimator.model.get(image)
-                    logger.info(f"Kare: {frame_path}, {len(faces) if faces else 0} yüz bulundu.")
+                    logger.info(f"[SVC_LOG][VID] Kare #{i} ({timestamp:.2f}s): {len(faces) if faces else 0} yüz tespit edildi.")
                     
                     if not faces or len(faces) == 0:
-                        logger.warning(f"Karede hiç yüz tespit edilemedi: {frame_path}, overlay oluşturulmayacak.")
+                        logger.warning(f"[SVC_LOG][VID] Karede hiç yüz tespit edilemedi: {frame_path}, overlay oluşturulmayacak.")
                         continue
                         
                     detections = []
@@ -1017,35 +1017,28 @@ def analyze_video(analysis):
                             embeds=[d['embedding'] for d in detections],
                             frame=image
                         )
-                        
+                        logger.info(f"[SVC_LOG][VID] Kare #{i}: DeepSORT {len(tracks)} track döndürdü.")
+                        processed_track_ids = set() # Aynı karede birden fazla kez loglamayı önle
                         for det, track in zip(detections, tracks):
-                            if not track.is_confirmed():
+                            if not track.is_confirmed() or track.track_id in processed_track_ids:
                                 continue
-                                
+                            processed_track_ids.add(track.track_id)
                             track_id = f"{analysis.id}_person_{track.track_id}"
                             face = det['face']
                             x1, y1, w, h = det['bbox']
-                            age = face.age
-                            
+                            logger.info(f"[SVC_LOG][VID] Kare #{i}: Track ID={track.track_id} (person_id={track_id}) için yaş tahmini çağrılıyor. BBox: [{x1},{y1},{w},{h}]")
                             # Yaş tahmini ve güven skoru hesapla
-                            face_roi = image[y1:y2, x1:x2]
-                            if face_roi.size == 0:
-                                logger.warning(f"Kare #{i}: Boş yüz bölgesi (track {track_id})")
+                            estimated_age, confidence = age_estimator.estimate_age(image, face)
+                            logger.info(f"[SVC_LOG][VID] Kare #{i}: Track ID={track.track_id} için sonuç: Yaş={estimated_age}, Güven={confidence}")
+
+                            if estimated_age is None or confidence is None:
+                                logger.warning(f"[SVC_LOG][VID] Kare #{i}: Track ID={track.track_id} için yaş/güven alınamadı, atlanıyor.")
                                 continue
-                                
-                            # Yeni güncellendi - doğrudan estimate_age fonksiyonunu kullan
-                            estimated_age, confidence = age_estimator.estimate_age(face_roi)
-                            
-                            if estimated_age is None:
-                                logger.warning(f"Kare #{i}: Yaş tahmini yapılamadı (track {track_id})")
-                                continue
-                                
                             age = float(estimated_age)
-                            
-                            logger.info(f"Kare #{i}: Yaş: {age:.1f}, Güven: {confidence:.2f} (track {track_id})")
-                            
-                            # Takipteki kişi için en iyi kareyi kaydet (yüksek güven skoru varsa)
+
+                            # Takipteki kişi için en iyi kareyi kaydet
                             if track_id not in person_best_frames or confidence > person_best_frames[track_id]['confidence']:
+                                old_conf = person_best_frames.get(track_id, {}).get('confidence', -1)
                                 person_best_frames[track_id] = {
                                     'confidence': confidence,
                                     'frame_path': frame_path, 
@@ -1053,14 +1046,13 @@ def analyze_video(analysis):
                                     'bbox': (x1, y1, w, h),
                                     'age': age
                                 }
-                            
+                                logger.info(f"[SVC_LOG][VID] person_best_frames güncellendi. Kişi: {track_id}, Yeni Güven: {confidence:.4f} (Eski: {old_conf:.4f}), Kare: {i}")
+                            else:
+                                logger.info(f"[SVC_LOG][VID] person_best_frames güncellenmedi. Kişi: {track_id}, Mevcut Güven: {person_best_frames[track_id]['confidence']:.4f} >= Yeni Güven: {confidence:.4f}, Kare: {i}")
+
                             # AgeEstimation kaydını oluştur veya güncelle
                             try:
-                                age_est = AgeEstimation.query.filter_by(
-                                    analysis_id=analysis.id,
-                                    person_id=track_id
-                                ).first()
-                                
+                                age_est = AgeEstimation.query.filter_by(analysis_id=analysis.id, person_id=track_id).first()
                                 if not age_est:
                                     age_est = AgeEstimation(
                                         analysis_id=analysis.id,
@@ -1069,13 +1061,15 @@ def analyze_video(analysis):
                                         estimated_age=age,
                                         confidence_score=confidence
                                     )
+                                    logger.info(f"[SVC_LOG][VID] Yeni AgeEstimation kaydı: {track_id}, Kare: {i}")
                                 else:
-                                    # Sadece daha yüksek güven skorlu sonuçları güncelle
                                     if confidence > age_est.confidence_score:
                                         age_est.frame_path = frame_path
                                         age_est.estimated_age = age
                                         age_est.confidence_score = confidence
-                            
+                                        logger.info(f"[SVC_LOG][VID] AgeEstimation güncellendi (daha iyi güven): {track_id}, Yeni Güven: {confidence:.4f}, Kare: {i}")
+                                    else:
+                                         logger.info(f"[SVC_LOG][VID] AgeEstimation güncellenmedi (güven düşük): {track_id}, Kare: {i}")
                                 db.session.add(age_est)
                                 
                                 # Overlay oluştur
@@ -1130,14 +1124,13 @@ def analyze_video(analysis):
                                     rel_path = os.path.relpath(out_path, current_app.config['STORAGE_FOLDER']).replace('\\', '/')
                                     age_est.processed_image_path = rel_path
                                     db.session.add(age_est)
-                                    logger.info(f"[DEBUG] Overlay başarıyla oluşturuldu: person_id={track_id}, frame={frame_path}, path={rel_path}")
-                                    
+
                                 except Exception as overlay_err:
                                     logger.error(f"Overlay oluşturma hatası (person_id={track_id}): {str(overlay_err)}")
                                     continue
                                     
                             except Exception as db_err:
-                                logger.error(f"Veritabanı işlemi hatası (person_id={track_id}): {str(db_err)}")
+                                logger.error(f"[SVC_LOG][VID] DB hatası (track_id={track_id}, kare={i}): {str(db_err)}")
                                 continue
                             
                     except Exception as track_err:
@@ -1208,16 +1201,16 @@ def analyze_video(analysis):
             try:
                 # Orijinal kareyi oku
                 src_path = frame_path  # path birleştirme yok, doğrudan kullan
-                logger.info(f"[DEBUG] Overlay için kare okunuyor: {src_path}, exists={os.path.exists(src_path)}")
+                logger.info(f"Overlay için kare okunuyor: {src_path}, exists={os.path.exists(src_path)}")
                 image = cv2.imread(src_path)
                 if image is None:
-                    logger.error(f"[DEBUG] Overlay için kare okunamadı (person_id={person_id}): {src_path}")
+                    logger.error(f"Overlay için kare okunamadı (person_id={person_id}): {src_path}")
                     continue
                 out_name = f"{person_id}.jpg"
                 out_path = os.path.join(overlay_dir, out_name)
                 # Önce orijinal kareyi kopyala
                 cv2.imwrite(out_path, image)
-                logger.info(f"[DEBUG] Overlay dosyası kaydedildi - path={out_path}, exists={os.path.exists(out_path)}")
+                logger.info(f"Overlay dosyası kaydedildi - path={out_path}, exists={os.path.exists(out_path)}")
                 # Sonra overlay işlemi yap
                 try:
                     x2, y2 = x1 + w, y1 + h
@@ -1227,22 +1220,22 @@ def analyze_video(analysis):
                     text_y = y1 - 10 if y1 > 20 else y1 + h + 25
                     cv2.putText(image_with_overlay, text, (x1, text_y), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
                     cv2.imwrite(out_path, image_with_overlay)
-                    logger.info(f"[DEBUG] Overlay oluşturuluyor - path={out_path}, exists={os.path.exists(out_path)}")
+                    logger.info(f"Overlay oluşturuluyor - path={out_path}, exists={os.path.exists(out_path)}")
                     rel_path = os.path.relpath(out_path, current_app.config['STORAGE_FOLDER']).replace('\\', '/')
-                    logger.info(f"[DEBUG] Overlay DB path - rel_path={rel_path}")
+                    logger.info(f"Overlay DB path - rel_path={rel_path}")
                     # AgeEstimation kaydını güncelle (en yüksek confidence'lı olanı bul)
                     best_est = AgeEstimation.query.filter_by(analysis_id=analysis.id, person_id=person_id).order_by(AgeEstimation.confidence_score.desc()).first()
                     if best_est:
-                        logger.info(f"[DEBUG] Overlay güncelleme: person_id={person_id}, rel_path={rel_path}, DB'deki eski path={best_est.processed_image_path}")
+                        logger.info(f"Overlay güncelleme: person_id={person_id}, rel_path={rel_path}, DB'deki eski path={best_est.processed_image_path}")
                         best_est.processed_image_path = rel_path
                         db.session.add(best_est)
                         db.session.commit()
-                        logger.info(f"[DEBUG] Overlay DB'ye yazıldı - person_id={person_id}, rel_path={rel_path}, DB'deki yeni path={best_est.processed_image_path}")
+                        logger.info(f"Overlay DB'ye yazıldı - person_id={person_id}, rel_path={rel_path}, DB'deki yeni path={best_est.processed_image_path}")
                         # DB'den tekrar oku ve logla
                         kontrol_est = AgeEstimation.query.filter_by(id=best_est.id).first()
-                        logger.info(f"[DEBUG] DB'den tekrar okundu: id={best_est.id}, processed_image_path={kontrol_est.processed_image_path}")
+                        logger.info(f"DB'den tekrar okundu: id={best_est.id}, processed_image_path={kontrol_est.processed_image_path}")
                     else:
-                        logger.info(f"[DEBUG] Overlay yeni kayıt: person_id={person_id}, rel_path={rel_path}")
+                        logger.info(f"Overlay yeni kayıt: person_id={person_id}, rel_path={rel_path}")
                         new_est = AgeEstimation(
                             analysis_id=analysis.id,
                             person_id=person_id,
@@ -1254,26 +1247,28 @@ def analyze_video(analysis):
                         new_est.processed_image_path = rel_path
                         db.session.add(new_est)
                         db.session.commit()
-                        logger.info(f"[DEBUG] Overlay yeni kayıt DB'ye yazıldı - person_id={person_id}, rel_path={rel_path}, DB'deki path={new_est.processed_image_path}")
+                        logger.info(f"Overlay yeni kayıt DB'ye yazıldı - person_id={person_id}, rel_path={rel_path}, DB'deki path={new_est.processed_image_path}")
                         # DB'den tekrar oku ve logla
                         kontrol_est = AgeEstimation.query.filter_by(id=new_est.id).first()
-                        logger.info(f"[DEBUG] DB'den tekrar okundu: id={new_est.id}, processed_image_path={kontrol_est.processed_image_path}")
+                        logger.info(f"DB'den tekrar okundu: id={new_est.id}, processed_image_path={kontrol_est.processed_image_path}")
                 except Exception as overlay_err:
-                    logger.warning(f"[DEBUG] Overlay oluşturulamadı (person_id={person_id}, kare={src_path})")
-                    # Overlay hatası olursa orijinal kare klasörde kalır
+                    logger.warning(f"Overlay oluşturulamadı (person_id={person_id}, kare={src_path}): {str(overlay_err)}")
+                    continue
             except Exception as copy_err:
-                logger.error(f"[DEBUG] Kare kopyalama/overlay işlemi hatası (person_id={person_id}): {str(copy_err)}")
+                logger.error(f"Kare kopyalama/overlay işlemi hatası (person_id={person_id}): {str(copy_err)}")
                 continue
         db.session.commit()
         
         if not person_best_frames:
-            logger.warning(f"[DEBUG] Analiz sonunda hiç geçerli yüz (yaş/confidence) bulunamadı, overlay klasörü ve dosyası oluşmayacak: {overlay_dir}")
+            logger.warning(f"Analiz sonunda hiç geçerli yüz (yaş/confidence) bulunamadı, overlay klasörü ve dosyası oluşmayacak: {overlay_dir}")
+        
+        logger.info(f"[SVC_LOG][VID] Video analizi tamamlandı. person_best_frames final durumu: {json.dumps({k: v['confidence'] for k,v in person_best_frames.items()})})")
         
         return True, "Video analizi tamamlandı"
-    
+
     except Exception as e:
-        logger.error(f"[DEBUG] Video analizi başarısız oldu: Analiz #{analysis.id}, Hata: {str(e)}")
-        db.session.rollback()  # Hata durumunda değişiklikleri geri al
+        logger.error(f"Video analizi başarısız oldu: Analiz #{analysis.id}, Hata: {str(e)}")
+        db.session.rollback()
         return False, f"Video analizi hatası: {str(e)}"
 
 
@@ -1361,8 +1356,8 @@ def calculate_overall_scores(analysis):
         db.session.commit()
     
     except Exception as e:
-        current_app.logger.error(f"[DEBUG] Genel skor hesaplama hatası: {str(e)}")
-        db.session.rollback()  # Hata durumunda değişiklikleri geri al
+        current_app.logger.error(f"Genel skor hesaplama hatası: {str(e)}")
+        db.session.rollback()
 
 
 def get_analysis_results(analysis_id):
@@ -1400,8 +1395,7 @@ def get_analysis_results(analysis_id):
     # Eğer yaş analizi yapıldıysa, yaş tahminlerini sonuçlara ekle
     if analysis.include_age_analysis:
         age_estimations = AgeEstimation.query.filter_by(analysis_id=analysis_id).all()
-        
-        # Kişi bazlı yaş tahminlerini grupla (aynı kişinin farklı tahminleri)
+        logger.info(f"[SVC_LOG][RESULTS] get_analysis_results: DB'den {len(age_estimations)} AgeEstimation kaydı çekildi.")
         persons = {}
         for estimation in age_estimations:
             person_id = estimation.person_id
@@ -1409,15 +1403,12 @@ def get_analysis_results(analysis_id):
                 persons[person_id] = []
             persons[person_id].append(estimation.to_dict())
         
-        # Her kişi için en güvenilir yaş tahminini bul
+        logger.info(f"[SVC_LOG][RESULTS] get_analysis_results: {len(persons)} kişiye göre gruplandı.")
         best_estimations = []
         for person_id, estimations in persons.items():
-            # Güvenilirlik skoru en yüksek tahmini seç
             best_estimation = max(estimations, key=lambda e: e['confidence_score'])
+            logger.info(f"[SVC_LOG][RESULTS] get_analysis_results: Kişi {person_id} için en iyi tahmin seçildi (Güven: {best_estimation['confidence_score']:.4f}).")
             best_estimations.append(best_estimation)
-        
         result['age_estimations'] = best_estimations
-    
-    logger.info(f"[DEBUG] API yanıtı - processed_image_path={best_estimation.get('processed_image_path', None)} (person_id={person_id})")
-    
+        logger.info(f"[SVC_LOG][RESULTS] get_analysis_results: API yanıtına {len(best_estimations)} en iyi tahmin eklendi.")
     return result 

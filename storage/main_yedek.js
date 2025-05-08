@@ -46,39 +46,6 @@ function initializeSocket() {
         console.log('WebSocket bağlantısı kesildi.');
     });
     
-    // Kuyruk durumu güncellemeleri
-    socket.on('queue_status', (data) => {
-        console.log('Kuyruk durumu güncellendi:', data);
-        updateQueueStatus(data);
-    });
-    
-    // Analiz durumu güncelleme (yeni, tüm status değişikliklerini takip eder)
-    socket.on('analysis_status_update', (data) => {
-        console.log('Analiz durumu güncellendi:', data);
-        const { analysis_id, file_id, status, progress, message } = data;
-        
-        // Dosya ID'sini bul
-        const file = uploadedFiles.find(f => f.fileId == file_id);
-        if (file) {
-            // Dosya durumunu güncelle
-            fileStatuses.set(file.id, status);
-            
-            // UI güncelle
-            updateFileStatus(file.id, status, progress);
-            
-            // Eğer tamamlandıysa sonuçları göster
-            if (status === 'completed') {
-                // Analiz ID'sini kaydet
-                file.analysisId = analysis_id;
-                fileAnalysisMap.set(file.id, analysis_id);
-                getAnalysisResults(file.id, analysis_id);
-            }
-            
-            // Genel ilerlemeyi güncelle
-            updateGlobalProgress();
-        }
-    });
-    
     // Analiz başladı
     socket.on('analysis_started', (data) => {
         console.log('Analiz başladı:', data);
@@ -113,15 +80,11 @@ function initializeSocket() {
             
             // İlerleme detaylarını tooltip'te göster
             const fileCard = document.getElementById(file.id);
-            if (fileCard) {
-                const statusElement = fileCard.querySelector('.file-status-text');
-                if (statusElement) {
-                    statusElement.title = `İşlenen kare: ${current_frame}/${total_frames}
+            const statusElement = fileCard.querySelector('.file-status-text');
+            statusElement.title = `İşlenen kare: ${current_frame}/${total_frames}
 Tespit edilen yüz: ${detected_faces || 0}
 Yüksek riskli kare: ${high_risk_frames || 0}
 İlerleme: %${progress.toFixed(1)}`;
-                }
-            }
             
             // Her 10 karede bir mesaj göster
             if (current_frame % 10 === 0 || current_frame === total_frames) {
@@ -267,69 +230,6 @@ function initializeEventListeners() {
             removeFile(fileCard.id);
         }
     });
-    
-    // Uygulama başlangıcında kuyruk durumu kontrolünü başlat
-    startQueueStatusChecker();
-}
-
-// Sayfa yüklendiğinde kuyruk durumunu periyodik olarak kontrol et
-function startQueueStatusChecker() {
-    // İlk kontrol
-    checkQueueStatus();
-    
-    // 5 saniyede bir kontrol et
-    setInterval(checkQueueStatus, 5000);
-}
-
-// Kuyruk durumunu kontrol et
-function checkQueueStatus() {
-    fetch('/api/debug/queue-status')
-    .then(response => {
-        if (!response.ok) {
-            throw new Error(`HTTP error! Status: ${response.status}`);
-        }
-        return response.json();
-    })
-    .then(data => {
-        updateQueueStatus(data);
-    })
-    .catch(error => {
-        console.error('Kuyruk durumu kontrol hatası:', error);
-    });
-}
-
-// Kuyruk durumunu güncelle
-function updateQueueStatus(data) {
-    const queueStatusElement = document.getElementById('queueStatus');
-    if (!queueStatusElement) return;
-    
-    if (data && (data.active || data.size > 0)) {
-        // Kuyruk aktif veya bekleyen dosya varsa
-        const waitingCount = data.size || 0;
-        const statusText = `Kuyruk: ${waitingCount} dosya bekliyor`;
-        
-        queueStatusElement.innerHTML = `
-            <i class="fas fa-hourglass-half"></i> ${statusText}
-        `;
-        queueStatusElement.style.display = 'block';
-        
-        // Global ilerleme alanını da göster
-        const globalProgressSection = document.getElementById('globalProgressSection');
-        if (globalProgressSection) {
-            globalProgressSection.style.display = 'block';
-        }
-        
-        // Analiz durumu metnini de güncelle
-        const statusElement = document.getElementById('analysisStatus');
-        if (statusElement) {
-            const completedCount = getCompletedAnalysesCount();
-            const totalCount = fileStatuses.size;
-            statusElement.textContent = `${completedCount} / ${totalCount} dosya analizi tamamlandı`;
-        }
-    } else {
-        // Kuyruk aktif değilse ve bekleyen dosya yoksa
-        queueStatusElement.style.display = 'none';
-    }
 }
 
 // Dosya seçimini işle
@@ -648,15 +548,8 @@ function startAnalysis(fileId, serverFileId, framesPerSecond, includeAgeAnalysis
     .then(response => {
         console.log("Analysis started", response);
         
-        // Analiz ID'sini doğru şekilde çıkar
-        let analysisId = null;
-        if (response.analysis && response.analysis.id) {
-            // Yeni API formatı (response.analysis.id)
-            analysisId = response.analysis.id;
-        } else if (response.analysis_id) {
-            // Eski API formatı (response.analysis_id)
-            analysisId = response.analysis_id;
-        }
+        // Analiz ID'sini kaydet - response.analysis_id yerine response.analysis.id kullan
+        const analysisId = response.analysis ? response.analysis.id : null;
         
         if (!analysisId) {
             console.error("Analiz ID alınamadı:", response);
@@ -731,47 +624,21 @@ function checkAnalysisStatus(analysisId, fileId) {
         
         // Dosya durumunu güncelle
         fileStatuses.set(fileId, status);
-        
-        // Dosya nesnesini bul ve güncelle
-        const fileIndex = uploadedFiles.findIndex(f => f.id === fileId);
-        if (fileIndex !== -1) {
-            uploadedFiles[fileIndex].analysisId = analysisId;
-            uploadedFiles[fileIndex].status = status;
-        }
-        
-        // Kuyrukta bekliyor durumu için özel mesaj
-        if (status === "queued") {
-            const queueMessage = "Sırada";
-            updateFileStatus(fileId, queueMessage, 0);
-            
-            // Kuyrukta bekleyen öğeyi kontrol etmeye devam et
-            setTimeout(() => checkAnalysisStatus(analysisId, fileId), 2000);
-        } else if (status === "processing") {
-            // İşlem yapılıyorsa ilerleyişi göster
-            updateFileStatus(fileId, status, progress);
-            
-            // Analiz devam ediyorsa durumu kontrol etmeye devam et
-            setTimeout(() => checkAnalysisStatus(analysisId, fileId), 2000);
-        } else if (status === "completed") {
-            // Analiz tamamlandıysa sonuçları göster
-            updateFileStatus(fileId, status, 100);
-            getAnalysisResults(fileId, analysisId);
-        } else if (status === "failed") {
-            // Analiz başarısız olduysa hata mesajı göster
-            updateFileStatus(fileId, status, 0);
-            showError(`${fileNameFromId(fileId)} dosyası için analiz başarısız oldu: ${response.error || "Bilinmeyen hata"}`);
-        } else {
-            // Diğer durumlar için (cancelled vb)
-            updateFileStatus(fileId, status, progress);
-            
-            // İşlem devam ediyorsa kontrol etmeye devam et
-            if (status !== "completed" && status !== "failed") {
-                setTimeout(() => checkAnalysisStatus(analysisId, fileId), 2000);
-            }
-        }
+        updateFileStatus(fileId, status, progress);
         
         // Genel ilerlemeyi güncelle
         updateGlobalProgress();
+        
+        if (status === "completed") {
+            // Analiz tamamlandıysa sonuçları göster
+            getAnalysisResults(fileId, analysisId);
+        } else if (status === "failed") {
+            // Analiz başarısız olduysa hata mesajı göster
+            showError(`${fileNameFromId(fileId)} dosyası için analiz başarısız oldu: ${response.error || "Bilinmeyen hata"}`);
+        } else if (status === "processing" || status === "queued") {
+            // Analiz devam ediyorsa durumu kontrol etmeye devam et
+            setTimeout(() => checkAnalysisStatus(analysisId, fileId), 2000);
+        }
     })
     .catch(error => {
         console.error(`Error checking analysis status for ${analysisId}:`, error);
@@ -1108,30 +975,7 @@ function displayAnalysisResults(fileId, results) {
         
         const scores = results.overall_scores;
         
-        // Skorların formatını incele
-        console.log("Skorların ham değerleri:", scores);
-        
-        // Skorlar 0-1 aralığında geliyorsa 0-100 aralığına dönüştür
-        const normalizedScores = {};
         for (const [category, score] of Object.entries(scores)) {
-            // Eğer skor 0-1 aralığındaysa (yani 1'den küçükse), 100 ile çarp
-            if (score <= 1.0) {
-                normalizedScores[category] = score * 100;
-                console.log(`${category} skoru normalize edildi: ${score} → ${normalizedScores[category]}`);
-            } else {
-                // Skor zaten 0-100 aralığındaysa olduğu gibi kullan
-                normalizedScores[category] = score;
-            }
-        }
-        
-        // Orijinal scores değişkeni yerine normalizedScores kullan
-        const scoresForDisplay = normalizedScores;
-        
-        // Güven skorlarını kontrol et
-        const confidenceScores = results.confidence_scores || results.score_confidences || {};
-        const hasConfidenceScores = Object.keys(confidenceScores).length > 0;
-        
-        for (const [category, score] of Object.entries(scoresForDisplay)) {
             const scoreElement = document.createElement('div');
             scoreElement.className = 'mb-2';
             
@@ -1143,79 +987,37 @@ function displayAnalysisResults(fileId, results) {
                 case 'harassment': categoryName = 'Taciz'; break;
                 case 'weapon': categoryName = 'Silah'; break;
                 case 'drug': categoryName = 'Madde Kullanımı'; break;
-                case 'safe': categoryName = 'Güvenli'; break;
             }
             
             // Risk seviyesi
             let riskLevel = '';
             let riskClass = '';
             
-            if (category === 'safe') {
-                // Güvenli kategori için farklı risk yorumlaması
-                if (score >= 70) {
-                    riskLevel = 'Yüksek Güven';
-                    riskClass = 'risk-level-low'; // Yeşil renk
-                } else if (score >= 30) {
-                    riskLevel = 'Orta Güven';
-                    riskClass = 'risk-level-medium'; // Sarı renk
-                } else {
-                    riskLevel = 'Düşük Güven';
-                    riskClass = 'risk-level-high'; // Kırmızı renk
-                }
+            if (score >= 0.7) {
+                riskLevel = 'Yüksek Risk';
+                riskClass = 'risk-level-high';
+            } else if (score >= 0.3) {
+                riskLevel = 'Orta Risk';
+                riskClass = 'risk-level-medium';
             } else {
-                // Diğer kategoriler için normal risk yorumlaması
-                if (score >= 70) {
-                    riskLevel = 'Yüksek Risk';
-                    riskClass = 'risk-level-high';
-                } else if (score >= 30) {
-                    riskLevel = 'Orta Risk';
-                    riskClass = 'risk-level-medium';
-                } else {
-                    riskLevel = 'Düşük Risk';
-                    riskClass = 'risk-level-low';
-                }
+                riskLevel = 'Düşük Risk';
+                riskClass = 'risk-level-low';
             }
             
             // Şüpheli skor ise işaretle
             const isSuspicious = suspiciousScores.includes(categoryName);
             
-            // Kategori rengini belirle
-            let progressBarClass = '';
-            if (category === 'safe') {
-                // Güvenli kategorisi için yeşil ton kullan, değer yükseldikçe daha koyu yeşil
-                progressBarClass = score >= 70 ? 'bg-success' : score >= 30 ? 'bg-info' : 'bg-warning';
-            } else {
-                // Diğer kategoriler için risk arttıkça kırmızılaşan renk
-                progressBarClass = riskClass === 'risk-level-high' ? 'bg-danger' : 
-                                  riskClass === 'risk-level-medium' ? 'bg-warning' : 'bg-success';
-            }
-            
-            // Varsa güven skorunu al
-            const confidenceScore = hasConfidenceScores ? (confidenceScores[category] || 0) : 0;
-            const showConfidence = hasConfidenceScores && confidenceScore > 0;
-            
-            // Skor elementi HTML'i - güven skoru varsa ekle
+            // Skor elementi HTML'i
             scoreElement.innerHTML = `
                 <div class="d-flex justify-content-between align-items-center">
                     <span>${categoryName} ${isSuspicious ? '<i class="fas fa-question-circle text-warning" title="Bu kategori skoru tutarsız olabilir"></i>' : ''}</span>
-                    <span class="risk-score ${riskClass}">${score.toFixed(0)}% - ${riskLevel}</span>
+                    <span class="risk-score ${riskClass}">${(score * 100).toFixed(0)}% - ${riskLevel}</span>
                 </div>
-                <div class="progress mb-1">
-                    <div class="progress-bar ${progressBarClass}" 
-                         role="progressbar" style="width: ${score}%" 
-                         aria-valuenow="${score}" aria-valuemin="0" aria-valuemax="100"></div>
+                <div class="progress">
+                    <div class="progress-bar ${riskClass === 'risk-level-high' ? 'bg-danger' : riskClass === 'risk-level-medium' ? 'bg-warning' : 'bg-success'}" 
+                         role="progressbar" style="width: ${score * 100}%" 
+                         aria-valuenow="${score * 100}" aria-valuemin="0" aria-valuemax="100"></div>
                 </div>
-                ${showConfidence ? `
-                <div class="d-flex justify-content-between align-items-center small text-muted">
-                    <span>Güven Skoru:</span>
-                    <span>${(confidenceScore * 100).toFixed(0)}%</span>
-                </div>
-                <div class="progress" style="height: 4px;">
-                    <div class="progress-bar bg-info" 
-                         role="progressbar" style="width: ${confidenceScore * 100}%" 
-                         aria-valuenow="${confidenceScore * 100}" aria-valuemin="0" aria-valuemax="100"></div>
-                </div>
-                ` : ''}
             `;
             
             riskScoresContainer.appendChild(scoreElement);
@@ -1298,10 +1100,6 @@ function displayAnalysisResults(fileId, results) {
                         categoryName = 'Madde Kullanımı'; 
                         badgeClass = 'bg-warning';
                         break;
-                    case 'safe': 
-                        categoryName = 'Güvenli'; 
-                        badgeClass = 'bg-success';
-                        break;
                 }
                 
                 if (highestRiskCategory) {
@@ -1315,16 +1113,7 @@ function displayAnalysisResults(fileId, results) {
                 }
                 
                 if (highestRiskScore) {
-                    // Skor muhtemelen 0-1 aralığında, kontrol edip 0-100 aralığına dönüştür
-                    let displayScore = results.highest_risk.score;
-                    
-                    // Eğer skor 0-1 aralığındaysa
-                    if (displayScore <= 1.0) {
-                        displayScore = displayScore * 100;
-                        console.log(`En yüksek risk skoru normalize edildi: ${results.highest_risk.score} → ${displayScore}`);
-                    }
-                    
-                    highestRiskScore.textContent = `Skor: ${displayScore.toFixed(0)}%`;
+                    highestRiskScore.textContent = `Skor: ${(results.highest_risk.score * 100).toFixed(0)}%`;
                 }
                 
                 // Zaman bilgisini ekle
@@ -1383,18 +1172,7 @@ function displayAnalysisResults(fileId, results) {
                     'adult_content': null,
                     'harassment': null,
                     'weapon': null,
-                    'drug': null,
-                    'safe': null
-                };
-                
-                // En yüksek skoru takip etmek için değişken tanımla
-                const highestScores = {
-                    'violence': 0,
-                    'adult_content': 0,
-                    'harassment': 0,
-                    'weapon': 0,
-                    'drug': 0,
-                    'safe': 0
+                    'drug': null
                 };
                 
                 // Her kategori için en yüksek skorlu kareleri bul
@@ -1408,8 +1186,7 @@ function displayAnalysisResults(fileId, results) {
                         'adult_content': detection.adult_content_score,
                         'harassment': detection.harassment_score,
                         'weapon': detection.weapon_score,
-                        'drug': detection.drug_score,
-                        'safe': detection.safe_score
+                        'drug': detection.drug_score
                     };
                     
                     console.log('Tespit edilen skorlar:', categoryScores);
@@ -1417,21 +1194,13 @@ function displayAnalysisResults(fileId, results) {
                     // Her kategori için skoru kontrol et
                     for (const [category, score] of Object.entries(categoryScores)) {
                         if (score && !isNaN(score)) {
-                            // Skor 0-1 aralığında mı kontrol et
-                            let normalizedScore = score;
-                            if (score <= 1.0) {
-                                normalizedScore = score * 100;
-                                console.log(`Detay tabı ${category} skoru normalize edildi: ${score} → ${normalizedScore}`);
-                            }
-                            
-                            if (!categoryTopDetections[category] || normalizedScore > highestScores[category]) {
-                                console.log(`Daha yüksek ${category} skoru bulundu:`, normalizedScore);
+                            if (!categoryTopDetections[category] || score > categoryTopDetections[category].score) {
+                                console.log(`Daha yüksek ${category} skoru bulundu:`, score);
                                 categoryTopDetections[category] = {
-                                    score: normalizedScore, // normalize edilmiş skoru kullan
+                                    score: score,
                                     frame_path: detection.frame_path,
                                     timestamp: detection.frame_timestamp // frame_timestamp alanını kullan
                                 };
-                                highestScores[category] = normalizedScore; // En yüksek skoru güncelle
                             }
                         }
                     }
@@ -1455,27 +1224,23 @@ function displayAnalysisResults(fileId, results) {
                     switch (category) {
                         case 'violence': 
                             categoryName = 'Şiddet'; 
-                            badgeClass = (detection.score >= 70) ? 'bg-danger' : (detection.score >= 30) ? 'bg-warning' : 'bg-success';
+                            badgeClass = (detection.score >= 0.7) ? 'bg-danger' : (detection.score >= 0.3) ? 'bg-warning' : 'bg-success';
                             break;
                         case 'adult_content': 
                             categoryName = 'Yetişkin İçeriği'; 
-                            badgeClass = (detection.score >= 70) ? 'bg-danger' : (detection.score >= 30) ? 'bg-warning' : 'bg-success';
+                            badgeClass = (detection.score >= 0.7) ? 'bg-danger' : (detection.score >= 0.3) ? 'bg-warning' : 'bg-success';
                             break;
                         case 'harassment': 
                             categoryName = 'Taciz'; 
-                            badgeClass = (detection.score >= 70) ? 'bg-danger' : (detection.score >= 30) ? 'bg-warning' : 'bg-success';
+                            badgeClass = (detection.score >= 0.7) ? 'bg-danger' : (detection.score >= 0.3) ? 'bg-warning' : 'bg-success';
                             break;
                         case 'weapon': 
                             categoryName = 'Silah'; 
-                            badgeClass = (detection.score >= 70) ? 'bg-danger' : (detection.score >= 30) ? 'bg-warning' : 'bg-success';
+                            badgeClass = (detection.score >= 0.7) ? 'bg-danger' : (detection.score >= 0.3) ? 'bg-warning' : 'bg-success';
                             break;
                         case 'drug': 
                             categoryName = 'Madde Kullanımı'; 
-                            badgeClass = (detection.score >= 70) ? 'bg-danger' : (detection.score >= 30) ? 'bg-warning' : 'bg-success';
-                            break;
-                        case 'safe': 
-                            categoryName = 'Güvenli'; 
-                            badgeClass = (detection.score >= 70) ? 'bg-success' : (detection.score >= 30) ? 'bg-info' : 'bg-warning';
+                            badgeClass = (detection.score >= 0.7) ? 'bg-danger' : (detection.score >= 0.3) ? 'bg-warning' : 'bg-success';
                             break;
                     }
                     
@@ -1523,17 +1288,13 @@ function displayAnalysisResults(fileId, results) {
                             <div class="card-body">
                                 <h6 class="card-title">${categoryName}</h6>
                                 <div class="d-flex justify-content-between mb-1">
-                                    <span>${category === 'safe' ? 'Güven Skoru:' : 'Risk Skoru:'}</span>
-                                    <strong>${highestScores[category].toFixed(0)}%</strong>
+                                    <span>Risk Skoru:</span>
+                                    <strong>${(detection.score * 100).toFixed(0)}%</strong>
                                 </div>
                                 <div class="progress">
-                                    <div class="progress-bar ${badgeClass}" 
-                                        style="width: ${highestScores[category]}%" 
-                                        role="progressbar" 
-                                        aria-valuenow="${highestScores[category]}" 
-                                        aria-valuemin="0" 
-                                        aria-valuemax="100">
-                                    </div>
+                                    <div class="progress-bar ${badgeClass}" style="width: ${detection.score * 100}%" 
+                                         role="progressbar" aria-valuenow="${detection.score * 100}" 
+                                         aria-valuemin="0" aria-valuemax="100"></div>
                                 </div>
                             </div>
                         </div>
@@ -1620,11 +1381,10 @@ function displayAnalysisResults(fileId, results) {
                                     <div class="row align-items-center">
                                         <div class="col-md-12">
                                             <div class="position-relative" style="height: 300px; overflow: hidden;">
-                                                <img src="${frameUrl}" alt="ID: ${faceId.includes('_person_') ? faceId.split('_person_').pop() : index + 1}"
+                                                <img src="${frameUrl}" alt="Yüz ${index + 1}"
                                                     style="width: 100%; height: 100%; object-fit: contain;"
-                                                    onerror="this.onerror=null;this.src='/static/img/image-not-found.svg';"
-                                                    onload="console.log('[DEBUG] Görsel başarıyla yüklendi:', this.src)">
-                                                <span class="position-absolute top-0 end-0 m-2 badge bg-info">ID: ${faceId.includes('_person_') ? faceId.split('_person_').pop() : index + 1}</span>
+                                                    onerror="this.onerror=null;this.src='/static/img/image-not-found.svg';">
+                                                <span class="position-absolute top-0 end-0 m-2 badge bg-info">Yüz #${index + 1}</span>
                                             </div>
                                             <div class="mt-3">
                                                 <h5 class="card-title mb-3">Tahmini Yaş: ${Math.round(face.age)}</h5>
@@ -1962,7 +1722,6 @@ function displayContentModelMetrics(data) {
                 case 'harassment': categoryName = 'Taciz'; break;
                 case 'weapon': categoryName = 'Silah'; break;
                 case 'drug': categoryName = 'Madde Kullanımı'; break;
-                case 'safe': categoryName = 'Güvenli'; break;
             }
             
             const row = document.createElement('tr');
@@ -2696,11 +2455,6 @@ function detectSuspiciousScores(results) {
     const suspiciousCategories = [];
     const scores = results.overall_scores;
     
-    // Güvenli skoru yüksek ama diğer kategorilerde de yüksek skorlar varsa
-    if (scores.safe > 0.5 && (scores.violence > 0.4 || scores.adult_content > 0.4 || scores.harassment > 0.4 || scores.weapon > 0.4 || scores.drug > 0.4)) {
-        suspiciousCategories.push('Güvenli');
-    }
-    
     // Anormal skor kombinasyonları
     if (scores.drug > 0.8 && scores.violence < 0.4 && scores.weapon < 0.3) {
         suspiciousCategories.push('Madde Kullanımı');
@@ -2782,7 +2536,7 @@ function displayHighestRiskFrame(results) {
             const categoryName = getCategoryDisplayName(results.highest_risk.category);
             const scoreLabel = document.createElement('div');
             scoreLabel.className = 'position-absolute bottom-0 end-0 bg-danger text-white px-2 py-1 rounded-start';
-            scoreLabel.innerHTML = `${categoryName}: ${Math.round(results.highest_risk.score)}%`;
+            scoreLabel.innerHTML = `${categoryName}: ${Math.round(results.highest_risk.score * 100)}%`;
             container.appendChild(scoreLabel);
             
             // Zaman bilgisi varsa ekle
@@ -2808,8 +2562,7 @@ function displayHighRiskFramesByCategory(results) {
         adult_content: 0,
         harassment: 0,
         weapon: 0,
-        drug: 0,
-        safe: 0
+        drug: 0
     };
     
     let highestFrames = {
@@ -2817,8 +2570,7 @@ function displayHighRiskFramesByCategory(results) {
         adult_content: null,
         harassment: null,
         weapon: null,
-        drug: null,
-        safe: null
+        drug: null
     };
     
     // İçerik tespitlerini gözden geçir ve en yüksek skorları bul
@@ -2864,43 +2616,29 @@ function displayHighRiskFramesByCategory(results) {
                     timestamp: detection.frame_timestamp
                 };
             }
-            
-            if (detection.safe_score > highestScores.safe) {
-                highestScores.safe = detection.safe_score;
-                highestFrames.safe = {
-                    processed_image_path: detection.processed_image_path,
-                    timestamp: detection.frame_timestamp
-                };
-            }
         });
     }
     
     console.log("Bulunan en yüksek kategoriler:", highestFrames);
     
     // Her kategori için en yüksek riskli kareyi göster
-    const categories = ['violence', 'adult_content', 'harassment', 'weapon', 'drug', 'safe'];
+    const categories = ['violence', 'adult_content', 'harassment', 'weapon', 'drug'];
     const grid = document.getElementById('categoryFramesGrid');
     if (!grid) return;
     
     grid.innerHTML = '';
     
     categories.forEach(category => {
-        // Güvenli kategori için farklı eşik değeri (en az %50)
-        const threshold = category === 'safe' ? 0.5 : 0.3;
-        
-        if (highestScores[category] >= threshold) { 
+        if (highestScores[category] >= 0.3) { // Eşik değeri: %30 ve üzeri skorlar için göster
             const frameData = highestFrames[category];
             if (!frameData || !frameData.processed_image_path) return;
             
-            let categoryName = getCategoryDisplayName(category);
+            const categoryName = getCategoryDisplayName(category);
             const cardDiv = document.createElement('div');
             cardDiv.className = 'col-md-4 mb-4';
             
             const frameUrl = `/${frameData.processed_image_path}`;  // /api/files/ prefix'ini kaldırdık
             console.log(`${categoryName} için frame URL:`, frameUrl);
-            
-            // Kategori badge'inin rengini belirle
-            let badgeClass = getCategoryBadgeClass(category);
             
             cardDiv.innerHTML = `
                 <div class="card h-100">
@@ -2910,20 +2648,20 @@ function displayHighRiskFramesByCategory(results) {
                                 style="width: 100%; height: 100%; object-fit: cover;"
                                 onerror="this.onerror=null;this.src='/static/img/image-not-found.svg';">
                         </div>
-                        <span class="position-absolute top-0 end-0 m-2 badge ${badgeClass}">${categoryName}</span>
+                        <span class="position-absolute top-0 end-0 m-2 badge ${getCategoryBadgeClass(category)}">${categoryName}</span>
                         ${frameData.timestamp ? `<span class="position-absolute bottom-0 start-0 m-2 badge bg-dark">${formatTime(frameData.timestamp)}</span>` : ''}
                     </div>
                     <div class="card-body">
                         <h6 class="card-title">${categoryName}</h6>
                         <div class="d-flex justify-content-between mb-1">
-                            <span>${category === 'safe' ? 'Güven Skoru:' : 'Risk Skoru:'}</span>
-                            <strong>${highestScores[category].toFixed(0)}%</strong>
+                            <span>Risk Skoru:</span>
+                            <strong>${(highestScores[category] * 100).toFixed(0)}%</strong>
                         </div>
                         <div class="progress">
-                            <div class="progress-bar ${badgeClass}" 
-                                style="width: ${highestScores[category]}%" 
+                            <div class="progress-bar ${getCategoryBadgeClass(category)}" 
+                                style="width: ${highestScores[category] * 100}%" 
                                 role="progressbar" 
-                                aria-valuenow="${highestScores[category]}" 
+                                aria-valuenow="${highestScores[category] * 100}" 
                                 aria-valuemin="0" 
                                 aria-valuemax="100">
                             </div>
@@ -3023,11 +2761,11 @@ function displayAgeEstimations(results) {
                                 <div class="col-md-12">
                                     <div class="position-relative" style="height: 300px; overflow: hidden;">
                                         <img src="${frameUrl}" 
-                                             alt="ID: ${faceId.includes('_person_') ? faceId.split('_person_').pop() : index + 1}"
+                                             alt="Yüz ${index + 1}"
                                              style="width: 100%; height: 100%; object-fit: contain;"
-                                             onerror="this.onerror=null;this.src='/static/img/image-not-found.svg';"
+                                             onerror="console.error('[DEBUG] Görsel yüklenemedi:', this.src); this.onerror=null; this.src='/static/img/image-not-found.svg';"
                                              onload="console.log('[DEBUG] Görsel başarıyla yüklendi:', this.src)">
-                                        <span class="position-absolute top-0 end-0 m-2 badge bg-info">ID: ${faceId.includes('_person_') ? faceId.split('_person_').pop() : index + 1}</span>
+                                        <span class="position-absolute top-0 end-0 m-2 badge bg-info">Yüz #${index + 1}</span>
                                     </div>
                                     <div class="mt-3">
                                         <h5 class="card-title mb-3">Tahmini Yaş: ${Math.round(face.age)}</h5>
