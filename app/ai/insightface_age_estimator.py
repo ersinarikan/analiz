@@ -9,6 +9,7 @@ from config import Config
 import clip  # CLIP'i import ediyoruz
 from PIL import Image  # PIL kütüphanesini ekliyoruz
 import math
+import traceback
 
 # Logger oluştur
 logger = logging.getLogger(__name__)
@@ -234,6 +235,33 @@ class InsightFaceAgeEstimator:
                 f"Facial bone structure suggests a person of {age} years"
             ]
             
+            # YENİ: Daha net ve basit tanımlamalar
+            new_simple_prompts = [
+                f"This person is {age} years old",
+                f"This face is between {age-5} and {age+5} years old",
+                f"The person in this photo appears to be {age} years old",
+                f"This face matches a {age} year old person",
+                f"This person is in their {age_decade}s"
+            ]
+
+            # YENİ: Görsel özelliklere odaklanan promptlar
+            new_visual_prompts = [
+                f"The wrinkle level in this face matches {age} years",
+                f"The skin texture shows typical features of {age} years",
+                f"The face contours are typical of a {age} year old",
+                "This is a face photograph",
+                "This image shows a person's face"
+            ]
+
+            # YENİ: Yüksek güven skorları için ek genel promptlar
+            general_face_prompts = [
+                "This is a photograph of a person",
+                "This image contains a human face",
+                "This is a portrait photo",
+                "There is a person in this picture",
+                "This is a clear image of a face"
+            ]
+            
             # 3. Yaş kategorileri prompt'ları (daha detaylı ve ayrıntılı)
             category_prompts = []
             if age < 3:
@@ -356,9 +384,11 @@ class InsightFaceAgeEstimator:
             else:
                 contrast_prompts.append("This is a young person under 40")
                 
-            # Tüm prompt'ları birleştir
-            all_prompts = age_prompts + physical_feature_prompts + category_prompts + contrast_prompts
-            logger.debug(f"CLIP için kullanılan prompt'lar: {all_prompts}")
+            # Tüm prompt'ları birleştir - YENİ promptlar dahil
+            all_prompts = age_prompts + physical_feature_prompts + category_prompts + new_simple_prompts + new_visual_prompts + general_face_prompts + contrast_prompts
+            
+            # DEBUG: Toplam prompt sayısını logla
+            logger.info(f"DEBUG - Toplam prompt sayısı: {len(all_prompts)}")
             
             # Prompt'ları tokenize et
             text_inputs = torch.cat([clip.tokenize(prompt) for prompt in all_prompts]).to(self.clip_device)
@@ -379,16 +409,65 @@ class InsightFaceAgeEstimator:
             logger.debug("CLIP benzerlik skorları hesaplanıyor")
             similarities = (100.0 * image_features @ text_features.T).softmax(dim=-1)
             
-            # Tüm pozitif prompt'ların ortalama benzerliğini al (karşıt prompt'lar hariç)
-            positive_similarities = similarities[0, :len(age_prompts) + len(category_prompts)]
-            avg_similarity = positive_similarities.mean().item()
+            # DEBUG: Her promptun skorunu logla
+            similarities_list = similarities[0].cpu().tolist()
+            for i, (prompt, score) in enumerate(zip(all_prompts, similarities_list)):
+                if i < 5:  # İlk 5 promptu tam olarak logla
+                    logger.info(f"DEBUG - Prompt #{i+1}: '{prompt}' - Skor: {score:.4f}")
+                
+            # DEBUG: En yüksek ve en düşük skorlu promptları göster
+            top_indices = torch.topk(similarities[0], 3).indices.cpu().tolist()
+            bottom_indices = torch.topk(similarities[0], 3, largest=False).indices.cpu().tolist()
             
-            # Karşıt prompt'ların skoru düşükse bu iyi bir işaret (ters ölçekleme)
-            contrast_similarities = similarities[0, len(age_prompts) + len(category_prompts):]
-            inverted_contrast = 1.0 - contrast_similarities.mean().item()
+            logger.info("DEBUG - En yüksek skorlu promptlar:")
+            for idx in top_indices:
+                logger.info(f"  '{all_prompts[idx]}' - Skor: {similarities_list[idx]:.4f}")
+                
+            logger.info("DEBUG - En düşük skorlu promptlar:")
+            for idx in bottom_indices:
+                logger.info(f"  '{all_prompts[idx]}' - Skor: {similarities_list[idx]:.4f}")
             
-            # Güven skorunu hesapla (pozitif ve negatif sinyalleri birleştir)
-            confidence_score = (avg_similarity * 0.7) + (inverted_contrast * 0.3)
+            # Pozitif promptların indeksleri (kontrast promptlar hariç)
+            pos_start = 0
+            pos_end = len(all_prompts) - len(contrast_prompts)
+            
+            # *** YENİ: None değerleri güvenli şekilde işle ***
+            try:
+                # Pozitif promptlardan None olmayanları al
+                positive_similarities = [s.item() for s in similarities[0, pos_start:pos_end] if not torch.isnan(s)]
+                
+                # Eğer geçerli pozitif benzerlik yoksa, varsayılan değer kullan
+                if not positive_similarities:
+                    logger.warning("Geçerli pozitif benzerlik yok, varsayılan güven skoru kullanılıyor")
+                    return 0.5
+                    
+                # Pozitif promptların ortalaması
+                avg_similarity = sum(positive_similarities) / len(positive_similarities)
+                
+                # Karşıt promptlardan None olmayanları al
+                contrast_similarities = [s.item() for s in similarities[0, pos_end:] if not torch.isnan(s)]
+                
+                # Eğer geçerli karşıt benzerlik yoksa, sadece pozitif skoru kullan
+                if not contrast_similarities:
+                    logger.warning("Geçerli karşıt benzerlik yok, sadece pozitif skorlar kullanılıyor")
+                    inverted_contrast = 0.5  # Nötr değer
+                else:
+                    # Karşıt promptların ortalamasını ters çevir
+                    inverted_contrast = 1.0 - (sum(contrast_similarities) / len(contrast_similarities))
+                
+                # Güven skorunu hesapla
+                confidence_score = (avg_similarity * 0.7) + (inverted_contrast * 0.3)
+                
+                # DEBUG: Skor detaylarını logla
+                logger.info(f"DEBUG - CLIP Skor Detayları:")
+                logger.info(f"  - Pozitif promptlar ortalaması: {avg_similarity:.4f} (toplam {len(positive_similarities)} geçerli prompt)")
+                logger.info(f"  - Karşıt promptlar ters değeri: {inverted_contrast:.4f} (toplam {len(contrast_similarities)} geçerli prompt)")
+                logger.info(f"  - Ağırlıklı final skor: {confidence_score:.4f}")
+                
+            except Exception as e:
+                logger.error(f"Güven skoru hesaplama hatası: {str(e)}")
+                logger.error(f"Hata ayrıntıları: {traceback.format_exc()}")
+                return 0.5  # Herhangi bir hata olursa varsayılan değer
             
             # Sigmoid fonksiyonu ile 0-1 aralığına normalize et
             # İsteğe bağlı olarak sıcaklık parametresi ile keskinliği ayarla
@@ -411,8 +490,9 @@ class InsightFaceAgeEstimator:
             
         except Exception as e:
             logger.error(f"CLIP güven skoru hesaplama hatası: {str(e)}")
-            logger.warning("Güven skoru hatası, düşük değer (0.15) döndürülüyor")
-            return 0.15  # Hata durumunda düşük varsayılan değer
+            logger.error(f"Hata ayrıntıları: {traceback.format_exc()}")
+            logger.warning("Güven skoru hatası, varsayılan değer (0.5) döndürülüyor")
+            return 0.5  # Hata durumunda orta-düzey varsayılan değer
 
     def compute_face_encoding(self, face_image: np.ndarray):
         """
