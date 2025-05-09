@@ -29,44 +29,42 @@ class CustomAgeHead(torch.nn.Module):
         x = self.fc2(x)
         return x
 
-# Versiyonlu model bulucu fonksiyon
-def find_latest_age_model(model_root):
-    versions_dir = os.path.join(model_root, 'versions')
-    model_filename = 'custom_age_head.pth'
-    version_pattern = re.compile(r'^v(\d+)$')
-    candidates = []
-    
-    logger.info(f"Yaş tahmin modeli versiyonları aranıyor: {versions_dir}")
-    
-    if os.path.exists(versions_dir):
-        for name in os.listdir(versions_dir):
-            m = version_pattern.match(name)
-            if m:
-                version_num = int(m.group(1))
-                model_path = os.path.join(versions_dir, name, model_filename)
-                if os.path.isfile(model_path):
-                    candidates.append((version_num, model_path))
-                    logger.info(f"Model versiyonu bulundu: v{version_num} - {model_path}")
-    
-    if candidates:
-        candidates.sort(reverse=True)
-        latest_version, latest_path = candidates[0]
-        logger.info(f"En son model versiyonu seçildi: v{latest_version} - {latest_path}")
-        return latest_path
-    
-    root_model_path = os.path.join(model_root, model_filename)
-    if os.path.isfile(root_model_path):
-        logger.info(f"Kök dizinde model bulundu: {root_model_path}")
-        return root_model_path
-    
-    logger.warning("Hiçbir model versiyonu bulunamadı!")
-    return None
+def find_latest_age_model(base_dir):
+    """
+    Belirtilen dizin içinde en son model dosyasını bulur.
+    Args:
+        base_dir: Modellerin bulunduğu ana dizin
+    Returns:
+        Model dosyasının tam yolu veya None (hiç model bulunamazsa)
+    """
+    if not os.path.exists(base_dir):
+        return None
+        
+    model_dir = os.path.join(base_dir, 'versions', 'v1')
+    if not os.path.exists(model_dir):
+        return None
+        
+    model_files = [f for f in os.listdir(model_dir) if f.endswith('.pth')]
+    if not model_files:
+        return None
+        
+    # Çoğunlukla epoch sayısına göre sıralama yapabilmek için, model adından epoch bilgisini çek
+    def extract_epoch(filename):
+        match = re.search(r'epoch_(\d+)\.pth', filename)
+        if match:
+            return int(match.group(1))
+        return 0
+        
+    # En yüksek epoch sayısına sahip model dosyasını bul
+    latest_model = sorted(model_files, key=extract_epoch, reverse=True)[0]
+    return os.path.join(model_dir, latest_model)
 
 class InsightFaceAgeEstimator:
     def __init__(self, det_size=(640, 640)):
         # Model dosya yolunu ayarla
-        model_path = os.path.join(Config.MODELS_FOLDER, 'age', 'buffalo_l')
+        model_path = os.path.join(Config.MODELS_FOLDER, 'age', 'buffalo_x')
         logger.info(f"InsightFaceAgeEstimator başlatılıyor. Model dizini: {model_path}")
+        logger.info("NOT: Buffalo_x adı kullanılmasına rağmen şu anda buffalo_sc modeli kullanılmaktadır (geçici çözüm)")
         
         # Model dosyalarının varlığını kontrol et
         if not os.path.exists(model_path):
@@ -76,8 +74,8 @@ class InsightFaceAgeEstimator:
         # Modeli yerel dosyadan yükle
         try:
             self.model = insightface.app.FaceAnalysis(
-                name='buffalo_l',
-                root=model_path,
+                name='buffalo_x',  # Klasör adı burada kullanılıyor
+                root=os.path.dirname(os.path.dirname(model_path)),  # storage/models klasörü
                 providers=['CPUExecutionProvider']
             )
             self.model.prepare(ctx_id=0, det_size=det_size)
@@ -225,75 +223,124 @@ class InsightFaceAgeEstimator:
             
             # 2. Yaş kategorileri prompt'ları
             category_prompts = []
-            if age < 3:
-                category_prompts.append("This is a baby or infant (0-2 years old)")
-            elif age < 10:
-                category_prompts.append("This is a young child (3-9 years old)")
-            elif age < 13:
-                category_prompts.append("This is a pre-teen child (10-12 years old)")
-            elif age < 20:
-                category_prompts.append("This is a teenager (13-19 years old)")
-            elif age < 30:
-                category_prompts.append("This is a young adult in their twenties (20-29)")
-            elif age < 40:
-                category_prompts.append("This is an adult in their thirties (30-39)")
-            elif age < 50:
-                category_prompts.append("This is a middle-aged person in their forties (40-49)")
-            elif age < 60:
-                category_prompts.append("This is a middle-aged person in their fifties (50-59)")
-            elif age < 70:
-                category_prompts.append("This is a senior in their sixties (60-69)")
-            else:
-                category_prompts.append("This is an elderly person (70+ years old)")
+            
+            # Çocuk
+            if age <= 12:
+                category_prompts.extend([
+                    "This is a child face",
+                    "This person is a young child",
+                    "This is a primary school aged kid"
+                ])
+                if age <= 5:
+                    category_prompts.append("This is a toddler or very young child")
+                    
+            # Genç/Ergen
+            if 10 <= age <= 19:
+                category_prompts.extend([
+                    "This is a teenage face",
+                    "This is a young adolescent person",
+                    "This face belongs to a teenager"
+                ])
                 
-            # 3. Karşıt prompt'lar (daha belirgin sonuçlar için)
-            contrast_prompts = []
-            if age < 18:
-                contrast_prompts.append("This is an adult over 18 years old")
-            else:
-                contrast_prompts.append("This is a child under 18 years old")
+            # Genç Yetişkin
+            if 18 <= age <= 30:
+                category_prompts.extend([
+                    "This is a young adult face",
+                    "This person is in their twenties",
+                    "This is a college-aged young adult"
+                ])
                 
-            if age < 40:
-                contrast_prompts.append("This is a middle-aged or elderly person (40+ years)")
-            else:
-                contrast_prompts.append("This is a young person under 40")
+            # Orta Yaşlı Yetişkin  
+            if 30 <= age <= 50:
+                category_prompts.extend([
+                    "This is a middle-aged adult face",
+                    "This person is in their thirties or forties",
+                    "This face shows signs of early maturity"
+                ])
+                
+            # Olgun Yetişkin
+            if 50 <= age <= 65:
+                category_prompts.extend([
+                    "This is a mature adult face",
+                    "This person is in their fifties or early sixties",
+                    "This face shows signs of aging"
+                ])
+                
+            # Yaşlı
+            if age >= 65:
+                category_prompts.extend([
+                    "This is a senior citizen face",
+                    "This person is elderly",
+                    "This face shows significant signs of aging",
+                    "This is an older person over 65"
+                ])
+                
+            # 3. Negatif prompt'lar (farklı yaş grupları için)
+            negative_prompts = []
+            
+            # Eğer çocuk değilse
+            if age > 18:
+                negative_prompts.extend([
+                    "This is a child face",
+                    "This person is a young child",
+                    "This is a primary school aged kid"
+                ])
+                
+            # Eğer genç/ergen değilse
+            if age < 10 or age > 20:
+                negative_prompts.extend([
+                    "This is a teenage face",
+                    "This is a young adolescent person",
+                ])
+                
+            # Eğer yaşlı değilse
+            if age < 60:
+                negative_prompts.extend([
+                    "This is a senior citizen face",
+                    "This person is elderly",
+                    "This face shows significant signs of aging"
+                ])
                 
             # Tüm prompt'ları birleştir
-            all_prompts = age_prompts + category_prompts + contrast_prompts
-            logger.debug(f"[AGE_LOG] CLIP Prompts: {all_prompts}") # Debug seviyesinde logla
+            all_prompts = age_prompts + category_prompts
             
-            # Prompt'ları tokenize et
-            text_inputs = torch.cat([clip.tokenize(prompt) for prompt in all_prompts]).to(self.clip_device)
+            # Her prompt için benzerlik skoru hesapla
+            text_inputs = clip.tokenize(all_prompts).to(self.clip_device)
             
-            # Görüntü ve metin özelliklerini çıkar
             with torch.no_grad():
-                # Görüntü özelliklerini çıkar
                 image_features = self.clip_model.encode_image(preprocessed_image)
-                image_features /= image_features.norm(dim=-1, keepdim=True)
-                
-                # Metin özelliklerini çıkar
                 text_features = self.clip_model.encode_text(text_inputs)
-                text_features /= text_features.norm(dim=-1, keepdim=True)
+                
+                image_features = image_features / image_features.norm(dim=-1, keepdim=True)
+                text_features = text_features / text_features.norm(dim=-1, keepdim=True)
+                
+                similarity_scores = (100.0 * image_features @ text_features.T).softmax(dim=-1)
+                similarity_values = similarity_scores.cpu().numpy()[0]
             
-            # Benzerlik skorlarını hesapla
-            similarities = (100.0 * image_features @ text_features.T).softmax(dim=-1)
-            logger.debug(f"[AGE_LOG] CLIP Ham Benzerlikler: {similarities.cpu().numpy().flatten()}") # Debug
+            # En büyük benzerlik skorlarını al (top-3)
+            top_indices = np.argsort(similarity_values)[-3:][::-1]
+            top_scores = similarity_values[top_indices]
             
-            # Tüm pozitif prompt'ların ortalama benzerliğini al (karşıt prompt'lar hariç)
-            positive_similarities = similarities[0, :len(age_prompts) + len(category_prompts)]
-            avg_similarity = positive_similarities.mean().item()
+            # Negatif prompt'larla kontrol
+            negative_confidence = 1.0
+            if negative_prompts:
+                neg_text_inputs = clip.tokenize(negative_prompts).to(self.clip_device)
+                with torch.no_grad():
+                    neg_text_features = self.clip_model.encode_text(neg_text_inputs)
+                    neg_text_features = neg_text_features / neg_text_features.norm(dim=-1, keepdim=True)
+                    neg_similarity = (100.0 * image_features @ neg_text_features.T).softmax(dim=-1)
+                    neg_values = neg_similarity.cpu().numpy()[0]
+                
+                # En yüksek negatif skorunu al ve güven skorundan çıkar
+                max_neg_score = np.max(neg_values)
+                negative_confidence = 1.0 - max_neg_score
             
-            # Karşıt prompt'ların skoru düşükse bu iyi bir işaret (ters ölçekleme)
-            contrast_similarities = similarities[0, len(age_prompts) + len(category_prompts):]
-            inverted_contrast = 1.0 - contrast_similarities.mean().item()
-            
-            # Güven skorunu hesapla (pozitif ve negatif sinyalleri birleştir)
-            confidence_score = (avg_similarity * 0.7) + (inverted_contrast * 0.3)
+            # Son güven skorunu hesapla
+            weighted_score = np.mean(top_scores) * 0.7 + top_scores[0] * 0.3
+            final_confidence = weighted_score * negative_confidence
             
             # Sigmoid fonksiyonu ile 0-1 aralığına normalize et
-            # İsteğe bağlı olarak sıcaklık parametresi ile keskinliği ayarla
-            temperature = 2.0  # Daha yüksek = daha keskin ayrım
-            normalized_confidence = 1.0 / (1.0 + math.exp(-temperature * (confidence_score - 0.5)))
+            normalized_confidence = 1.0 / (1.0 + math.exp(-10 * (final_confidence - 0.5)))
             
             logger.info(f"[AGE_LOG] _calculate_confidence_with_clip tamamlandı. Hesaplanan Güven: {normalized_confidence:.4f}")
             return normalized_confidence

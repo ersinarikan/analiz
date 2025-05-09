@@ -26,7 +26,12 @@ import insightface
 
 def extract_and_save_embeddings(dataset_path, model_path, emb_path, age_path):
     print("Embedding dosyaları bulunamadı, şimdi çıkarılıyor...")
-    face_analyzer = insightface.app.FaceAnalysis(name='buffalo_l', root=model_path, providers=['CPUExecutionProvider'])
+    print("NOT: İsimlendirmede buffalo_x kullanılmasına rağmen, şu anda buffalo_sc modeli kullanılmaktadır.")
+    
+    # buffalo_sc modeli kullanılıyor ama buffalo_x olarak geçiyoruz
+    source_model_name = "buffalo_sc"  # Gerçekte kullanacağımız model
+    
+    face_analyzer = insightface.app.FaceAnalysis(name=source_model_name, providers=['CPUExecutionProvider'])
     face_analyzer.prepare(ctx_id=0, det_size=(640, 640))
     embeddings = []
     ages = []
@@ -56,17 +61,22 @@ def extract_and_save_embeddings(dataset_path, model_path, emb_path, age_path):
     print(f"Yaşlar kaydedildi: {age_path}")
     return embeddings, ages
 
-class EmbeddingAgeDataset(Dataset):
+# Özel veri seti sınıfı
+class AgeEstimationDataset(Dataset):
     def __init__(self, embeddings, ages):
         self.embeddings = embeddings
         self.ages = ages
-
+        
     def __len__(self):
         return len(self.embeddings)
-
+        
     def __getitem__(self, idx):
-        return torch.tensor(self.embeddings[idx], dtype=torch.float32), torch.tensor(self.ages[idx], dtype=torch.float32)
+        return {
+            'embedding': torch.tensor(self.embeddings[idx], dtype=torch.float32),
+            'age': torch.tensor(self.ages[idx], dtype=torch.float32)
+        }
 
+# Özel model sınıfı
 class CustomAgeHead(nn.Module):
     def __init__(self, input_size=512, hidden_size=256):
         super().__init__()
@@ -74,7 +84,7 @@ class CustomAgeHead(nn.Module):
         self.relu = nn.ReLU()
         self.dropout = nn.Dropout(0.5)
         self.fc2 = nn.Linear(hidden_size, 1)
-
+        
     def forward(self, x):
         x = self.fc1(x)
         x = self.relu(x)
@@ -82,104 +92,116 @@ class CustomAgeHead(nn.Module):
         x = self.fc2(x)
         return x
 
-def main():
-    print("Eğitim başlıyor...")
-    print("=" * 50)
+if __name__ == "__main__":
+    # Ayarlar
     base_dir = os.path.dirname(os.path.abspath(__file__))
-    dataset_path = os.path.join(base_dir, 'storage', 'dataset', 'age', 'UTKFace')
-    model_path = os.path.join(base_dir, 'storage', 'models', 'age', 'buffalo_l')
-    emb_path = os.path.join(base_dir, 'storage', 'dataset', 'age', 'utkface_embeddings.npy')
-    age_path = os.path.join(base_dir, 'storage', 'dataset', 'age', 'utkface_ages.npy')
-    model_dir = os.path.join(base_dir, 'storage', 'models', 'age', 'buffalo_l', 'versions', 'v1')
-    os.makedirs(os.path.dirname(emb_path), exist_ok=True)
+    
+    # Embedding ve yaş dosyalarının yolları
+    embedding_path = os.path.join(base_dir, 'storage', 'embeddings.npy')
+    age_path = os.path.join(base_dir, 'storage', 'ages.npy')
+    
+    # Dataset yolu
+    dataset_path = os.path.join(base_dir, 'storage', 'dataset', 'age', 'utkface_aligned_cropped', 'crop_part1')
+    
+    # Model kaydetme yolu
+    model_path = os.path.join(base_dir, 'storage', 'models', 'age', 'buffalo_x')
+    
+    # Model versiyonlama
+    model_dir = os.path.join(base_dir, 'storage', 'models', 'age', 'buffalo_x', 'versions', 'v1')
     os.makedirs(model_dir, exist_ok=True)
-
-    # Embedding dosyaları yoksa çıkar ve kaydet
-    if not (os.path.exists(emb_path) and os.path.exists(age_path)):
-        embeddings, ages = extract_and_save_embeddings(dataset_path, model_path, emb_path, age_path)
-    else:
-        embeddings = np.load(emb_path)
+    
+    # Embeddinglari yükle veya oluştur
+    if os.path.exists(embedding_path) and os.path.exists(age_path):
+        print("Var olan embedding ve yaş dosyaları yükleniyor...")
+        embeddings = np.load(embedding_path)
         ages = np.load(age_path)
-        print(f"Toplam {len(embeddings)} embedding ve yaş yüklendi.")
-        print(f"Yaş aralığı: {int(np.min(ages))} - {int(np.max(ages))}")
-
-    X_train, X_val, y_train, y_val = train_test_split(embeddings, ages, test_size=0.2, random_state=42)
-    print(f"Eğitim seti: {len(X_train)} örnek")
-    print(f"Validasyon seti: {len(X_val)} örnek")
-    train_dataset = EmbeddingAgeDataset(X_train, y_train)
-    val_dataset = EmbeddingAgeDataset(X_val, y_val)
-    train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
-    val_loader = DataLoader(val_dataset, batch_size=32, shuffle=False)
-
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    print(f"\nKullanılan cihaz: {device}")
+    else:
+        embeddings, ages = extract_and_save_embeddings(
+            dataset_path, model_path, embedding_path, age_path)
+    
+    # Eğitim ve test verilerini ayır
+    X_train, X_test, y_train, y_test = train_test_split(
+        embeddings, ages, test_size=0.2, random_state=42)
+    
+    # Veri setlerini oluştur
+    train_dataset = AgeEstimationDataset(X_train, y_train)
+    valid_dataset = AgeEstimationDataset(X_test, y_test)
+    
+    # DataLoader'ları oluştur
+    train_loader = DataLoader(train_dataset, batch_size=64, shuffle=True)
+    valid_loader = DataLoader(valid_dataset, batch_size=64)
+    
+    # Modeli, kaybı ve optimize ediciyi tanımla
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = CustomAgeHead().to(device)
-    criterion = nn.MSELoss()
+    criterion = nn.L1Loss()  # MAE kaybı
     optimizer = optim.Adam(model.parameters(), lr=0.001)
-
-    best_val_loss = float('inf')
-    best_model_state = None
-    print("\nModel eğitimi başlıyor...")
-    print("=" * 50)
-    for epoch in range(50):
+    
+    # Eğitim döngüsü
+    num_epochs = 30
+    train_losses = []
+    valid_losses = []
+    
+    for epoch in range(num_epochs):
         model.train()
-        train_loss = 0.0
-        for emb, age in train_loader:
-            emb, age = emb.to(device), age.to(device)
+        epoch_train_loss = 0
+        
+        for batch in train_loader:
+            embeddings = batch['embedding'].to(device)
+            ages = batch['age'].unsqueeze(1).to(device)
+            
             optimizer.zero_grad()
-            output = model(emb).squeeze()
-            loss = criterion(output, age)
+            outputs = model(embeddings)
+            loss = criterion(outputs, ages)
             loss.backward()
             optimizer.step()
-            train_loss += loss.item()
-        train_loss /= len(train_loader)
-
+            
+            epoch_train_loss += loss.item()
+        
         model.eval()
-        val_loss = 0.0
-        preds, targets = [], []
+        epoch_valid_loss = 0
+        all_preds = []
+        all_targets = []
+        
         with torch.no_grad():
-            for emb, age in val_loader:
-                emb, age = emb.to(device), age.to(device)
-                output = model(emb).squeeze()
-                loss = criterion(output, age)
-                val_loss += loss.item()
-                preds.extend(output.cpu().numpy())
-                targets.extend(age.cpu().numpy())
-        val_loss /= len(val_loader)
-        mae = mean_absolute_error(targets, preds)
-        rmse = np.sqrt(mean_squared_error(targets, preds))
-        print(f"Epoch {epoch+1}/50: Train Loss={train_loss:.4f}, Val Loss={val_loss:.4f}, MAE={mae:.2f}, RMSE={rmse:.2f}")
-        if val_loss < best_val_loss:
-            best_val_loss = val_loss
-            best_model_state = model.state_dict().copy()
-            print(f"Yeni en iyi model kaydedildi! (Val Loss: {val_loss:.4f})")
-
-    # Model ve metadata kaydet
-    model_path_out = os.path.join(model_dir, 'custom_age_head.pth')
-    torch.save(best_model_state, model_path_out)
-    print(f"\nEn iyi model kaydedildi: {model_path_out}")
-    metadata = {
-        "version": "v1",
-        "base_version": "base",
-        "training_date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "dataset": "UTKFace",
-        "sample_size": int(len(embeddings)),
-        "age_range": {
-            "min": int(np.min(ages)),
-            "max": int(np.max(ages))
-        },
-        "training_params": {
-            "epochs": 50,
-            "batch_size": 32,
-            "learning_rate": 0.001
-        }
+            for batch in valid_loader:
+                embeddings = batch['embedding'].to(device)
+                ages = batch['age'].unsqueeze(1).to(device)
+                
+                outputs = model(embeddings)
+                loss = criterion(outputs, ages)
+                
+                epoch_valid_loss += loss.item()
+                all_preds.extend(outputs.cpu().numpy().flatten())
+                all_targets.extend(ages.cpu().numpy().flatten())
+        
+        epoch_train_loss /= len(train_loader)
+        epoch_valid_loss /= len(valid_loader)
+        
+        train_losses.append(epoch_train_loss)
+        valid_losses.append(epoch_valid_loss)
+        
+        mae = mean_absolute_error(all_targets, all_preds)
+        mse = mean_squared_error(all_targets, all_preds)
+        rmse = np.sqrt(mse)
+        
+        print(f"Epoch {epoch+1}/{num_epochs}: Train Loss = {epoch_train_loss:.4f}, Valid Loss = {epoch_valid_loss:.4f}, MAE = {mae:.4f}, RMSE = {rmse:.4f}")
+        
+        # Her n epochta bir modeli kaydet
+        if (epoch + 1) % 5 == 0 or epoch == num_epochs - 1:
+            model_file = os.path.join(model_dir, f"age_model_epoch_{epoch+1}.pth")
+            torch.save(model.state_dict(), model_file)
+            print(f"Model kaydedildi: {model_file}")
+    
+    # Eğitim sonuçlarını kaydet
+    training_history = {
+        'train_losses': train_losses,
+        'valid_losses': valid_losses,
+        'date': datetime.now().isoformat(),
+        'epochs': num_epochs
     }
-    metadata_path = os.path.join(model_dir, 'metadata.json')
-    with open(metadata_path, 'w') as f:
-        json.dump(metadata, f, indent=4)
-    print(f"Metadata kaydedildi: {metadata_path}")
-    print("\nEğitim tamamlandı!")
-    print("=" * 50)
-
-if __name__ == '__main__':
-    main() 
+    
+    with open(os.path.join(model_dir, 'training_history.json'), 'w') as f:
+        json.dump(training_history, f)
+    
+    print("Eğitim tamamlandı ve sonuçlar kaydedildi.") 
