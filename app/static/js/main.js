@@ -1060,8 +1060,45 @@ function displayAnalysisResults(fileId, results) {
         }
     });
     
+    // 18 yaş altında birey kontrolü
+    let hasUnder18 = false;
+    if (results.age_estimations && Array.isArray(results.age_estimations) && results.age_estimations.length > 0) {
+        hasUnder18 = results.age_estimations.some(item => {
+            const estimatedAge = item.estimated_age || 0;
+            return estimatedAge < 18;
+        });
+    }
+    
+    // Kart başlığını al
+    const cardHeader = resultCard.querySelector('.card-header');
+    
+    // 18 yaş altı tespiti varsa, başlık üstünde bir uyarı ekle
+    if (hasUnder18 && cardHeader) {
+        const warningAlert = document.createElement('div');
+        warningAlert.className = 'alert alert-danger mb-3 mt-0 py-2';
+        warningAlert.innerHTML = '<i class="fas fa-exclamation-triangle me-2"></i><strong>DİKKAT:</strong> Bu içerikte 18 yaşından küçük birey tespiti yapılmıştır!';
+        cardHeader.parentNode.insertBefore(warningAlert, cardHeader);
+    }
+    
     // Dosya adını ayarla
-    resultCard.querySelector('.result-filename').textContent = file.name;
+    const fileNameElement = resultCard.querySelector('.result-filename');
+    fileNameElement.textContent = file.name;
+    
+    // 18 yaş altı birey tespiti varsa, uyarı ekle ve kart stilini değiştir
+    if (hasUnder18) {
+        // Kart stilini değiştir - arkaplan rengini kırmızımsı yap
+        const cardElement = resultCard.querySelector('.card');
+        if (cardElement) {
+            cardElement.classList.add('bg-danger-subtle');
+            cardElement.classList.add('border-danger');
+        }
+        
+        // Dosya adının yanına uyarı ekle
+        const warningBadge = document.createElement('span');
+        warningBadge.className = 'badge bg-danger ms-2';
+        warningBadge.innerHTML = '<i class="fas fa-exclamation-triangle me-1"></i> 18 yaş altı birey tespit edildi!';
+        fileNameElement.appendChild(warningBadge);
+    }
     
     // Content ID'sini gizli alana ekle
     const contentIdInput = resultCard.querySelector('.content-id');
@@ -1609,22 +1646,39 @@ function displayAnalysisResults(fileId, results) {
             } else {
                 faceIds.forEach((faceId, index) => {
                     const face = faces[faceId];
+                    console.log(`[DEBUG] Yüz kartı oluşturuluyor - Index: ${index}, FaceID: ${faceId}`);
+                    console.log("[DEBUG] Yüz verisi:", face);
+
                     const col = document.createElement('div');
-                    col.className = 'col-md-4 mb-3';
+                    col.className = 'col-md-6 mb-4';
+                    
+                    // 18 yaş altı kontrolü
+                    const isUnderAge = face.age < 18;
+                    const ageClass = isUnderAge ? 'border-danger bg-danger-subtle' : '';
+                    const ageWarning = isUnderAge ? 
+                        `<div class="alert alert-danger mt-2 mb-0 p-2">
+                            <small><i class="fas fa-exclamation-triangle me-1"></i> <strong>Dikkat:</strong> 18 yaş altında birey tespit edildi!</small>
+                        </div>` : '';
+                    
+                    // Görsel URL'sini oluştur
                     let frameUrl = '';
                     if (face.processed_image_path) {
                         frameUrl = `/${face.processed_image_path}`;
+                        console.log("[DEBUG] İşlenmiş görsel URL'si:", frameUrl);
+                        
                         col.innerHTML = `
-                            <div class="card h-100">
+                            <div class="card h-100 ${ageClass}">
                                 <div class="card-body">
                                     <div class="row align-items-center">
                                         <div class="col-md-12">
                                             <div class="position-relative" style="height: 300px; overflow: hidden;">
-                                                <img src="${frameUrl}" alt="ID: ${faceId.includes('_person_') ? faceId.split('_person_').pop() : index + 1}"
-                                                    style="width: 100%; height: 100%; object-fit: contain;"
-                                                    onerror="this.onerror=null;this.src='/static/img/image-not-found.svg';"
-                                                    onload="console.log('[DEBUG] Görsel başarıyla yüklendi:', this.src)">
+                                                <img src="${frameUrl}" 
+                                                     alt="ID: ${faceId.includes('_person_') ? faceId.split('_person_').pop() : index + 1}"
+                                                     style="width: 100%; height: 100%; object-fit: contain;"
+                                                     onerror="this.onerror=null;this.src='/static/img/image-not-found.svg';"
+                                                     onload="console.log('[DEBUG] Görsel başarıyla yüklendi:', this.src)">
                                                 <span class="position-absolute top-0 end-0 m-2 badge bg-info">ID: ${faceId.includes('_person_') ? faceId.split('_person_').pop() : index + 1}</span>
+                                                ${isUnderAge ? '<span class="position-absolute top-0 start-0 m-2 badge bg-danger"><i class="fas fa-exclamation-triangle me-1"></i> 18 yaş altı</span>' : ''}
                                             </div>
                                             <div class="mt-3">
                                                 <h5 class="card-title mb-3">Tahmini Yaş: ${Math.round(face.age)}</h5>
@@ -1640,6 +1694,7 @@ function displayAnalysisResults(fileId, results) {
                                                         </div>
                                                     </div>
                                                 </div>
+                                                ${ageWarning}
                                             </div>
                                         </div>
                                     </div>
@@ -1647,8 +1702,9 @@ function displayAnalysisResults(fileId, results) {
                             </div>
                         `;
                     } else {
+                        console.warn("[DEBUG] İşlenmiş görsel bulunamadı - FaceID:", faceId);
                         col.innerHTML = `
-                            <div class="card h-100">
+                            <div class="card h-100 ${ageClass}">
                                 <div class="card-body">
                                     <div class="alert alert-warning">
                                         <i class="fas fa-exclamation-triangle me-2"></i>
@@ -1667,6 +1723,7 @@ function displayAnalysisResults(fileId, results) {
                                             </div>
                                         </div>
                                     </div>
+                                    ${ageWarning}
                                 </div>
                             </div>
                         `;
@@ -3119,6 +3176,13 @@ function displayAgeFeedback(feedbackTab, results) {
         feedbackCard.className = 'card mb-3';
         let frameUrl = '';
         
+        // 18 yaş altı kontrolü
+        const isUnderAge = face.age < 18;
+        if (isUnderAge) {
+            feedbackCard.classList.add('border-danger');
+            feedbackCard.classList.add('bg-danger-subtle');
+        }
+        
         // Sadece processed_image_path varsa görsel göster
         if (face.processed_image_path) {
             frameUrl = `/${face.processed_image_path}`;
@@ -3132,6 +3196,7 @@ function displayAgeFeedback(feedbackTab, results) {
                                     style="width: 100%; height: 100%; object-fit: contain;"
                                     onerror="this.onerror=null;this.src='/static/img/image-not-found.svg';">
                                 <span class="position-absolute top-0 end-0 m-2 badge bg-info">Yüz #${index + 1}</span>
+                                ${isUnderAge ? '<span class="position-absolute top-0 start-0 m-2 badge bg-danger"><i class="fas fa-exclamation-triangle me-1"></i> 18 yaş altı</span>' : ''}
                             </div>
                         </div>
                         <div class="col-md-8">

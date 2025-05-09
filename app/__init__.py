@@ -33,21 +33,24 @@ def create_app(config_name=None):
     
     app.config.from_object(config[config_name])
     
-    if not app.debug and not app.testing:
-        # Loglama için 'processed' klasörünün var olduğundan emin ol
-        logs_folder = os.path.join(app.config['PROCESSED_FOLDER'], 'logs')
-        os.makedirs(logs_folder, exist_ok=True)
-        log_file_path = os.path.join(logs_folder, 'app.log')
+    # Loglama her zaman aktif olacak şekilde düzenlendi
+    # Loglama için 'processed' klasörünün var olduğundan emin ol
+    logs_folder = os.path.join(app.config['PROCESSED_FOLDER'], 'logs')
+    os.makedirs(logs_folder, exist_ok=True)
+    log_file_path = os.path.join(logs_folder, 'app.log')
 
-        file_handler = RotatingFileHandler(log_file_path, maxBytes=10240, backupCount=10)
-        file_handler.setFormatter(logging.Formatter(
-            '%(asctime)s %(levelname)s: %(message)s [in %(pathname)s:%(lineno)d]'
-        ))
-        file_handler.setLevel(logging.INFO)
-        app.logger.addHandler(file_handler)
+    file_handler = RotatingFileHandler(log_file_path, maxBytes=1048576, backupCount=10)
+    file_handler.setFormatter(logging.Formatter(
+        '%(asctime)s %(levelname)s: %(message)s [in %(pathname)s:%(lineno)d]'
+    ))
+    file_handler.setLevel(logging.INFO)
+    # Önceki handler'ları temizle (tekrar eklemeyi önlemek için, özellikle debug modunda reloader ile)
+    for handler in app.logger.handlers[:]:
+        app.logger.removeHandler(handler)
+    app.logger.addHandler(file_handler)
 
-        app.logger.setLevel(logging.INFO)
-        app.logger.info('Uygulama başlatılıyor - Loglama aktif')
+    app.logger.setLevel(logging.INFO)
+    app.logger.info('Uygulama başlatılıyor - Dosya loglama her zaman aktif')
     
     # CORS yapılandırması
     CORS(app)
@@ -144,10 +147,22 @@ def clean_folder(folder_path):
     if os.path.exists(folder_path):
         for filename in os.listdir(folder_path):
             file_path = os.path.join(folder_path, filename)
+
+            # Eğer 'logs' klasörüyse (veya 'logs' klasörünün içindeysek) silme
+            if filename == 'logs' and os.path.isdir(file_path):
+                print(f"'{file_path}' log klasörü atlanıyor, silinmeyecek.")
+                continue # logs klasörünü silme, içini de boşaltma
+
             if os.path.isfile(file_path) or os.path.islink(file_path):
-                os.unlink(file_path)
+                try:
+                    os.unlink(file_path)
+                except Exception as e:
+                    print(f"Dosya silinirken hata (atlanıyor): {file_path}, Hata: {e}")
             elif os.path.isdir(file_path):
-                shutil.rmtree(file_path)
+                try:
+                    shutil.rmtree(file_path)
+                except Exception as e:
+                    print(f"Klasör silinirken hata (atlanıyor): {file_path}, Hata: {e}")
     else:
         os.makedirs(folder_path, exist_ok=True)
 

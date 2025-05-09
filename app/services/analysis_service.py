@@ -841,8 +841,9 @@ def analyze_video(analysis):
         # Yaş tahmini için estimator hazırla
         if analysis.include_age_analysis:
             age_estimator = InsightFaceAgeEstimator()
-            tracker = DeepSort(max_age=30, n_init=3, nms_max_overlap=1.0, embedder=None)
-            logger.info(f"DeepSORT tracker başlatıldı: Analiz #{analysis.id}")
+            tracker = DeepSort(max_age=20, n_init=3, nms_max_overlap=1.0, embedder=None)
+            logger.info(f"DeepSORT tracker başlatıldı (max_age=20): Analiz #{analysis.id}")
+            track_genders = {} # Her track_id için referans cinsiyeti sakla (0: Kadın, 1: Erkek)
         else:
             age_estimator = None
             tracker = None
@@ -1019,120 +1020,131 @@ def analyze_video(analysis):
                         )
                         logger.info(f"[SVC_LOG][VID] Kare #{i}: DeepSORT {len(tracks)} track döndürdü.")
                         processed_track_ids = set() # Aynı karede birden fazla kez loglamayı önle
-                        for det, track in zip(detections, tracks):
+                        
+                        active_detections_in_frame = []
+                        for det_idx, (det_data, track_obj) in enumerate(zip(detections, tracks)):
+                            active_detections_in_frame.append({'det': det_data, 'track': track_obj})
+
+                        for item in active_detections_in_frame:
+                            det = item['det']
+                            track = item['track']
+
                             if not track.is_confirmed() or track.track_id in processed_track_ids:
                                 continue
                             processed_track_ids.add(track.track_id)
-                            track_id = f"{analysis.id}_person_{track.track_id}"
-                            face = det['face']
+                            
+                            track_id_str = f"{analysis.id}_person_{track.track_id}"
+                            face_obj = det['face'] # Bu InsightFace face nesnesi
+                            current_gender = face_obj.gender # InsightFace'den cinsiyet al (0: Kadın, 1: Erkek)
+
+                            gender_match = False
+                            if track_id_str not in track_genders:
+                                track_genders[track_id_str] = current_gender
+                                gender_match = True # İlk onay, referans cinsiyet ayarlandı
+                                logger.info(f"[GENDER_FILTER] Yeni takip {track_id_str} onaylandı. Referans Cinsiyet: {'Erkek' if current_gender == 1 else 'Kadın'}")
+                            else:
+                                reference_gender = track_genders[track_id_str]
+                                if current_gender == reference_gender:
+                                    gender_match = True
+                                else:
+                                    gender_match = False
+                                    logger.warning(f"[GENDER_FILTER] ID SWITCH POTANSİYELİ: Takip {track_id_str} "
+                                                   f"(Ref. Cinsiyet: {'Erkek' if reference_gender == 1 else 'Kadın'}) "
+                                                   f"mevcut tespitle eşleşti (Cinsiyet: {'Erkek' if current_gender == 1 else 'Kadın'}). "
+                                                   f"Bu kare için güncelleme atlanacak.")
+
                             x1, y1, w, h = det['bbox']
-                            logger.info(f"[SVC_LOG][VID] Kare #{i}: Track ID={track.track_id} (person_id={track_id}) için yaş tahmini çağrılıyor. BBox: [{x1},{y1},{w},{h}]")
-                            # Yaş tahmini ve güven skoru hesapla
-                            estimated_age, confidence = age_estimator.estimate_age(image, face)
+                            logger.info(f"[SVC_LOG][VID] Kare #{i}: Track ID={track.track_id} (person_id={track_id_str}) için yaş tahmini çağrılıyor. BBox: [{x1},{y1},{w},{h}]")
+                            estimated_age, confidence = age_estimator.estimate_age(image, face_obj)
                             logger.info(f"[SVC_LOG][VID] Kare #{i}: Track ID={track.track_id} için sonuç: Yaş={estimated_age}, Güven={confidence}")
 
                             if estimated_age is None or confidence is None:
                                 logger.warning(f"[SVC_LOG][VID] Kare #{i}: Track ID={track.track_id} için yaş/güven alınamadı, atlanıyor.")
                                 continue
+                            
                             age = float(estimated_age)
 
-                            # Takipteki kişi için en iyi kareyi kaydet
-                            if track_id not in person_best_frames or confidence > person_best_frames[track_id]['confidence']:
-                                old_conf = person_best_frames.get(track_id, {}).get('confidence', -1)
-                                person_best_frames[track_id] = {
-                                    'confidence': confidence,
-                                    'frame_path': frame_path, 
-                                    'timestamp': timestamp,
-                                    'bbox': (x1, y1, w, h),
-                                    'age': age
-                                }
-                                logger.info(f"[SVC_LOG][VID] person_best_frames güncellendi. Kişi: {track_id}, Yeni Güven: {confidence:.4f} (Eski: {old_conf:.4f}), Kare: {i}")
-                            else:
-                                logger.info(f"[SVC_LOG][VID] person_best_frames güncellenmedi. Kişi: {track_id}, Mevcut Güven: {person_best_frames[track_id]['confidence']:.4f} >= Yeni Güven: {confidence:.4f}, Kare: {i}")
-
-                            # AgeEstimation kaydını oluştur veya güncelle
-                            try:
-                                age_est = AgeEstimation.query.filter_by(analysis_id=analysis.id, person_id=track_id).first()
-                                if not age_est:
-                                    age_est = AgeEstimation(
-                                        analysis_id=analysis.id,
-                                        person_id=track_id,
-                                        frame_path=frame_path,
-                                        estimated_age=age,
-                                        confidence_score=confidence
-                                    )
-                                    logger.info(f"[SVC_LOG][VID] Yeni AgeEstimation kaydı: {track_id}, Kare: {i}")
+                            if gender_match: # Sadece cinsiyet tutarlıysa güncelle
+                                # Takipteki kişi için en iyi kareyi kaydet
+                                if track_id_str not in person_best_frames or confidence > person_best_frames[track_id_str]['confidence']:
+                                    old_conf = person_best_frames.get(track_id_str, {}).get('confidence', -1)
+                                    person_best_frames[track_id_str] = {
+                                        'confidence': confidence,
+                                        'frame_path': frame_path, 
+                                        'timestamp': timestamp,
+                                        'bbox': (x1, y1, w, h),
+                                        'age': age
+                                    }
+                                    logger.info(f"[SVC_LOG][VID] person_best_frames güncellendi (Cinsiyet Tutarlı). Kişi: {track_id_str}, Yeni Güven: {confidence:.4f} (Eski: {old_conf:.4f}), Kare: {i}")
                                 else:
-                                    if confidence > age_est.confidence_score:
-                                        age_est.frame_path = frame_path
-                                        age_est.estimated_age = age
-                                        age_est.confidence_score = confidence
-                                        logger.info(f"[SVC_LOG][VID] AgeEstimation güncellendi (daha iyi güven): {track_id}, Yeni Güven: {confidence:.4f}, Kare: {i}")
-                                    else:
-                                         logger.info(f"[SVC_LOG][VID] AgeEstimation güncellenmedi (güven düşük): {track_id}, Kare: {i}")
-                                db.session.add(age_est)
-                                
-                                # Overlay oluştur
-                                out_dir = os.path.join(current_app.config['PROCESSED_FOLDER'], f"frames_{analysis.id}", "overlays")
-                                os.makedirs(out_dir, exist_ok=True)
-                                out_name = f"{track_id}_{os.path.basename(frame_path)}"
-                                out_path = os.path.join(out_dir, out_name)
-                                
-                                try:
-                                    # Görüntüyü kopyala ve overlay ekle
-                                    image_with_overlay = image.copy()
-                                    x2, y2 = x1 + w, y1 + h
-                                    
-                                    # Sınırları kontrol et
-                                    x1 = max(0, x1)
-                                    y1 = max(0, y1)
-                                    x2 = min(image.shape[1], x2)
-                                    y2 = min(image.shape[0], y2)
-                                    
-                                    # Çerçeve çiz
-                                    cv2.rectangle(image_with_overlay, (x1, y1), (x2, y2), (0, 255, 0), 2)
-                                    
-                                    # Metin için arka plan oluştur
-                                    text = f"ID: {track_id.split('_')[-1]}  YAS: {int(age)}"
-                                    text_size = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.7, 2)[0]
-                                    text_y = y1 - 10 if y1 > 20 else y1 + h + 25
-                                    
-                                    # Metin arka planı için koordinatları hesapla
-                                    text_bg_x1 = x1
-                                    text_bg_y1 = text_y - text_size[1] - 5
-                                    text_bg_x2 = x1 + text_size[0] + 10
-                                    text_bg_y2 = text_y + 5
-                                    
-                                    # Arka plan çiz
-                                    cv2.rectangle(image_with_overlay, 
-                                                (text_bg_x1, text_bg_y1),
-                                                (text_bg_x2, text_bg_y2),
-                                                (0, 0, 0),
-                                                -1)
-                                    
-                                    # Metni çiz
-                                    cv2.putText(image_with_overlay, text, (x1 + 5, text_y), 
-                                              cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-                                    
-                                    # Overlay'i kaydet
-                                    success = cv2.imwrite(out_path, image_with_overlay)
-                                    if not success:
-                                        logger.error(f"Overlay kaydedilemedi: {out_path}")
-                                        continue
-                                        
-                                    # Göreceli yolu hesapla ve kaydet
-                                    rel_path = os.path.relpath(out_path, current_app.config['STORAGE_FOLDER']).replace('\\', '/')
-                                    age_est.processed_image_path = rel_path
-                                    db.session.add(age_est)
+                                    logger.info(f"[SVC_LOG][VID] person_best_frames güncellenmedi (Cinsiyet Tutarlı, Güven Düşük). Kişi: {track_id_str}, Mevcut Güven: {person_best_frames[track_id_str]['confidence']:.4f} >= Yeni Güven: {confidence:.4f}, Kare: {i}")
 
-                                except Exception as overlay_err:
-                                    logger.error(f"Overlay oluşturma hatası (person_id={track_id}): {str(overlay_err)}")
-                                    continue
+                                # AgeEstimation kaydını oluştur veya güncelle
+                                try:
+                                    age_est = AgeEstimation.query.filter_by(analysis_id=analysis.id, person_id=track_id_str).first()
+                                    if not age_est:
+                                        age_est = AgeEstimation(
+                                            analysis_id=analysis.id,
+                                            person_id=track_id_str,
+                                            frame_path=frame_path,
+                                            estimated_age=age,
+                                            confidence_score=confidence
+                                        )
+                                        logger.info(f"[SVC_LOG][VID] Yeni AgeEstimation kaydı (Cinsiyet Tutarlı): {track_id_str}, Kare: {i}")
+                                    else:
+                                        if confidence > age_est.confidence_score:
+                                            age_est.frame_path = frame_path
+                                            age_est.estimated_age = age
+                                            age_est.confidence_score = confidence
+                                            logger.info(f"[SVC_LOG][VID] AgeEstimation güncellendi (Cinsiyet Tutarlı, daha iyi güven): {track_id_str}, Yeni Güven: {confidence:.4f}, Kare: {i}")
+                                        else:
+                                             logger.info(f"[SVC_LOG][VID] AgeEstimation güncellenmedi (Cinsiyet Tutarlı, güven düşük): {track_id_str}, Kare: {i}")
+                                    db.session.add(age_est)
                                     
-                            except Exception as db_err:
-                                logger.error(f"[SVC_LOG][VID] DB hatası (track_id={track_id}, kare={i}): {str(db_err)}")
-                                continue
-                            
+                                    # Overlay oluştur (Bu kısım cinsiyet filtresinden bağımsız olabilir, çünkü her tespit için overlay çizilebilir)
+                                    # Ancak, eğer sadece "doğru" takip edilenlerin overlay'ini istiyorsak, bu da gender_match içine alınabilir.
+                                    # Şimdilik dışarıda bırakalım, tüm tespit edilen ve bir track'e bağlanan yüzler için overlay çizilsin.
+                                    # Ya da daha iyisi, overlay'i sadece gender_match ise ve DB'ye yazılıyorsa çizdirelim.
+                                    # Bu, overlay'lerin de tutarlı olmasını sağlar. Bu değişikliği de yapıyorum.
+                                    out_dir = os.path.join(current_app.config['PROCESSED_FOLDER'], f"frames_{analysis.id}", "overlays")
+                                    os.makedirs(out_dir, exist_ok=True)
+                                    # Overlay dosya adında track.track_id (sayısal) kullanalım ki çok uzun olmasın.
+                                    overlay_file_name_prefix = f"person_{track.track_id}" 
+                                    out_name = f"{overlay_file_name_prefix}_{os.path.basename(frame_path)}"
+                                    out_path = os.path.join(out_dir, out_name)
+                                    
+                                    try:
+                                        image_with_overlay = image.copy()
+                                        x2_o, y2_o = x1 + w, y1 + h
+                                        x1_o, y1_o = max(0, x1), max(0, y1)
+                                        x2_o, y2_o = min(image.shape[1], x2_o), min(image.shape[0], y2_o)
+                                        
+                                        cv2.rectangle(image_with_overlay, (x1_o, y1_o), (x2_o, y2_o), (0, 255, 0), 2)
+                                        text = f"ID: {track.track_id}  YAS: {int(age)}" # Overlay'de kısa ID
+                                        text_size = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.7, 2)[0]
+                                        text_y = y1_o - 10 if y1_o > 20 else y1_o + h + 25
+                                        text_bg_x1, text_bg_y1 = x1_o, text_y - text_size[1] - 5
+                                        text_bg_x2, text_bg_y2 = x1_o + text_size[0] + 10, text_y + 5
+                                        cv2.rectangle(image_with_overlay, (text_bg_x1, text_bg_y1), (text_bg_x2, text_bg_y2), (0, 0, 0), -1)
+                                        cv2.putText(image_with_overlay, text, (x1_o + 5, text_y), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+                                        
+                                        if cv2.imwrite(out_path, image_with_overlay):
+                                            rel_path = os.path.relpath(out_path, current_app.config['STORAGE_FOLDER']).replace('\\\\', '/')
+                                            age_est.processed_image_path = rel_path # Sadece gender_match ise age_est güncelleniyor.
+                                            db.session.add(age_est)
+                                        else:
+                                            logger.error(f"Overlay kaydedilemedi: {out_path}")
+                                            
+                                    except Exception as overlay_err:
+                                        logger.error(f"Overlay oluşturma hatası (person_id={track_id_str}): {str(overlay_err)}")
+                                        
+                                except Exception as db_err:
+                                    logger.error(f"[SVC_LOG][VID] DB hatası (track_id={track_id_str}, kare={i}): {str(db_err)}")
+                            # gender_match false ise buraya hiçbir şey yapmıyoruz (şimdilik)
+                            # Bu, şüpheli eşleşmenin en iyi kareyi veya DB'yi etkilemesini önler.
+
+                        # for det, track in zip(detections, tracks) döngüsü sonu
+
                     except Exception as track_err:
                         logger.error(f"DeepSORT takip hatası: {str(track_err)}")
                         continue

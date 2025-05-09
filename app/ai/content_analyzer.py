@@ -55,52 +55,62 @@ class ContentAnalyzer:
             # Daha spesifik, detaylı ve ayırt edici prompt'lar
             self.category_texts = {
                 "violence": [
-                    "a photo showing a physical altercation or fight",
-                    "image containing blood, visible injuries, or harm",
-                    "people engaged in violent combat or physical aggression",
-                    "scene depicting brutality, assault, or physical harm",
-                    "explicit visual of someone being attacked or hurt",
-                    "image NOT showing peaceful interaction or calm scene"
+                    "a graphic image depicting a physical fight, assault, or combat",
+                    "visuals containing explicit blood, gore, or severe injuries",
+                    "people engaged in acts of brutality or intense physical aggression",
+                    "a scene showing weaponry being used to harm individuals",
+                    "explicit depiction of someone being physically attacked, tortured, or killed",
+                    "an image clearly NOT showing peaceful activities, sports, or harmless staged performances"
                 ],
                 "adult_content": [
-                    "explicit sexual imagery not suitable for minors",
-                    "photo displaying nudity or intimate body parts",
-                    "people engaged in sexual acts or revealing poses",
-                    "provocative content intended for adult audiences only",
-                    "sexually suggestive situation with minimal clothing",
-                    "image NOT showing family-friendly or workplace-appropriate content"
+                    "sexually explicit imagery unsuitable for all audiences, including nudity with sexual intent",
+                    "photograph or video displaying genitals, pubic area, or female nipples (excluding breastfeeding or medical contexts)",
+                    "people engaged in simulated or actual sexual acts, or overtly sexualized poses",
+                    "provocative content designed to cause sexual arousal",
+                    "graphic depiction of sexual solicitation or nonconsensual sexual content",
+                    "an image clearly NOT showing standard clothing, family-friendly scenes, or educational anatomical diagrams"
                 ],
                 "harassment": [
-                    "photo showing someone being intimidated or threatened",
-                    "visual evidence of bullying or emotional abuse",
-                    "scene depicting unwanted aggressive interaction",
-                    "image of person showing clear distress from others' actions",
-                    "situation where someone is cornered or mobbed",
-                    "image NOT showing consensual or positive social interaction"
+                    "a photo or video showing someone being verbally abused, intimidated, or threatened by others",
+                    "visual evidence of bullying, cyberbullying, or targeted emotional abuse causing distress",
+                    "a scene depicting nonconsensual aggressive pursuit, stalking, or mobbing",
+                    "an image of a person visibly distressed, crying, or fearful due to others' actions",
+                    "content that demeans or belittles individuals based on protected characteristics",
+                    "an image clearly NOT showing consensual debate, constructive criticism, or friendly teasing"
                 ],
                 "weapon": [
-                    "clearly visible gun, rifle, or firearm in threatening context",
-                    "person holding or aiming a weapon at others",
-                    "dangerous weapon like knife or sword displayed aggressively",
-                    "military or combat weapons in active use",
-                    "arsenal of weapons or ammunition visible in image",
-                    "image NOT showing sports equipment or kitchen implements"
+                    "a clearly visible firearm (handgun, rifle, shotgun) being aimed or in a threatening context",
+                    "an individual brandishing, pointing, or actively using a weapon (knife, sword, club, firearm) against another person or animal",
+                    "military-grade weapons or combat gear displayed aggressively or outside of a clear historical, training, or ceremonial context",
+                    "an arsenal of multiple dangerous weapons or a significant amount of ammunition presented in a hostile manner",
+                    "a close-up shot focusing on a dangerous weapon designed to inflict harm, like a gun barrel or blade edge",
+                    "NOT an image of kitchen knives in a culinary setting or being used for food preparation",
+                    "NOT an image of tools for construction, repair, or gardening unless used as a weapon",
+                    "NOT an image of sporting equipment like baseball bats, golf clubs, or fencing foils during a game or practice",
+                    "NOT a toy gun or replica unless it is indistinguishable from a real weapon and in a threatening pose"
                 ],
                 "drug": [
-                    "visible illegal substances or drugs",
-                    "people consuming drugs or using drug paraphernalia",
-                    "drug preparation materials like syringes, pipes, or rolling papers",
-                    "pills, powders, or substances arranged for consumption",
-                    "scene of intoxication or substance abuse",
-                    "image NOT showing prescribed medication or legal substances"
+                    "clear depiction of illegal drugs such as cocaine powder, heroin, methamphetamines crystals, or ecstasy pills",
+                    "individuals actively injecting, snorting, or smoking illegal substances like marijuana, crack cocaine, or meth pipes",
+                    "drug paraphernalia specifically for illicit drug use, such as syringes for injection, crack pipes, bongs for marijuana, or rolling papers with loose cannabis",
+                    "large quantities of unlabeled pills, suspicious powders, or dried plant material strongly suggesting drug dealing or abuse",
+                    "a scene explicitly showing drug intoxication, overdose symptoms, or the severe negative consequences of substance abuse",
+                    "NOT an image of prescribed medication in its original pharmacy packaging or vitamins and supplements",
+                    "NOT an image of common beverages like coffee, tea, alcohol in a social setting (unless abuse is depicted)",
+                    "NOT an image of cigarettes or cigars unless linked to other illicit substances or paraphernalia",
+                    "NOT showing fashion accessories, shiny objects, or food items that could be vaguely mistaken for drugs"
                 ],
                 "safe": [
-                    "appropriate content suitable for all ages and contexts",
-                    "wholesome image showing positive interactions",
-                    "educational, informative, or neutral content",
-                    "family-friendly scene without concerning elements",
-                    "image completely free from violence, adult content, or dangerous items",
-                    "content that could safely be shown in a school or workplace"
+                    "an image depicting a calm, peaceful, and entirely harmless public or private setting",
+                    "a standard office, school, or work environment with people engaged in typical activities",
+                    "a picture of common household items, animals, plants, or landscapes with no concerning elements",
+                    "content that is purely educational, informational, artistic (without being offensive), or neutral in nature",
+                    "a family-friendly scene showing positive or neutral interactions between people of all ages",
+                    "an image completely devoid of any violence, sexual content, harassment, weapons, or illegal drugs",
+                    "visuals suitable for all age groups and public display without any reservations",
+                    "NOT an image showing any form of conflict, distress, nudity, aggression, or illegal activities",
+                    "NOT a depiction of dangerous situations, accidents, or medical emergencies unless clearly for educational/news purposes and non-graphic",
+                    "NOT content that could be considered disturbing, offensive, or inappropriate for children"
                 ]
             }
             
@@ -169,40 +179,41 @@ class ContentAnalyzer:
             return _models_cache[cache_key]
             
         # Model klasörünü oluştur
-        yolo_model_path = os.path.join(model_folder, 'detection', 'yolov8n.pt')
+        yolo_model_path = os.path.join(model_folder, 'detection', 'yolov8x.pt')
         if not os.path.exists(os.path.dirname(yolo_model_path)):
             os.makedirs(os.path.dirname(yolo_model_path), exist_ok=True)
         
         try:
             # Model zaten var mı kontrolü
             if os.path.exists(yolo_model_path):
-                logger.info(f"Mevcut YOLOv8 modeli yükleniyor: {yolo_model_path}")
+                logger.info(f"Mevcut YOLOv8x modeli yükleniyor: {yolo_model_path}")
                 model = YOLO(yolo_model_path)
             else:
                 # Model yoksa indir ve kaydet
-                logger.info(f"YOLOv8 modeli indiriliyor: {yolo_model_path}")
-                model = YOLO('yolov8n.pt')
+                logger.info(f"YOLOv8x modeli indiriliyor: {yolo_model_path}")
+                model = YOLO('yolov8x.pt')
                 
                 # İndirilen modeli kopyala
-                if os.path.exists('yolov8n.pt'):
-                    shutil.copy('yolov8n.pt', yolo_model_path)
-                    logger.info(f"YOLOv8 modeli başarıyla kopyalandı: {yolo_model_path}")
+                if os.path.exists('yolov8x.pt'):
+                    shutil.copy('yolov8x.pt', yolo_model_path)
+                    logger.info(f"YOLOv8x modeli başarıyla kopyalandı: {yolo_model_path}")
             
-            logger.info(f"YOLOv8 modeli başarıyla yüklendi")
+            logger.info(f"YOLOv8x modeli başarıyla yüklendi")
             
             # Modeli önbelleğe ekle
             _models_cache[cache_key] = model
             return model
         except Exception as yolo_err:
-            logger.error(f"YOLOv8 modeli yüklenemedi: {str(yolo_err)}")
+            logger.error(f"YOLOv8x modeli yüklenemedi: {str(yolo_err)}")
             # Yeniden indirilmeye çalışılır
             try:
+                logger.info("YOLOv8x yüklenemedi, fallback olarak YOLOv8n deneniyor...")
                 model = YOLO('yolov8n.pt')
-                logger.info(f"YOLOv8 modeli online kaynaktan yüklendi")
+                logger.info(f"YOLOv8n modeli online kaynaktan fallback olarak yüklendi")
                 _models_cache[cache_key] = model
                 return model
             except Exception as e:
-                logger.error(f"YOLOv8 modeli online kaynaktan da yüklenemedi: {str(e)}")
+                logger.error(f"Fallback YOLOv8n modeli de online kaynaktan yüklenemedi: {str(e)}")
                 raise
     
     def analyze_image(self, image_path):
@@ -331,27 +342,108 @@ class ContentAnalyzer:
         Nesne tespitine dayalı bağlamsal ayarlamalar yapar.
         Bu fonksiyon, CLIP sonuçlarını tespit edilen nesnelere göre ayarlar.
         """
-        # Silahla ilgili nesneler
-        weapon_objects = ['gun', 'knife', 'rifle', 'pistol', 'shotgun', 'weapon']
-        if any(obj in object_labels for obj in weapon_objects):
-            # Silah varsa silah ve şiddet skorlarını artır
-            scores['weapon'] = min(scores['weapon'] * 1.5, 1.0)
-            scores['violence'] = min(scores['violence'] * 1.3, 1.0)
-            scores['safe'] = max(scores['safe'] * 0.5, 0.0)
-            logger.info("Tespit edilen silah nesneleri, silah/şiddet skorları artırıldı")
+        # Silahla ilgili nesneler ve potansiyel riskli nesneler
+        weapon_objects = ['gun', 'rifle', 'pistol', 'shotgun', 'weapon', 'explosive', 'bomb']
+        drug_objects = ['bottle', 'wine glass', 'cup', 'cigarette', 'syringe', 'pipe', 'bong', 'pills', 'powder'] # 'bottle', 'cup' gibi genel nesneler dikkatli kullanılmalı
         
-        # Madde kullanımı ile ilgili nesneler
-        drug_objects = ['bottle', 'wine glass', 'cup', 'cigarette', 'syringe']
-        if any(obj in object_labels for obj in drug_objects):
-            scores['drug'] = min(scores['drug'] * 1.2, 1.0)
-            logger.info("Tespit edilen madde kullanımı göstergeleri, madde skoru artırıldı")
+        # Mutfakla ilgili nesneler (yanlış pozitifleri azaltmak için)
+        kitchen_objects = ['oven', 'refrigerator', 'sink', 'microwave', 'kitchen', 'restaurant', 'dining table', 'food', 'plate']
+
+        # Riskli nesne tespiti yapıldı mı?
+        weapon_detected = any(obj in object_labels for obj in weapon_objects)
+        drug_related_detected = any(obj in object_labels for obj in drug_objects if obj not in ['bottle', 'cup']) # Daha spesifik uyuşturucu nesneleri
+        general_drug_indicators = any(obj in ['bottle', 'cup'] for obj in object_labels) # Şişe, bardak gibi genel ama bağlama göre riskli olabilecekler
+
+        if weapon_detected:
+            is_kitchen_context_with_knife = 'knife' in object_labels and any(ko in object_labels for ko in kitchen_objects)
+            if is_kitchen_context_with_knife:
+                # Mutfak bıçağı daha az riskli kabul edilebilir
+                scores['weapon'] = min(scores['weapon'] * 1.1, 1.0) # Hafif artış
+                scores['violence'] = min(scores['violence'] * 1.1, 1.0)
+                scores['safe'] = max(scores['safe'] * 0.8, 0.0) 
+                logger.info("Mutfak bağlamında bıçak tespit edildi, silah/şiddet skorları daha az artırıldı.")
+            else:
+                # Genel silah tespiti
+                scores['weapon'] = min(scores['weapon'] * 1.5, 1.0)
+                scores['violence'] = min(scores['violence'] * 1.3, 1.0)
+                scores['safe'] = max(scores['safe'] * 0.5, 0.0)
+                logger.info("Tespit edilen silah nesneleri, silah/şiddet skorları artırıldı")
         
-        # Birden fazla kişi varsa ilişkilendirme
+        if drug_related_detected:
+            scores['drug'] = min(scores['drug'] * 1.4, 1.0) # Spesifik uyuşturucu nesneleri için daha güçlü artış
+            scores['safe'] = max(scores['safe'] * 0.6, 0.0)
+            logger.info("Tespit edilen spesifik madde kullanımı göstergeleri, madde skoru artırıldı")
+        elif general_drug_indicators and person_count > 0 : # Şişe, bardak gibi nesneler ve insanlar varsa
+            # Bu durum daha belirsiz olduğu için 'drug' skorunu daha az etkileyebilir veya ek bağlam gerekebilir
+            # Örneğin, 'party' (parti) gibi bir nesne tespitiyle birleştirilebilir
+            if 'party' in object_labels or 'bar' in object_labels:
+                 scores['drug'] = min(scores['drug'] * 1.1, 1.0)
+                 logger.info("Genel madde kullanımı göstergeleri (şişe/bardak) parti/bar bağlamında, madde skoru hafif artırıldı")
+
+        # Birden fazla kişi varsa kişilerarası etkileşim olasılığı
         if person_count >= 2:
-            # Kişiler arası etkileşim olasılığını artır
-            scores['harassment'] = min(scores['harassment'] * (1.0 + (person_count * 0.1)), 1.0)
-            scores['adult_content'] = min(scores['adult_content'] * (1.0 + (person_count * 0.05)), 1.0)
+            scores['harassment'] = min(scores['harassment'] * (1.0 + (person_count * 0.08)), 1.0) # Çarpanı biraz düşürdük
+            scores['adult_content'] = min(scores['adult_content'] * (1.0 + (person_count * 0.04)), 1.0) # Çarpanı biraz düşürdük
+            if person_count > 5: # Çok kalabalık durumlar için
+                 scores['safe'] = max(scores['safe'] * 0.9, 0.0) # Kalabalıklar bazen daha az güvenli olabilir
             logger.info(f"{person_count} kişi tespit edildi, kişilerarası etkileşim skorları ayarlandı")
+        
+        # GÜVENLİ KATEGORİSİ İÇİN GÜÇLENDİRME
+        # Eğer belirgin bir riskli nesne yoksa ve kişi sayısı azsa 'safe' skorunu artır
+        no_immediate_risk_objects = not weapon_detected and not drug_related_detected
+        
+        # Diğer kategorilerin (safe hariç) skorları genel olarak düşük mü kontrolü
+        # Bu kontrol, _apply_contextual_adjustments fonksiyonuna gelen orijinal 'scores' (scaled_scores) üzerinden yapılmalı
+        # Henüz 'safe' skoru bu blok içinde yapay olarak artırılmadı veya diğerleri düşürülmedi.
+        other_categories_for_safe_check = ['violence', 'adult_content', 'harassment', 'weapon', 'drug']
+        all_other_scores_truly_low = all(scores.get(cat, 0) < 0.3 for cat in other_categories_for_safe_check)
+        # Eşik değeri (0.3) ayarlanabilir bir parametre olabilir.
+
+        if no_immediate_risk_objects and all_other_scores_truly_low and person_count <= 1:
+            # Belirgin YOLO riski yok, TÜM DİĞER CLIP SKORLARI DÜŞÜK ve ortam sakin görünüyorsa
+            original_safe_score = scores.get('safe', 0)
+            scores['safe'] = min(original_safe_score * 1.5, 1.0)  # Safe skorunu belirgin şekilde artır (üst sınır 1.0)
+            
+            reduction_factor = 0.6 # Diğer skorlar için daha güçlü bir azaltma faktörü
+            if original_safe_score > 0.7: # Eğer orijinal safe skoru zaten yüksekse, diğerlerini daha da fazla düşür
+                reduction_factor = 0.4
+            
+            for category in other_categories_for_safe_check:
+                scores[category] = max(scores.get(category, 0) * reduction_factor, 0.0)
+            logger.info(f"Belirgin YOLO riski yok, TÜM DİĞER CLIP SKORLARI DÜŞÜK ve az kişi var, 'safe' skoru güçlendirildi ({original_safe_score:.2f} -> {scores['safe']:.2f}), diğerleri düşürüldü.")
+        elif no_immediate_risk_objects and all_other_scores_truly_low and person_count > 1 and person_count <=3:
+            # Belirgin YOLO riski yok, TÜM DİĞER CLIP SKORLARI DÜŞÜK ve 2-3 kişi var, safe yine de baskın olabilir
+            original_safe_score = scores.get('safe', 0)
+            scores['safe'] = min(original_safe_score * 1.3, 1.0) # Safe skorunu artır
+            reduction_factor = 0.7
+            if original_safe_score > 0.6:
+                 reduction_factor = 0.5
+            for category in other_categories_for_safe_check:
+                scores[category] = max(scores.get(category, 0) * reduction_factor, 0.0)
+            logger.info(f"Belirgin YOLO riski yok, TÜM DİĞER CLIP SKORLARI DÜŞÜK ve 2-3 kişi var, 'safe' skoru artırıldı ({original_safe_score:.2f} -> {scores['safe']:.2f}), diğerleri düşürüldü.")
+
+        # CLIP SKORU YÜKSEK AMA YOLO ONAYI YOKSA DÜŞÜRME MANTIĞI
+        # Bu blok, yukarıdaki 'safe' ayarlamalarından sonra çalışmalı ki,
+        # 'safe' zaten diğer skorları düşürmüşse tekrar aşırı düşürmesin, ya da tam tersi.
+        # Ancak mevcut durumda 'safe' ayarlaması sadece 'safe' olmayan kategorileri etkiliyor.
+        # Bu düşürme, 'safe' dışındaki kategorilere odaklanmalı.
+
+        high_clip_threshold = 0.7 # CLIP skorunun yüksek kabul edileceği eşik
+        yolo_miss_reduction_factor = 0.5 # YOLO onayı olmadığında uygulanacak azaltma faktörü
+
+        # Silah için
+        if scores.get('weapon', 0) > high_clip_threshold and not weapon_detected:
+            original_weapon_score = scores['weapon']
+            scores['weapon'] *= yolo_miss_reduction_factor
+            logger.info(f"CLIP 'weapon' skoru yüksek ({original_weapon_score:.2f}) ama YOLO onayı yok, skor {scores['weapon']:.2f}'ye düşürüldü.")
+
+        # Madde için
+        # 'general_drug_indicators' burada kafa karıştırabilir, çünkü bunlar zaten zayıf göstergeler.
+        # Bu yüzden sadece 'drug_related_detected' (spesifik uyuşturucu nesneleri) kontrolüne odaklanalım.
+        if scores.get('drug', 0) > high_clip_threshold and not drug_related_detected:
+            original_drug_score = scores['drug']
+            scores['drug'] *= yolo_miss_reduction_factor
+            logger.info(f"CLIP 'drug' skoru yüksek ({original_drug_score:.2f}) ama YOLO spesifik onayı yok, skor {scores['drug']:.2f}'ye düşürüldü.")
     
     def _percentile_normalize(self, scores):
         """
@@ -380,12 +472,6 @@ class ContentAnalyzer:
                 # Yeterli tarihsel veri yoksa sigmoid ile normalize et
                 normalized_scores[category] = 1.0 / (1.0 + math.exp(-5 * (score - 0.5)))
                 logger.info(f"Sigmoid normalizasyon - {category}: {score:.4f} -> {normalized_scores[category]:.4f} (yeterli geçmiş veri yok)")
-        
-        # Sonuçları toplam 1.0 olacak şekilde yeniden normalize et
-        total = sum(normalized_scores.values())
-        if total > 0:
-            for category in normalized_scores:
-                normalized_scores[category] = normalized_scores[category] / total
         
         return normalized_scores
     
