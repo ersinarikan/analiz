@@ -62,9 +62,8 @@ def find_latest_age_model(base_dir):
 class InsightFaceAgeEstimator:
     def __init__(self, det_size=(640, 640)):
         # Model dosya yolunu ayarla
-        model_path = os.path.join(Config.MODELS_FOLDER, 'age', 'buffalo_x')
+        model_path = os.path.join(Config.MODELS_FOLDER, 'age', 'buffalo_l')
         logger.info(f"InsightFaceAgeEstimator başlatılıyor. Model dizini: {model_path}")
-        logger.info("NOT: Buffalo_x adı kullanılmasına rağmen şu anda buffalo_sc modeli kullanılmaktadır (geçici çözüm)")
         
         # Model dosyalarının varlığını kontrol et
         if not os.path.exists(model_path):
@@ -74,7 +73,7 @@ class InsightFaceAgeEstimator:
         # Modeli yerel dosyadan yükle
         try:
             self.model = insightface.app.FaceAnalysis(
-                name='buffalo_x',  # Klasör adı burada kullanılıyor
+                name='buffalo_l',
                 root=os.path.dirname(os.path.dirname(model_path)),  # storage/models klasörü
                 providers=['CPUExecutionProvider']
             )

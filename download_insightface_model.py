@@ -5,26 +5,21 @@ from config import Config
 
 def download_insightface_model():
     """
-    InsightFace buffalo modelini indirir ve storage/models/age klasörüne buffalo_x adıyla kopyalar.
+    InsightFace 'buffalo_l' modelini indirir ve storage/models/age klasörüne kopyalar.
     """
-    print("InsightFace modeli buffalo_x olarak indiriliyor...")
-    
-    # Kullanılacak model adı (mevcut olduğu bilinen)
-    source_model_name = "buffalo_sc"  # Gerçekte kullanacağımız model
-    target_model_name = "buffalo_x"   # Hedef klasör adı
+    print("InsightFace 'buffalo_l' modeli indiriliyor...")
     
     # Model klasörünü oluştur
-    target_path = os.path.join(Config.MODELS_FOLDER, 'age', target_model_name)
+    target_path = os.path.join(Config.MODELS_FOLDER, 'age', 'buffalo_l')
     os.makedirs(target_path, exist_ok=True)
     
     try:
         # Modeli indir (bu işlem modeli varsayılan konuma indirecek)
-        print(f"Şu anda mevcut olan {source_model_name} modelini indiriyoruz...")
-        model = insightface.app.FaceAnalysis(name=source_model_name, providers=['CPUExecutionProvider'])
+        model = insightface.app.FaceAnalysis(name='buffalo_l', providers=['CPUExecutionProvider'])
         model.prepare(ctx_id=0)
         
         # Model dosyalarının kaynak konumunu al
-        source_path = os.path.expanduser(f'~/.insightface/models/{source_model_name}')
+        source_path = os.path.expanduser('~/.insightface/models/buffalo_l')
         
         # Model dosyalarını kopyala
         for file in os.listdir(source_path):
@@ -32,8 +27,7 @@ def download_insightface_model():
             target_file = os.path.join(target_path, file)
             shutil.copy2(source_file, target_file)
             
-        print(f"Model başarıyla indirildi ve '{target_model_name}' olarak kopyalandı: {target_path}")
-        print("NOT: Gerçek buffalo_x modeli henüz indirilemediğinden buffalo_sc kullanılmaktadır.")
+        print(f"Model başarıyla indirildi ve kopyalandı: {target_path}")
         
     except Exception as e:
         print(f"Model indirme/kopyalama hatası: {str(e)}")

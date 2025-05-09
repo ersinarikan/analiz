@@ -26,12 +26,9 @@ import insightface
 
 def extract_and_save_embeddings(dataset_path, model_path, emb_path, age_path):
     print("Embedding dosyaları bulunamadı, şimdi çıkarılıyor...")
-    print("NOT: İsimlendirmede buffalo_x kullanılmasına rağmen, şu anda buffalo_sc modeli kullanılmaktadır.")
     
-    # buffalo_sc modeli kullanılıyor ama buffalo_x olarak geçiyoruz
-    source_model_name = "buffalo_sc"  # Gerçekte kullanacağımız model
-    
-    face_analyzer = insightface.app.FaceAnalysis(name=source_model_name, providers=['CPUExecutionProvider'])
+    # Buffalo_L modelini kullanacağız
+    face_analyzer = insightface.app.FaceAnalysis(name='buffalo_l', providers=['CPUExecutionProvider'])
     face_analyzer.prepare(ctx_id=0, det_size=(640, 640))
     embeddings = []
     ages = []
@@ -104,10 +101,10 @@ if __name__ == "__main__":
     dataset_path = os.path.join(base_dir, 'storage', 'dataset', 'age', 'utkface_aligned_cropped', 'crop_part1')
     
     # Model kaydetme yolu
-    model_path = os.path.join(base_dir, 'storage', 'models', 'age', 'buffalo_x')
+    model_path = os.path.join(base_dir, 'storage', 'models', 'age', 'buffalo_l')
     
     # Model versiyonlama
-    model_dir = os.path.join(base_dir, 'storage', 'models', 'age', 'buffalo_x', 'versions', 'v1')
+    model_dir = os.path.join(base_dir, 'storage', 'models', 'age', 'buffalo_l', 'versions', 'v1')
     os.makedirs(model_dir, exist_ok=True)
     
     # Embeddinglari yükle veya oluştur
