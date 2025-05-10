@@ -1236,7 +1236,7 @@ def analyze_video(analysis):
                     rel_path = os.path.relpath(out_path, current_app.config['STORAGE_FOLDER']).replace('\\', '/')
                     logger.info(f"Overlay DB path - rel_path={rel_path}")
                     # AgeEstimation kaydını güncelle (en yüksek confidence'lı olanı bul)
-                    best_est = AgeEstimation.query.filter_by(analysis_id=analysis.id, person_id=person_id).order_by(AgeEstimation.confidence_score.desc()).first()
+                    best_est = AgeEstimation.query.filter_by(analysis_id=analysis.id, person_id=person_id).order_by(AgeEstimation._confidence_score.desc()).first()
                     if best_est:
                         logger.info(f"Overlay güncelleme: person_id={person_id}, rel_path={rel_path}, DB'deki eski path={best_est.processed_image_path}")
                         best_est.processed_image_path = rel_path
