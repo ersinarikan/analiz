@@ -149,6 +149,7 @@ class ContentDetection(db.Model):
     analysis_id = db.Column(db.String(36), db.ForeignKey('analyses.id'), nullable=False)
     frame_path = db.Column(db.String(255))  # Analiz edilen karenin dosya yolu
     frame_timestamp = db.Column(db.Float)  # Karenin video içindeki zaman damgası (saniye)
+    frame_index = db.Column(db.Integer, nullable=True)  # Kare indeksi (sıra numarası)
     
     # Kategorik skorlar (0-1 arası)
     violence_score = db.Column(db.Float, default=0)
@@ -223,6 +224,7 @@ class ContentDetection(db.Model):
             'analysis_id': self.analysis_id,
             'frame_path': self.frame_path,
             'frame_timestamp': self.frame_timestamp,
+            'frame_index': self.frame_index,
             'violence_score': self.violence_score,
             'adult_content_score': self.adult_content_score,
             'harassment_score': self.harassment_score,

@@ -638,7 +638,9 @@ def analyze_image(analysis):
         # Analiz sonuçlarını veritabanına kaydet
         detection = ContentDetection(
             analysis_id=analysis.id,
-            frame_path=file.file_path
+            frame_path=file.file_path,
+            frame_timestamp=None,
+            frame_index=None
         )
         
         # NumPy türlerini Python türlerine dönüştürdüğümüzden emin olalım
@@ -1321,7 +1323,10 @@ def calculate_overall_scores(analysis):
         detections = ContentDetection.query.filter_by(analysis_id=analysis.id).all()
         
         if not detections:
+            logger.warning(f"ContentDetection kaydı bulunamadı: Analiz #{analysis.id}")
             return
+        
+        logger.info(f"Calculate_overall_scores: Analiz #{analysis.id} için {len(detections)} ContentDetection kaydı bulundu")
         
         # Her kategori için tüm skorları topla
         violence_scores = [d.violence_score for d in detections]
@@ -1374,24 +1379,38 @@ def calculate_overall_scores(analysis):
             max_category = max(scores, key=scores.get)
             max_score = scores[max_category]
             
+            logger.debug(f"Kare: {detection.frame_path}, En yüksek risk kategorisi: {max_category}, skor: {max_score}")
+            
             # Şimdiye kadarki en yüksek skordan büyükse güncelle
             if max_score > highest_risk_score:
                 highest_risk_score = max_score
                 highest_risk_category = max_category
                 highest_risk_detection = detection
+                logger.debug(f"Yeni en yüksek riskli kare bulundu: {detection.frame_path}, Kategori: {max_category}, Skor: {max_score}")
         
         # En riskli kare bilgilerini analiz nesnesine kaydet
         if highest_risk_detection:
+            logger.info(f"En yüksek riskli kare: {highest_risk_detection.frame_path}, Kategori: {highest_risk_category}, Skor: {highest_risk_score}")
             analysis.highest_risk_frame = highest_risk_detection.frame_path
             analysis.highest_risk_frame_timestamp = highest_risk_detection.frame_timestamp
             analysis.highest_risk_score = highest_risk_score
             analysis.highest_risk_category = highest_risk_category
+        else:
+            logger.warning(f"En yüksek riskli kare bulunamadı: Analiz #{analysis.id}")
         
         # Değişiklikleri veritabanına kaydet
         db.session.commit()
+        
+        # Kaydedilen verileri doğrula
+        saved_analysis = Analysis.query.get(analysis.id)
+        logger.info(f"Kaydedilen analiz verisi: highest_risk_frame={saved_analysis.highest_risk_frame}, "
+                   f"timestamp={saved_analysis.highest_risk_frame_timestamp}, "
+                   f"score={saved_analysis.highest_risk_score}, "
+                   f"category={saved_analysis.highest_risk_category}")
     
     except Exception as e:
         current_app.logger.error(f"Genel skor hesaplama hatası: {str(e)}")
+        logger.error(f"Hata detayı: {traceback.format_exc()}")
         db.session.rollback()
 
 
