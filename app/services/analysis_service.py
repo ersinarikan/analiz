@@ -815,7 +815,7 @@ def analyze_video(analysis):
             logger.error(f"Analiz için dosya bulunamadı: #{analysis.id}")
             return False, "Dosya bulunamadı"
         
-        file_path = os.path.join(current_app.config['UPLOADS_FOLDER'], file.filename)
+        file_path = os.path.join(current_app.config['UPLOAD_FOLDER'], file.filename)
         if not os.path.exists(file_path):
             logger.error(f"Video dosyası bulunamadı: {file_path}")
             return False, "Video dosyası bulunamadı"
@@ -1447,3 +1447,12 @@ def get_analysis_results(analysis_id):
         result['age_estimations'] = best_estimations
         logger.info(f"[SVC_LOG][RESULTS] get_analysis_results: API yanıtına {len(best_estimations)} en iyi tahmin eklendi.")
     return result 
+
+# Model yükleme için yardımcı fonksiyonlar
+def get_content_analyzer():
+    """İçerik analizi için ContentAnalyzer nesnesi döndürür"""
+    return ContentAnalyzer()
+
+def get_age_estimator():
+    """Yaş tahmini için InsightFaceAgeEstimator nesnesi döndürür"""
+    return InsightFaceAgeEstimator() 
