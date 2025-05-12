@@ -880,12 +880,12 @@ def analyze_video(analysis):
                 age_estimator = get_age_estimator()
                 logger.info(f"Yaş tahmin modeli yüklendi: Analiz #{analysis.id}")
                 
-                tracker = DeepSort(max_age=150, n_init=3, nms_max_overlap=1.0, embedder=None)
-                logger.info(f"DeepSORT tracker başlatıldı (max_age=150): Analiz #{analysis.id}")
+                logger.info(f"DeepSORT başlatılıyor: max_age=150, n_init=2, Analiz #{analysis.id}")
+                tracker = DeepSort(max_age=150, n_init=2, nms_max_overlap=1.0, embedder=None)
                 
-                # Gelişmiş kişi takibi için PersonTrackerManager başlat
-                person_tracker_manager = PersonTrackerManager(reliability_threshold=0.5)
-                logger.info(f"PersonTrackerManager başlatıldı (reliability_threshold=0.5): Analiz #{analysis.id}")
+                # PersonTrackerManager'ı başlat
+                person_tracker_manager = PersonTrackerManager(reliability_threshold=0.25)
+                logger.info(f"PersonTrackerManager başlatıldı (reliability_threshold=0.25): Analiz #{analysis.id}")
             except Exception as age_err:
                 logger.error(f"Yaş tahmin modelleri yüklenemedi: {str(age_err)}")
                 logger.warning(f"Yaş analizi devre dışı bırakıldı: Analiz #{analysis.id}")
@@ -1017,7 +1017,7 @@ def analyze_video(analysis):
                                     continue
                                     
                                 embedding = face.embedding
-                                
+                                    
                                 # Yüz özelliklerini çıkar
                                 face_features = extract_face_features(image, face, bbox)
                                 face_features_list.append(face_features)
@@ -1072,7 +1072,7 @@ def analyze_video(analysis):
                                 
                                 track_id_str = f"{analysis.id}_person_{track.track_id}"
                                 face_obj = det['face'] # Bu InsightFace face nesnesi
-                                
+
                                 x1, y1, w, h = det['bbox']
                                 logger.info(f"[SVC_LOG][VID] Kare #{i}: Track ID={track.track_id} (person_id={track_id_str}) için yaş tahmini çağrılıyor. BBox: [{x1},{y1},{w},{h}]")
                                 estimated_age, confidence = age_estimator.estimate_age(image, face_obj)
@@ -1154,7 +1154,7 @@ def analyze_video(analysis):
                                                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
                                         
                                         if cv2.imwrite(out_path, image_with_overlay):
-                                            rel_path = os.path.relpath(out_path, current_app.config['STORAGE_FOLDER']).replace('\\\\', '/')
+                                            rel_path = os.path.relpath(out_path, current_app.config['STORAGE_FOLDER']).replace('\\', '/')
                                             age_est.processed_image_path = rel_path
                                             db.session.add(age_est)
                                         else:
@@ -1212,7 +1212,7 @@ def analyze_video(analysis):
                         })
                     except Exception as socket_err:
                         logger.warning(f"Socket.io ilerleme bildirimi hatası: {str(socket_err)}")
-            
+                
             except Exception as frame_err:
                 logger.error(f"Kare #{i} ({frame_path}) analiz hatası: {str(frame_err)}")
                 continue

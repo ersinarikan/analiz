@@ -92,8 +92,8 @@ class PersonTracker:
         )
         
         # Eğer ham güvenilirlik skoru düşükse, bu kişi farklı olabilir
-        if new_reliability_raw < 0.5:  # Eşik değeri (0.5) aynı kalabilir veya ayarlanabilir
-            logger.warning(f"Olası ID switch: Track ID {self.track_id}, Ham Güvenilirlik: {new_reliability_raw:.2f} (Detaylar: G:{gender_match_score:.2f} E:{embedding_match_score:.2f} H:{hair_match_score:.2f} S:{skin_match_score:.2f} F:{face_match_score:.2f})")
+        if new_reliability_raw < 0.45: # Eşik değeri 0.5'ten 0.45'e düşürüldü
+            logger.warning(f"Olası ID switch (yeni eşik 0.45): Track ID {self.track_id}, Ham Güvenilirlik: {new_reliability_raw:.2f} (Detaylar: G:{gender_match_score:.2f} E:{embedding_match_score:.2f} H:{hair_match_score:.2f} S:{skin_match_score:.2f} F:{face_match_score:.2f})")
             return False  # ID Switch olabilir, güncellemeyi reddet
         
         # Güncelleme yap

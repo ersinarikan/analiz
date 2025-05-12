@@ -78,10 +78,11 @@ class InsightFaceAgeEstimator:
             self.model = insightface.app.FaceAnalysis(
                 name='buffalo_l',
                 root=model_path,
-                providers=['CPUExecutionProvider']
+                providers=['CPUExecutionProvider'],
+                det_thresh=0.2  # Yüz tespiti için minimum güven eşiği 0.3'ten 0.2'ye düşürüldü
             )
             self.model.prepare(ctx_id=0, det_size=det_size)
-            logger.info("InsightFace temel modeli başarıyla yüklendi")
+            logger.info("InsightFace temel modeli başarıyla yüklendi (det_thresh=0.2 ile)")
         except Exception as e:
             logger.error(f"InsightFace model yükleme hatası: {str(e)}")
             raise
