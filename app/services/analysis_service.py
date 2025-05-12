@@ -884,8 +884,8 @@ def analyze_video(analysis):
                 tracker = DeepSort(max_age=150, n_init=2, nms_max_overlap=1.0, embedder=None)
                 
                 # PersonTrackerManager'ı başlat
-                person_tracker_manager = PersonTrackerManager(reliability_threshold=0.25)
-                logger.info(f"PersonTrackerManager başlatıldı (reliability_threshold=0.25): Analiz #{analysis.id}")
+                person_tracker_manager = PersonTrackerManager(reliability_threshold=0.30)
+                logger.info(f"PersonTrackerManager başlatıldı (reliability_threshold=0.30): Analiz #{analysis.id}")
             except Exception as age_err:
                 logger.error(f"Yaş tahmin modelleri yüklenemedi: {str(age_err)}")
                 logger.warning(f"Yaş analizi devre dışı bırakıldı: Analiz #{analysis.id}")

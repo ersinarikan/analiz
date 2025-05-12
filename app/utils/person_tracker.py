@@ -193,9 +193,7 @@ class PersonTrackerManager:
                 else:
                     logger.info(f"Yeni takip ID {track_id} başlangıç güvenilirliği ({self.person_trackers[track_id].reliability_score:.2f}) düşük, listeye eklenmedi.")
 
-                continue
-            
-            # Mevcut tracker'ı güncelle
+            # Mevcut tracker'ı güncelle (veya yeni oluşturulanı)
             person_tracker_instance = self.person_trackers[track_id] # Değişken adı düzeltildi
             is_update_accepted = person_tracker_instance.update( # Değişken adı düzeltildi
                 embedding, gender, frame_idx,
