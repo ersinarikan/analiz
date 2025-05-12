@@ -33,6 +33,7 @@ class PersonTracker:
         self.skin_tone = None
         self.avg_embedding = initial_embedding
         self.reliability_score = 0.5  # Başlangıç güvenilirlik skoru
+        self.max_landmark_penalty_distance = 0.5 # Landmark eşleşmesi için maksimum ceza mesafesi
         
     def update(self, new_embedding, new_gender, frame_idx, face_landmarks=None, 
               hair_color=None, skin_tone=None):
@@ -43,41 +44,56 @@ class PersonTracker:
             bool: Güncellemenin kabul edilip edilmediği
         """
         # Cinsiyet tutarlılığı kontrolü
-        gender_match = (new_gender == self.gender)
+        gender_match_score = 1.0 if new_gender == self.gender else 0.0
         
-        # Embedding mesafesi kontrolü (eşik değeri 0.3'ten 0.4'e yükseltildi, yani daha toleranslı)
+        # Embedding mesafesi kontrolü
         embedding_distance = cosine(new_embedding, self.avg_embedding)
-        embedding_match = embedding_distance < 0.4  # Eşik değeri güncellendi
-        
-        # Saç rengi ve cilt tonu kontrolü (eğer varsa)
-        hair_match = True
+        # embedding_match_score: 0.4'te 0, 0.0'da 1 olacak şekilde lineer.
+        embedding_match_score = max(0.0, 1.0 - (embedding_distance / 0.4))
+
+        # Saç rengi ve cilt tonu benzerlik skorları
+        hair_match_score = 0.5  # Varsayılan (bilgi yoksa nötr)
         if hair_color is not None and self.hair_color is not None:
-            hair_match = color_similarity(hair_color, self.hair_color) > 0.7
+            hair_match_score = color_similarity(hair_color, self.hair_color)
+        elif hair_color is not None and self.hair_color is None: # İlk defa saç rengi bilgisi geldi
+            hair_match_score = 0.7 # Yeni bilgi için hafif pozitif
             
-        skin_match = True
+        skin_match_score = 0.5  # Varsayılan (bilgi yoksa nötr)
         if skin_tone is not None and self.skin_tone is not None:
-            skin_match = color_similarity(skin_tone, self.skin_tone) > 0.8
+            skin_match_score = color_similarity(skin_tone, self.skin_tone)
+        elif skin_tone is not None and self.skin_tone is None: # İlk defa cilt tonu bilgisi geldi
+            skin_match_score = 0.7 # Yeni bilgi için hafif pozitif
         
-        # Yüz özellikleri farkı kontrolü
-        face_match = True
-        if face_landmarks is not None and len(self.face_landmarks) > 0:
-            landmarks_distance = landmark_distance(face_landmarks, self.face_landmarks[-1])
-            face_match = landmarks_distance < 0.2
+        # Yüz landmark eşleşme skoru
+        face_match_score = 0.5  # Varsayılan (bilgi yoksa veya karşılaştırılamıyorsa nötr)
+        new_landmarks_present = face_landmarks is not None and len(face_landmarks) > 0
+        stored_landmarks_present = len(self.face_landmarks) > 0
+
+        if new_landmarks_present and stored_landmarks_present:
+            distance = landmark_distance(face_landmarks, self.face_landmarks[-1])
+            # landmark_distance 1.0 döndürürse (nokta sayısı farklı), skor 0 olur.
+            face_match_score = max(0.0, 1.0 - (distance / self.max_landmark_penalty_distance))
+        elif new_landmarks_present and not stored_landmarks_present:
+            face_match_score = 0.6  # Yeni landmark var, saklanan yok: hafif pozitif
+        elif not new_landmarks_present and stored_landmarks_present:
+            face_match_score = 0.3  # Yeni landmark yok, saklanan var: cezalandır
+        # Her iki landmark da yoksa, varsayılan 0.5 kalır.
         
         # Güvenilirlik skorunu güncelle
-        weights = {'gender': 0.3, 'embedding': 0.4, 'hair': 0.1, 'skin': 0.1, 'face': 0.1}
-        new_reliability_raw = ( # Ham güvenilirlik skoru
-            weights['gender'] * gender_match +
-            weights['embedding'] * (1.0 - min(1.0, embedding_distance / 0.4)) + # Bölücü de güncellendi
-            weights['hair'] * hair_match +
-            weights['skin'] * skin_match +
-            weights['face'] * face_match
+        # Ağırlıklar aynı kalabilir veya landmark için önemi artırılabilir.
+        weights = {'gender': 0.25, 'embedding': 0.4, 'hair': 0.1, 'skin': 0.1, 'face': 0.15}
+        
+        new_reliability_raw = (
+            weights['gender'] * gender_match_score +
+            weights['embedding'] * embedding_match_score +
+            weights['hair'] * hair_match_score +
+            weights['skin'] * skin_match_score +
+            weights['face'] * face_match_score
         )
         
         # Eğer ham güvenilirlik skoru düşükse, bu kişi farklı olabilir
-        # (Eşik değeri 0.6'dan 0.5'e düşürüldü)
-        if new_reliability_raw < 0.5:  # Eşik değeri güncellendi
-            logger.warning(f"Olası ID switch: Track ID {self.track_id}, Ham Güvenilirlik: {new_reliability_raw:.2f}")
+        if new_reliability_raw < 0.5:  # Eşik değeri (0.5) aynı kalabilir veya ayarlanabilir
+            logger.warning(f"Olası ID switch: Track ID {self.track_id}, Ham Güvenilirlik: {new_reliability_raw:.2f} (Detaylar: G:{gender_match_score:.2f} E:{embedding_match_score:.2f} H:{hair_match_score:.2f} S:{skin_match_score:.2f} F:{face_match_score:.2f})")
             return False  # ID Switch olabilir, güncellemeyi reddet
         
         # Güncelleme yap
