@@ -45,9 +45,9 @@ class PersonTracker:
         # Cinsiyet tutarlılığı kontrolü
         gender_match = (new_gender == self.gender)
         
-        # Embedding mesafesi kontrolü
+        # Embedding mesafesi kontrolü (eşik değeri 0.3'ten 0.4'e yükseltildi, yani daha toleranslı)
         embedding_distance = cosine(new_embedding, self.avg_embedding)
-        embedding_match = embedding_distance < 0.3  # Eşik değeri
+        embedding_match = embedding_distance < 0.4  # Eşik değeri güncellendi
         
         # Saç rengi ve cilt tonu kontrolü (eğer varsa)
         hair_match = True
@@ -66,17 +66,18 @@ class PersonTracker:
         
         # Güvenilirlik skorunu güncelle
         weights = {'gender': 0.3, 'embedding': 0.4, 'hair': 0.1, 'skin': 0.1, 'face': 0.1}
-        new_reliability = (
+        new_reliability_raw = ( # Ham güvenilirlik skoru
             weights['gender'] * gender_match +
-            weights['embedding'] * (1.0 - min(1.0, embedding_distance / 0.3)) +
+            weights['embedding'] * (1.0 - min(1.0, embedding_distance / 0.4)) + # Bölücü de güncellendi
             weights['hair'] * hair_match +
             weights['skin'] * skin_match +
             weights['face'] * face_match
         )
         
-        # Eğer güvenilirlik skoru düşükse, bu kişi farklı olabilir
-        if new_reliability < 0.6:
-            logger.warning(f"Olası ID switch: Track ID {self.track_id}, Güvenilirlik: {new_reliability:.2f}")
+        # Eğer ham güvenilirlik skoru düşükse, bu kişi farklı olabilir
+        # (Eşik değeri 0.6'dan 0.5'e düşürüldü)
+        if new_reliability_raw < 0.5:  # Eşik değeri güncellendi
+            logger.warning(f"Olası ID switch: Track ID {self.track_id}, Ham Güvenilirlik: {new_reliability_raw:.2f}")
             return False  # ID Switch olabilir, güncellemeyi reddet
         
         # Güncelleme yap
@@ -95,18 +96,22 @@ class PersonTracker:
                 
         if hair_color is not None:
             if self.hair_color is None:
-                self.hair_color = hair_color
+                self.hair_color = np.array(hair_color) if isinstance(hair_color, (list, tuple)) else hair_color
             else:
-                self.hair_color = 0.9 * self.hair_color + 0.1 * hair_color  # Yavaşça güncelle
+                current_hair_color = np.array(self.hair_color) if isinstance(self.hair_color, (list, tuple)) else self.hair_color
+                new_hair_color_arr = np.array(hair_color) if isinstance(hair_color, (list, tuple)) else hair_color
+                self.hair_color = 0.9 * current_hair_color + 0.1 * new_hair_color_arr # Yavaşça güncelle
                 
         if skin_tone is not None:
             if self.skin_tone is None:
-                self.skin_tone = skin_tone
+                self.skin_tone = np.array(skin_tone) if isinstance(skin_tone, (list, tuple)) else skin_tone
             else:
-                self.skin_tone = 0.9 * self.skin_tone + 0.1 * skin_tone  # Yavaşça güncelle
+                current_skin_tone = np.array(self.skin_tone) if isinstance(self.skin_tone, (list, tuple)) else self.skin_tone
+                new_skin_tone_arr = np.array(skin_tone) if isinstance(skin_tone, (list, tuple)) else skin_tone
+                self.skin_tone = 0.9 * current_skin_tone + 0.1 * new_skin_tone_arr # Yavaşça güncelle
                 
         # Güvenilirlik skorunu güncelle (biraz ağırlıklı ortalama)
-        self.reliability_score = 0.8 * self.reliability_score + 0.2 * new_reliability
+        self.reliability_score = 0.8 * self.reliability_score + 0.2 * new_reliability_raw
         
         return True
 
@@ -116,7 +121,7 @@ class PersonTrackerManager:
     Birden fazla kişiyi takip eden ve ID değişimlerini önleyen yönetici sınıf.
     DeepSORT'tan gelen takipleri filtreler ve güvenilirlik skorlarını yönetir.
     """
-    def __init__(self, reliability_threshold=0.6):
+    def __init__(self, reliability_threshold=0.5):
         self.person_trackers = {}  # track_id -> PersonTracker
         self.reliability_threshold = reliability_threshold
         self.max_frames_missing = 30  # Bu kadar frame'dir görünmeyen track'leri sil
@@ -143,11 +148,12 @@ class PersonTrackerManager:
         seen_track_ids = set()
         
         # Her takibi işle
-        for track, data in zip(tracks, face_data):
-            if not track.is_confirmed():
+        for i, (track_obj, data) in enumerate(zip(tracks, face_data)): # track_obj ve i eklendi
+            if not hasattr(track_obj, 'is_confirmed') or not track_obj.is_confirmed():
+                logger.debug(f"Track {i} onaylanmamış, atlanıyor.")
                 continue  # Onaylanmamış track'leri atla
                 
-            track_id = str(track.track_id)
+            track_id = str(track_obj.track_id)
             seen_track_ids.add(track_id)
             
             # Yüz özellikleri
@@ -156,28 +162,37 @@ class PersonTrackerManager:
             landmarks = data.get('landmarks')
             hair_color = data.get('hair_color')
             skin_tone = data.get('skin_tone')
+
+            if embedding is None or gender is None:
+                logger.warning(f"Track ID {track_id} için embedding veya gender eksik, bu track atlanıyor.")
+                continue
             
             # Eğer bu track daha önce görülmemişse, yeni bir tracker oluştur
             if track_id not in self.person_trackers:
                 logger.info(f"Yeni kişi takibi başlatılıyor: ID {track_id}")
                 self.person_trackers[track_id] = PersonTracker(track_id, gender, embedding)
-                reliable_tracks.append(track)
+                # Yeni oluşturulan tracker'ın güvenilirliğini doğrudan kontrol et
+                if self.person_trackers[track_id].reliability_score >= self.reliability_threshold:
+                    reliable_tracks.append(track_obj)
+                else:
+                    logger.info(f"Yeni takip ID {track_id} başlangıç güvenilirliği ({self.person_trackers[track_id].reliability_score:.2f}) düşük, listeye eklenmedi.")
+
                 continue
             
             # Mevcut tracker'ı güncelle
-            tracker = self.person_trackers[track_id]
-            is_reliable = tracker.update(
+            person_tracker_instance = self.person_trackers[track_id] # Değişken adı düzeltildi
+            is_update_accepted = person_tracker_instance.update( # Değişken adı düzeltildi
                 embedding, gender, frame_idx,
                 face_landmarks=landmarks,
                 hair_color=hair_color,
                 skin_tone=skin_tone
             )
             
-            # Eğer güvenilirse, track'i listeye ekle
-            if is_reliable:
-                reliable_tracks.append(track)
+            # Eğer güncelleme kabul edildiyse ve genel güvenilirlik yeterliyse, track'i listeye ekle
+            if is_update_accepted and person_tracker_instance.reliability_score >= self.reliability_threshold: # Değişken adı düzeltildi
+                reliable_tracks.append(track_obj)
             else:
-                logger.warning(f"ID {track_id} için güvenilirlik düşük, takip bu frame için filtrelendi")
+                logger.warning(f"ID {track_id} için güncelleme reddedildi veya güvenilirlik düşük ({person_tracker_instance.reliability_score:.2f}), takip bu frame için filtrelendi") # Değişken adı düzeltildi
         
         # Uzun süre görünmeyen track'leri temizle
         self._cleanup_old_trackers(seen_track_ids)
@@ -187,10 +202,10 @@ class PersonTrackerManager:
     def _cleanup_old_trackers(self, seen_track_ids):
         """Uzun süre görünmeyen takipleri temizler"""
         to_delete = []
-        for track_id, tracker in self.person_trackers.items():
+        for track_id, tracker_instance in self.person_trackers.items(): # Değişken adı düzeltildi
             # Bu frame'de görünmeyen track'leri işaretle
             if track_id not in seen_track_ids:
-                frames_missing = self.current_frame - tracker.last_seen_frame
+                frames_missing = self.current_frame - tracker_instance.last_seen_frame # Değişken adı düzeltildi
                 if frames_missing > self.max_frames_missing:
                     to_delete.append(track_id)
         

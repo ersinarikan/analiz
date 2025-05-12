@@ -880,12 +880,12 @@ def analyze_video(analysis):
                 age_estimator = get_age_estimator()
                 logger.info(f"Yaş tahmin modeli yüklendi: Analiz #{analysis.id}")
                 
-                tracker = DeepSort(max_age=20, n_init=3, nms_max_overlap=1.0, embedder=None)
-                logger.info(f"DeepSORT tracker başlatıldı (max_age=20): Analiz #{analysis.id}")
+                tracker = DeepSort(max_age=150, n_init=3, nms_max_overlap=1.0, embedder=None)
+                logger.info(f"DeepSORT tracker başlatıldı (max_age=150): Analiz #{analysis.id}")
                 
                 # Gelişmiş kişi takibi için PersonTrackerManager başlat
-                person_tracker_manager = PersonTrackerManager(reliability_threshold=0.6)
-                logger.info(f"PersonTrackerManager başlatıldı: Analiz #{analysis.id}")
+                person_tracker_manager = PersonTrackerManager(reliability_threshold=0.5)
+                logger.info(f"PersonTrackerManager başlatıldı (reliability_threshold=0.5): Analiz #{analysis.id}")
             except Exception as age_err:
                 logger.error(f"Yaş tahmin modelleri yüklenemedi: {str(age_err)}")
                 logger.warning(f"Yaş analizi devre dışı bırakıldı: Analiz #{analysis.id}")
