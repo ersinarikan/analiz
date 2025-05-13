@@ -52,65 +52,49 @@ class ContentAnalyzer:
             self.clip_model, self.clip_preprocess = self._load_clip_model()
             
             # Kategori tanımlayıcıları - CLIP için kullanılacak metinler
-            # Daha spesifik, detaylı ve ayırt edici prompt'lar
+            # Daha spesifik, detaylı ve ayırt edici prompt\'lar
             self.category_texts = {
                 "violence": [
-                    "a graphic image depicting a physical fight, assault, or combat",
-                    "visuals containing explicit blood, gore, or severe injuries",
-                    "people engaged in acts of brutality or intense physical aggression",
-                    "a scene showing weaponry being used to harm individuals",
-                    "explicit depiction of someone being physically attacked, tortured, or killed",
-                    "an image clearly NOT showing peaceful activities, sports, or harmless staged performances"
+                    "graphic violence, fighting, or assault",
+                    "images depicting severe injuries, blood, or gore",
+                    "people physically attacking others",
+                    "scenes of combat or warfare",
+                    "a person visibly in pain or suffering due to aggression"
                 ],
                 "adult_content": [
-                    "sexually explicit imagery unsuitable for all audiences, including nudity with sexual intent",
-                    "photograph or video displaying genitals, pubic area, or female nipples (excluding breastfeeding or medical contexts)",
-                    "people engaged in simulated or actual sexual acts, or overtly sexualized poses",
-                    "provocative content designed to cause sexual arousal",
-                    "graphic depiction of sexual solicitation or nonconsensual sexual content",
-                    "an image clearly NOT showing standard clothing, family-friendly scenes, or educational anatomical diagrams"
+                    "explicit nudity or sexually suggestive content",
+                    "depiction of sexual acts or genitalia",
+                    "content intended to cause sexual arousal",
+                    "pornographic material",
+                    "highly revealing clothing in a sexual context"
                 ],
                 "harassment": [
-                    "a photo or video showing someone being verbally abused, intimidated, or threatened by others",
-                    "visual evidence of bullying, cyberbullying, or targeted emotional abuse causing distress",
-                    "a scene depicting nonconsensual aggressive pursuit, stalking, or mobbing",
-                    "an image of a person visibly distressed, crying, or fearful due to others' actions",
-                    "content that demeans or belittles individuals based on protected characteristics",
-                    "an image clearly NOT showing consensual debate, constructive criticism, or friendly teasing"
+                    "images showing bullying, intimidation, or verbal abuse",
+                    "a person looking distressed or fearful due to others\' actions",
+                    "scenes of mobbing or targeted humiliation",
+                    "content that demeans or attacks a specific group",
+                    "non-consensual pursuit or stalking"
                 ],
                 "weapon": [
-                    "a clearly visible firearm (handgun, rifle, shotgun) being aimed or in a threatening context",
-                    "an individual brandishing, pointing, or actively using a weapon (knife, sword, club, firearm) against another person or animal",
-                    "military-grade weapons or combat gear displayed aggressively or outside of a clear historical, training, or ceremonial context",
-                    "an arsenal of multiple dangerous weapons or a significant amount of ammunition presented in a hostile manner",
-                    "a close-up shot focusing on a dangerous weapon designed to inflict harm, like a gun barrel or blade edge",
-                    "NOT an image of kitchen knives in a culinary setting or being used for food preparation",
-                    "NOT an image of tools for construction, repair, or gardening unless used as a weapon",
-                    "NOT an image of sporting equipment like baseball bats, golf clubs, or fencing foils during a game or practice",
-                    "NOT a toy gun or replica unless it is indistinguishable from a real weapon and in a threatening pose"
+                    "a person holding or aiming a firearm (gun, rifle)",
+                    "visible knives, swords, or daggers used threateningly",
+                    "explosives or bombs",
+                    "military weapons outside of a ceremonial context",
+                    "close-up image of a dangerous weapon"
                 ],
                 "drug": [
-                    "clear depiction of illegal drugs such as cocaine powder, heroin, methamphetamines crystals, or ecstasy pills",
-                    "individuals actively injecting, snorting, or smoking illegal substances like marijuana, crack cocaine, or meth pipes",
-                    "drug paraphernalia specifically for illicit drug use, such as syringes for injection, crack pipes, bongs for marijuana, or rolling papers with loose cannabis",
-                    "large quantities of unlabeled pills, suspicious powders, or dried plant material strongly suggesting drug dealing or abuse",
-                    "a scene explicitly showing drug intoxication, overdose symptoms, or the severe negative consequences of substance abuse",
-                    "NOT an image of prescribed medication in its original pharmacy packaging or vitamins and supplements",
-                    "NOT an image of common beverages like coffee, tea, alcohol in a social setting (unless abuse is depicted)",
-                    "NOT an image of cigarettes or cigars unless linked to other illicit substances or paraphernalia",
-                    "NOT showing fashion accessories, shiny objects, or food items that could be vaguely mistaken for drugs"
+                    "images depicting illegal drug use (injection, smoking, snorting)",
+                    "visible illicit drugs like cocaine, heroin, or pills",
+                    "drug paraphernalia such as syringes, pipes, or bongs",
+                    "scenes suggesting drug dealing or manufacturing",
+                    "person showing signs of drug overdose or severe intoxication"
                 ],
                 "safe": [
-                    "an image depicting a calm, peaceful, and entirely harmless public or private setting",
-                    "a standard office, school, or work environment with people engaged in typical activities",
-                    "a picture of common household items, animals, plants, or landscapes with no concerning elements",
-                    "content that is purely educational, informational, artistic (without being offensive), or neutral in nature",
-                    "a family-friendly scene showing positive or neutral interactions between people of all ages",
-                    "an image completely devoid of any violence, sexual content, harassment, weapons, or illegal drugs",
-                    "visuals suitable for all age groups and public display without any reservations",
-                    "NOT an image showing any form of conflict, distress, nudity, aggression, or illegal activities",
-                    "NOT a depiction of dangerous situations, accidents, or medical emergencies unless clearly for educational/news purposes and non-graphic",
-                    "NOT content that could be considered disturbing, offensive, or inappropriate for children"
+                    "a harmless scene with no offensive content",
+                    "neutral images of objects, landscapes, or animals",
+                    "people in normal, everyday situations",
+                    "standard workplace or educational settings",
+                    "family-friendly content suitable for all audiences"
                 ]
             }
             
@@ -676,3 +660,8 @@ class ContentAnalyzer:
             logger.error(f"Skor normalizasyonu hatası: {str(e)}")
             # Hata durumunda orijinal skorları döndür
             return scores 
+
+# Bu fonksiyonu analysis_service.py tarafından import edilebilmesi için ekliyoruz.
+def get_content_analyzer():
+    """ContentAnalyzer sınıfından bir örnek (singleton) döndürür."""
+    return ContentAnalyzer() 

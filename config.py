@@ -26,6 +26,16 @@ class Config:
     # Analiz Ayarları
     DEFAULT_FRAMES_PER_SECOND = 1  # Video analizi için varsayılan saniyede kare sayısı
     DEFAULT_CONFIDENCE_THRESHOLD = 0.5  # Nesne tespiti için varsayılan güven eşiği
+    # MIN_FACE_SIZE = 20 # Piksel cinsinden minimum yüz boyutu (KALDIRILDI)
+    # CONTENT_ANALYSIS_PROFILE = "balanced" # Analiz profili: balanced, fast, detailed (KALDIRILDI)
+    # VIDEO_FRAME_SAMPLING_RATE = 1 # Videolardan saniyede kaç kare analiz edileceği (KALDIRILDI)
+
+    # Yeni Global Analiz Parametreleri (Kullanıcının resmindeki)
+    FACE_DETECTION_CONFIDENCE = 0.5 # (0.1 - 1.0)
+    TRACKING_RELIABILITY_THRESHOLD = 0.5 # (0.1 - 0.9)
+    ID_CHANGE_THRESHOLD = 0.45 # (0.1 - 0.8)
+    MAX_LOST_FRAMES = 30 # (5 - 300)
+    EMBEDDING_DISTANCE_THRESHOLD = 0.4 # (0.1 - 0.8)
 
 class DevelopmentConfig(Config):
     DEBUG = True

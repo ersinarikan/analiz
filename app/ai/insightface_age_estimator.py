@@ -9,6 +9,7 @@ from config import Config
 import clip  # CLIP'i import ediyoruz
 from PIL import Image  # PIL kütüphanesini ekliyoruz
 import math
+from flask import current_app # current_app import edildi
 
 # Logger oluştur
 logger = logging.getLogger(__name__)
@@ -30,41 +31,28 @@ class CustomAgeHead(torch.nn.Module):
         return x
 
 # Versiyonlu model bulucu fonksiyon
-def find_latest_age_model(model_root):
-    versions_dir = os.path.join(model_root, 'versions')
-    model_filename = 'custom_age_head.pth'
-    version_pattern = re.compile(r'^v(\d+)$')
-    candidates = []
+def find_latest_age_model(model_path):
+    age_model_dir = os.path.join(model_path, 'models') # veya doğrudan model_path altında olabilir
+    if not os.path.isdir(age_model_dir):
+        logger.warning(f"Yaş modeli için 'models' klasörü bulunamadı: {age_model_dir}")
+        return None
     
-    logger.info(f"Yaş tahmin modeli versiyonları aranıyor: {versions_dir}")
+    model_files = [f for f in os.listdir(age_model_dir) if f.startswith('age_model_epoch_') and f.endswith('.pth')]
+    if not model_files:
+        logger.warning(f"'models' klasöründe özel yaş modeli bulunamadı: {age_model_dir}")
+        return None
     
-    if os.path.exists(versions_dir):
-        for name in os.listdir(versions_dir):
-            m = version_pattern.match(name)
-            if m:
-                version_num = int(m.group(1))
-                model_path = os.path.join(versions_dir, name, model_filename)
-                if os.path.isfile(model_path):
-                    candidates.append((version_num, model_path))
-                    logger.info(f"Model versiyonu bulundu: v{version_num} - {model_path}")
-    
-    if candidates:
-        candidates.sort(reverse=True)
-        latest_version, latest_path = candidates[0]
-        logger.info(f"En son model versiyonu seçildi: v{latest_version} - {latest_path}")
-        return latest_path
-    
-    root_model_path = os.path.join(model_root, model_filename)
-    if os.path.isfile(root_model_path):
-        logger.info(f"Kök dizinde model bulundu: {root_model_path}")
-        return root_model_path
-    
-    logger.warning("Hiçbir model versiyonu bulunamadı!")
-    return None
+    # Epoch numarasına göre sırala ve en sonuncuyu al
+    model_files.sort(key=lambda x: int(x.split('_')[-1].split('.')[0]), reverse=True)
+    latest_model_file = model_files[0]
+    logger.info(f"Bulunan en son özel yaş modeli: {latest_model_file}")
+    return os.path.join(age_model_dir, latest_model_file)
 
 class InsightFaceAgeEstimator:
     def __init__(self, det_size=(640, 640)):
         # Model dosya yolunu ayarla
+        # Config.MODELS_FOLDER yerine current_app.config['MODELS_FOLDER'] kullanmak daha tutarlı olabilir
+        # Ancak Config importu zaten yapılmış ve bu şekilde kullanılıyor, şimdilik dokunmuyoruz.
         model_path = os.path.join(Config.MODELS_FOLDER, 'age', 'buffalo_l')
         logger.info(f"InsightFaceAgeEstimator başlatılıyor. Model dizini: {model_path}")
         
@@ -73,16 +61,22 @@ class InsightFaceAgeEstimator:
             logger.error(f"Model dosyaları bulunamadı: {model_path}")
             raise FileNotFoundError(f"Model dosyaları bulunamadı: {model_path}")
         
+        # FACE_DETECTION_CONFIDENCE değerini config'den oku
+        # FACTORY_DEFAULTS'taki değer 0.5, kodda kullanılan 0.2 idi.
+        # Config'den gelen değer öncelikli olacak.
+        face_detection_thresh = current_app.config.get('FACE_DETECTION_CONFIDENCE', 0.5) 
+        logger.info(f"Kullanılacak yüz tespit eşiği (det_thresh): {face_detection_thresh}")
+
         # Modeli yerel dosyadan yükle
         try:
             self.model = insightface.app.FaceAnalysis(
                 name='buffalo_l',
                 root=model_path,
                 providers=['CPUExecutionProvider'],
-                det_thresh=0.2  # Yüz tespiti için minimum güven eşiği 0.3'ten 0.2'ye düşürüldü
+                det_thresh=face_detection_thresh # Dinamik olarak okunan değeri kullan
             )
             self.model.prepare(ctx_id=0, det_size=det_size)
-            logger.info("InsightFace temel modeli başarıyla yüklendi (det_thresh=0.2 ile)")
+            logger.info(f"InsightFace temel modeli başarıyla yüklendi (det_thresh={face_detection_thresh} ile)")
         except Exception as e:
             logger.error(f"InsightFace model yükleme hatası: {str(e)}")
             raise
@@ -109,9 +103,9 @@ class InsightFaceAgeEstimator:
             device = "cuda" if torch.cuda.is_available() else "cpu"
             
             # Sadece büyük modeli yükle, küçük modele otomatik geçiş yok
-            logger.info("ViT-L/14@336px CLIP modeli yükleniyor - en büyük ve doğru model")
-            self.clip_model, self.clip_preprocess = clip.load("ViT-L/14@336px", device=device)
-            logger.info("ViT-L/14@336px CLIP modeli başarıyla yüklendi (yaş tahmini için)")
+            logger.info("ViT-B/32 CLIP modeli yükleniyor - en büyük ve doğru model")
+            self.clip_model, self.clip_preprocess = clip.load("ViT-B/32", device=device)
+            logger.info(f"CLIP modeli ({device} üzerinde) başarıyla yüklendi.")
             
             self.clip_device = device
             logger.info(f"CLIP modeli başarıyla yüklendi, çalışma ortamı: {device}")
@@ -212,96 +206,61 @@ class InsightFaceAgeEstimator:
             # CLIP için ön işleme
             preprocessed_image = self.clip_preprocess(pil_image).unsqueeze(0).to(self.clip_device)
             
-            # Yaş tahminini doğrulamak için özelleştirilmiş prompt'lar oluştur
+            # Yaş tahminini doğrulamak için daha genel yaş kategorisi prompt'ları
             age = int(round(estimated_age))
+            prompts = []
             
-            # 1. Direkt yaş aralığı prompt'ları (daha spesifik)
-            age_decade = age // 10 * 10
-            age_prompts = [
-                f"This is a clear photo of a person who is exactly {age} years old",
-                f"This face appears to be {age} years old",
-                f"A person who is approximately {age-2}-{age+2} years old",
-                f"This photo shows a typical face of someone in their {age_decade}s"
-            ]
-            
-            # 2. Yaş kategorileri prompt'ları
-            category_prompts = []
+            # Yaş kategorisi belirle
             if age < 3:
-                category_prompts.append("This is a baby or infant (0-2 years old)")
-            elif age < 10:
-                category_prompts.append("This is a young child (3-9 years old)")
+                prompts.append("a photo of a baby or infant")
+                prompts.append("this person is clearly younger than 5 years old")
+                prompts.append("not an adult or teenager")
             elif age < 13:
-                category_prompts.append("This is a pre-teen child (10-12 years old)")
+                prompts.append("a photo of a child")
+                prompts.append("this person appears to be between 3 and 12 years old")
+                prompts.append("not an adult or infant")
             elif age < 20:
-                category_prompts.append("This is a teenager (13-19 years old)")
-            elif age < 30:
-                category_prompts.append("This is a young adult in their twenties (20-29)")
+                prompts.append("a photo of a teenager")
+                prompts.append("this person appears to be between 13 and 19 years old")
+                prompts.append("not a child or a middle-aged adult")
             elif age < 40:
-                category_prompts.append("This is an adult in their thirties (30-39)")
-            elif age < 50:
-                category_prompts.append("This is a middle-aged person in their forties (40-49)")
-            elif age < 60:
-                category_prompts.append("This is a middle-aged person in their fifties (50-59)")
-            elif age < 70:
-                category_prompts.append("This is a senior in their sixties (60-69)")
+                prompts.append("a photo of a young adult")
+                prompts.append("this person appears to be in their twenties or thirties")
+                prompts.append("not a child or a senior citizen")
+            elif age < 65:
+                prompts.append("a photo of a middle-aged adult")
+                prompts.append("this person appears to be between 40 and 64 years old")
+                prompts.append("not a teenager or an elderly person")
             else:
-                category_prompts.append("This is an elderly person (70+ years old)")
-                
-            # 3. Karşıt prompt'lar (daha belirgin sonuçlar için)
-            contrast_prompts = []
-            if age < 18:
-                contrast_prompts.append("This is an adult over 18 years old")
-            else:
-                contrast_prompts.append("This is a child under 18 years old")
-                
-            if age < 40:
-                contrast_prompts.append("This is a middle-aged or elderly person (40+ years)")
-            else:
-                contrast_prompts.append("This is a young person under 40")
-                
-            # Tüm prompt'ları birleştir
-            all_prompts = age_prompts + category_prompts + contrast_prompts
-            logger.debug(f"[AGE_LOG] CLIP Prompts: {all_prompts}") # Debug seviyesinde logla
+                prompts.append("a photo of a senior citizen or elderly person")
+                prompts.append("this person appears to be 65 years old or older")
+                prompts.append("not a young adult or child")
             
-            # Prompt'ları tokenize et
-            text_inputs = torch.cat([clip.tokenize(prompt) for prompt in all_prompts]).to(self.clip_device)
-            
-            # Görüntü ve metin özelliklerini çıkar
+            # CLIP ile benzerlik hesapla
             with torch.no_grad():
-                # Görüntü özelliklerini çıkar
                 image_features = self.clip_model.encode_image(preprocessed_image)
                 image_features /= image_features.norm(dim=-1, keepdim=True)
                 
-                # Metin özelliklerini çıkar
+                text_inputs = clip.tokenize(prompts).to(self.clip_device)
                 text_features = self.clip_model.encode_text(text_inputs)
                 text_features /= text_features.norm(dim=-1, keepdim=True)
+                
+                # Benzerlik skorlarını al (logit scale * 100)
+                similarity = (100.0 * image_features @ text_features.T).softmax(dim=-1)
+                # En yüksek benzerlik skorunu al (normalize edilmiş)
+                confidence_score = similarity.max().item()
             
-            # Benzerlik skorlarını hesapla
-            similarities = (100.0 * image_features @ text_features.T).softmax(dim=-1)
-            logger.debug(f"[AGE_LOG] CLIP Ham Benzerlikler: {similarities.cpu().numpy().flatten()}") # Debug
+            # Çok düşük veya çok yüksek skorları sınırlayabiliriz (isteğe bağlı)
+            confidence_score = max(0.1, min(0.9, confidence_score)) # Güveni 0.1-0.9 arasına sıkıştır
             
-            # Tüm pozitif prompt'ların ortalama benzerliğini al (karşıt prompt'lar hariç)
-            positive_similarities = similarities[0, :len(age_prompts) + len(category_prompts)]
-            avg_similarity = positive_similarities.mean().item()
-            
-            # Karşıt prompt'ların skoru düşükse bu iyi bir işaret (ters ölçekleme)
-            contrast_similarities = similarities[0, len(age_prompts) + len(category_prompts):]
-            inverted_contrast = 1.0 - contrast_similarities.mean().item()
-            
-            # Güven skorunu hesapla (pozitif ve negatif sinyalleri birleştir)
-            confidence_score = (avg_similarity * 0.7) + (inverted_contrast * 0.3)
-            
-            # Sigmoid fonksiyonu ile 0-1 aralığına normalize et
-            # İsteğe bağlı olarak sıcaklık parametresi ile keskinliği ayarla
-            temperature = 2.0  # Daha yüksek = daha keskin ayrım
-            normalized_confidence = 1.0 / (1.0 + math.exp(-temperature * (confidence_score - 0.5)))
-            
-            logger.info(f"[AGE_LOG] _calculate_confidence_with_clip tamamlandı. Hesaplanan Güven: {normalized_confidence:.4f}")
-            return normalized_confidence
+            logger.info(f"[AGE_LOG] CLIP Yaş Kategorisi Promptları: {prompts}")
+            logger.info(f"[AGE_LOG] CLIP Benzerlik Skorları: {similarity.cpu().numpy()}")
+            logger.info(f"[AGE_LOG] _calculate_confidence_with_clip tamamlandı. Hesaplanan Güven: {confidence_score:.4f}")
+            return confidence_score
             
         except Exception as e:
-            logger.error(f"[AGE_LOG] _calculate_confidence_with_clip Hata: {str(e)}")
-            return 0.5
+            logger.error(f"[AGE_LOG] CLIP ile güven skoru hesaplanırken hata: {str(e)}")
+            return 0.5 # Hata durumunda varsayılan güven
 
     def compute_face_encoding(self, face_image: np.ndarray):
         """
@@ -331,8 +290,18 @@ class InsightFaceAgeEstimator:
         distance = np.linalg.norm(np.array(encoding1) - np.array(encoding2))
         return distance <= tolerance
 
+    def get_faces(self, image: np.ndarray):
+        # This method is not provided in the original file or the code block
+        # It's assumed to exist as it's called in the estimate_age method
+        pass
+
 # Kullanım örneği:
 # estimator = InsightFaceAgeEstimator()
 # img = cv2.imread('face.jpg')
 # age = estimator.estimate_age(img)
-# print('Tahmini yaş:', age) 
+# print('Tahmini yaş:', age)
+
+# Bu fonksiyonu analysis_service.py tarafından import edilebilmesi için ekliyoruz.
+def get_age_estimator():
+    """InsightFaceAgeEstimator sınıfından bir örnek döndürür."""
+    return InsightFaceAgeEstimator() 

@@ -31,6 +31,183 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // Eğitim butonu kurulumu
     setupTrainingButton();
+
+    // --- Yeni Analiz Parametreleri Modalı (GLOBAL) için Event Listener'lar ve Fonksiyonlar ---
+    const globalAnalysisParamsModalElement = document.getElementById('analysisParamsModal'); 
+    if (globalAnalysisParamsModalElement) {
+        const globalAnalysisParamsModal = new bootstrap.Modal(globalAnalysisParamsModalElement);
+        const globalAnalysisParamsForm = document.getElementById('analysisParamsForm'); 
+        const saveGlobalAnalysisParamsBtn = document.getElementById('saveAnalysisParamsBtn');
+        const loadDefaultAnalysisParamsBtn = document.getElementById('loadDefaultAnalysisParamsBtn'); // Yeni buton
+
+        // Helper function to setup slider and its value display
+        function setupSliderWithValueDisplay(sliderId, valueDisplayId, defaultValue) {
+            const slider = document.getElementById(sliderId);
+            const valueDisplay = document.getElementById(valueDisplayId);
+            if (slider && valueDisplay) {
+                slider.addEventListener('input', () => {
+                    valueDisplay.textContent = slider.value;
+                });
+                // Set default value display on load, will be overwritten by fetched value if available
+                valueDisplay.textContent = slider.value || defaultValue;
+            }
+            return slider; // Return slider for direct value setting later
+        }
+
+        const faceDetectionConfidenceSlider = setupSliderWithValueDisplay('faceDetectionConfidence', 'faceDetectionConfidenceValue', '0.5');
+        const trackingReliabilityThresholdSlider = setupSliderWithValueDisplay('trackingReliabilityThreshold', 'trackingReliabilityThresholdValue', '0.5');
+        const idChangeThresholdSlider = setupSliderWithValueDisplay('idChangeThreshold', 'idChangeThresholdValue', '0.45');
+        const embeddingDistanceThresholdSlider = setupSliderWithValueDisplay('embeddingDistanceThreshold', 'embeddingDistanceThresholdValue', '0.4');
+        const maxLostFramesInput = document.getElementById('maxLostFrames');
+
+        // Modal açıldığında mevcut ayarları yükle
+        globalAnalysisParamsModalElement.addEventListener('show.bs.modal', function () {
+            fetch('/api/get_analysis_params')
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    if (data) {
+                        console.log('Fetched global params:', data);
+                        if (faceDetectionConfidenceSlider && data.face_detection_confidence !== null && data.face_detection_confidence !== undefined) {
+                            faceDetectionConfidenceSlider.value = data.face_detection_confidence;
+                            document.getElementById('faceDetectionConfidenceValue').textContent = data.face_detection_confidence;
+                        }
+                        if (trackingReliabilityThresholdSlider && data.tracking_reliability_threshold !== null && data.tracking_reliability_threshold !== undefined) {
+                            trackingReliabilityThresholdSlider.value = data.tracking_reliability_threshold;
+                            document.getElementById('trackingReliabilityThresholdValue').textContent = data.tracking_reliability_threshold;
+                        }
+                        if (idChangeThresholdSlider && data.id_change_threshold !== null && data.id_change_threshold !== undefined) {
+                            idChangeThresholdSlider.value = data.id_change_threshold;
+                            document.getElementById('idChangeThresholdValue').textContent = data.id_change_threshold;
+                        }
+                        if (maxLostFramesInput && data.max_lost_frames !== null && data.max_lost_frames !== undefined) {
+                            maxLostFramesInput.value = data.max_lost_frames;
+                        }
+                        if (embeddingDistanceThresholdSlider && data.embedding_distance_threshold !== null && data.embedding_distance_threshold !== undefined) {
+                            embeddingDistanceThresholdSlider.value = data.embedding_distance_threshold;
+                            document.getElementById('embeddingDistanceThresholdValue').textContent = data.embedding_distance_threshold;
+                        }
+                    }
+                })
+                .catch(error => {
+                    console.error('Error fetching global analysis params:', error);
+                    alert('Global analiz parametreleri yüklenirken bir hata oluştu: ' + error.message);
+                });
+        });
+
+        // Varsayılan ayarları yükle butonu
+        if (loadDefaultAnalysisParamsBtn) {
+            loadDefaultAnalysisParamsBtn.addEventListener('click', function() {
+                fetch('/api/get_analysis_params?use_defaults=true') // use_defaults query parametresi eklenebilir (opsiyonel, backend zaten varsayılanı dönebilir)
+                    .then(response => {
+                        if (!response.ok) {
+                            throw new Error(`HTTP error! status: ${response.status}`);
+                        }
+                        return response.json();
+                    })
+                    .then(data => {
+                        if (data) {
+                            console.log('Loading default global params:', data);
+                            if (faceDetectionConfidenceSlider && data.face_detection_confidence !== null && data.face_detection_confidence !== undefined) {
+                                faceDetectionConfidenceSlider.value = data.face_detection_confidence;
+                                document.getElementById('faceDetectionConfidenceValue').textContent = data.face_detection_confidence;
+                            }
+                            if (trackingReliabilityThresholdSlider && data.tracking_reliability_threshold !== null && data.tracking_reliability_threshold !== undefined) {
+                                trackingReliabilityThresholdSlider.value = data.tracking_reliability_threshold;
+                                document.getElementById('trackingReliabilityThresholdValue').textContent = data.tracking_reliability_threshold;
+                            }
+                            if (idChangeThresholdSlider && data.id_change_threshold !== null && data.id_change_threshold !== undefined) {
+                                idChangeThresholdSlider.value = data.id_change_threshold;
+                                document.getElementById('idChangeThresholdValue').textContent = data.id_change_threshold;
+                            }
+                            if (maxLostFramesInput && data.max_lost_frames !== null && data.max_lost_frames !== undefined) {
+                                maxLostFramesInput.value = data.max_lost_frames;
+                            }
+                            if (embeddingDistanceThresholdSlider && data.embedding_distance_threshold !== null && data.embedding_distance_threshold !== undefined) {
+                                embeddingDistanceThresholdSlider.value = data.embedding_distance_threshold;
+                                document.getElementById('embeddingDistanceThresholdValue').textContent = data.embedding_distance_threshold;
+                            }
+                            showToast('Bilgi', 'Varsayılan analiz parametreleri yüklendi.', 'info');
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error fetching default global analysis params:', error);
+                        alert('Varsayılan global analiz parametreleri yüklenirken bir hata oluştu: ' + error.message);
+                    });
+            });
+        }
+
+        // Ayarları kaydet
+        if (saveGlobalAnalysisParamsBtn && globalAnalysisParamsForm) {
+            saveGlobalAnalysisParamsBtn.addEventListener('click', function () {
+                const formData = new FormData(globalAnalysisParamsForm);
+                const params = {};
+                let formIsValid = true;
+
+                for (let [key, value] of formData.entries()) {
+                    const inputElement = globalAnalysisParamsForm.elements[key];
+                    if (inputElement.type === 'number' || inputElement.type === 'range') {
+                        if (value === '') {
+                            params[key] = null; 
+                        } else {
+                            const numValue = Number(value);
+                            if (isNaN(numValue)) {
+                                alert(`Geçersiz sayısal değer: ${inputElement.name || inputElement.id}`);
+                                formIsValid = false;
+                                break;
+                            }
+                            if (inputElement.min && numValue < Number(inputElement.min)) {
+                                alert(`${inputElement.name || inputElement.id} için minimum değer ${inputElement.min} olmalıdır.`);
+                                formIsValid = false;
+                                break;
+                            }
+                            if (inputElement.max && numValue > Number(inputElement.max)) {
+                                alert(`${inputElement.name || inputElement.id} için maksimum değer ${inputElement.max} olmalıdır.`);
+                                formIsValid = false;
+                                break;
+                            }
+                            params[key] = numValue;
+                        }
+                    } else {
+                        params[key] = value;
+                    }
+                }
+
+                if (!formIsValid) return;
+                console.log('Saving global params:', params);
+
+                fetch('/api/set_analysis_params', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(params),
+                })
+                .then(response => response.json().then(data => ({ status: response.status, body: data })))
+                .then(({ status, body }) => {
+                    if (status === 200 && body.message) {
+                        alert(body.message);
+                        globalAnalysisParamsModal.hide();
+                    } else {
+                        let errorMessage = 'Global ayarlar kaydedilirken bir hata oluştu.';
+                        if (body.error) errorMessage += '\nSunucu Mesajı: ' + body.error;
+                        if (body.details && Array.isArray(body.details)) errorMessage += '\nDetaylar: ' + body.details.join('\n');
+                        else if (body.details) errorMessage += '\nDetaylar: ' + body.details;
+                        alert(errorMessage);
+                        console.error('Error saving global params:', body);
+                    }
+                })
+                .catch(error => {
+                    console.error('Error saving global analysis params:', error);
+                    alert('Global ayarlar kaydedilirken bir ağ hatası oluştu: ' + error.message);
+                });
+            });
+        }
+    } // --- Yeni Analiz Parametreleri Modalı (GLOBAL) için SON ---
 });
 
 // Socket.io bağlantısını başlat
@@ -220,21 +397,29 @@ function initializeEventListeners() {
     // Analiz Başlatma Butonu
     document.getElementById('analyzeBtn').addEventListener('click', () => {
         if (uploadedFiles.length > 0) {
-            // Analiz parametreleri modalını aç
-            const modal = new bootstrap.Modal(document.getElementById('analysisParamsModal'));
+            // Analiz parametreleri modalını aç (ANLIK AYARLAR İÇİN YENİ MODAL)
+            const modal = new bootstrap.Modal(document.getElementById('runAnalysisSettingsModal'));
             modal.show();
         }
     });
     
-    // Analiz Başlatma Onay Butonu
+    // Analiz Başlatma Onay Butonu (ANLIK AYARLAR MODALI İÇİNDEKİ)
     document.getElementById('startAnalysisBtn').addEventListener('click', () => {
         // Analiz parametrelerini al
-        const framesPerSecond = parseFloat(document.getElementById('framesPerSecond').value);
-        const includeAgeAnalysis = document.getElementById('includeAgeAnalysis').checked;
+        const framesPerSecondInput = document.getElementById('framesPerSecond');
+        const includeAgeAnalysisInput = document.getElementById('includeAgeAnalysis');
+
+        const framesPerSecond = framesPerSecondInput ? parseFloat(framesPerSecondInput.value) : 1;
+        const includeAgeAnalysis = includeAgeAnalysisInput ? includeAgeAnalysisInput.checked : false;
         
         // Modalı kapat
-        const modal = bootstrap.Modal.getInstance(document.getElementById('analysisParamsModal'));
-        modal.hide();
+        const modalElement = document.getElementById('runAnalysisSettingsModal');
+        if (modalElement) {
+            const modalInstance = bootstrap.Modal.getInstance(modalElement);
+            if (modalInstance) {
+                modalInstance.hide();
+            }
+        }
         
         // Tüm yüklenen dosyalar için analiz başlat
         startAnalysisForAllFiles(framesPerSecond, includeAgeAnalysis);

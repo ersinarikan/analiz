@@ -10,7 +10,9 @@ def cosine_similarity(v1, v2):
 
 def color_similarity(color1, color2):
     """İki renk arasındaki benzerliği hesaplar"""
-    return 1 - np.linalg.norm(np.array(color1) - np.array(color2)) / 441.7  # 255*sqrt(3) maks uzaklık
+    c1 = np.array(color1)
+    c2 = np.array(color2)
+    return 1.0 - np.linalg.norm(c1 - c2) / np.sqrt(3 * (255**2))
 
 def landmark_distance(lm1, lm2):
     """İki yüz landmark seti arasındaki normalize edilmiş mesafeyi hesaplar"""
@@ -23,7 +25,7 @@ class PersonTracker:
     Kişileri takip etmek ve ID değişimlerini (ID switches) tespit etmek için 
     birden fazla özelliği birleştiren sınıf.
     """
-    def __init__(self, track_id, initial_gender, initial_embedding):
+    def __init__(self, track_id, initial_gender, initial_embedding, id_change_threshold, embedding_distance_threshold):
         self.track_id = track_id
         self.gender = initial_gender
         self.face_embeddings = [initial_embedding] 
@@ -34,6 +36,8 @@ class PersonTracker:
         self.avg_embedding = initial_embedding
         self.reliability_score = 0.5  # Başlangıç güvenilirlik skoru
         self.max_landmark_penalty_distance = 0.5 # Landmark eşleşmesi için maksimum ceza mesafesi
+        self.id_change_threshold = id_change_threshold # Config'den gelecek
+        self.embedding_distance_threshold = embedding_distance_threshold # Config'den gelecek
         
     def update(self, new_embedding, new_gender, frame_idx, face_landmarks=None, 
               hair_color=None, skin_tone=None):
@@ -48,8 +52,10 @@ class PersonTracker:
         
         # Embedding mesafesi kontrolü
         embedding_distance = cosine(new_embedding, self.avg_embedding)
-        # embedding_match_score: 0.4'te 0, 0.0'da 1 olacak şekilde lineer.
-        embedding_match_score = max(0.0, 1.0 - (embedding_distance / 0.4))
+        # embedding_match_score: self.embedding_distance_threshold'da 0, 0.0'da 1 olacak şekilde lineer.
+        # Eğer embedding_distance_threshold 0 ise (olmamalı ama), bölme hatasını engelle
+        denominator_embedding = self.embedding_distance_threshold if self.embedding_distance_threshold > 0 else 0.4
+        embedding_match_score = max(0.0, 1.0 - (embedding_distance / denominator_embedding))
 
         # Saç rengi ve cilt tonu benzerlik skorları
         hair_match_score = 0.5  # Varsayılan (bilgi yoksa nötr)
@@ -58,7 +64,7 @@ class PersonTracker:
         elif hair_color is not None and self.hair_color is None: # İlk defa saç rengi bilgisi geldi
             hair_match_score = 0.7 # Yeni bilgi için hafif pozitif
             
-        skin_match_score = 0.5  # Varsayılan (bilgi yoksa nötr)
+        skin_match_score = 0.5
         if skin_tone is not None and self.skin_tone is not None:
             skin_match_score = color_similarity(skin_tone, self.skin_tone)
         elif skin_tone is not None and self.skin_tone is None: # İlk defa cilt tonu bilgisi geldi
@@ -92,8 +98,8 @@ class PersonTracker:
         )
         
         # Eğer ham güvenilirlik skoru düşükse, bu kişi farklı olabilir
-        if new_reliability_raw < 0.45: # Eşik değeri 0.5'ten 0.45'e düşürüldü
-            logger.warning(f"Olası ID switch (yeni eşik 0.45): Track ID {self.track_id}, Ham Güvenilirlik: {new_reliability_raw:.2f} (Detaylar: G:{gender_match_score:.2f} E:{embedding_match_score:.2f} H:{hair_match_score:.2f} S:{skin_match_score:.2f} F:{face_match_score:.2f})")
+        if new_reliability_raw < self.id_change_threshold: # Dinamik eşik kullan
+            logger.warning(f"Olası ID switch (eşik {self.id_change_threshold}): Track ID {self.track_id}, Ham Güvenilirlik: {new_reliability_raw:.2f} (Detaylar: G:{gender_match_score:.2f} E:{embedding_match_score:.2f} H:{hair_match_score:.2f} S:{skin_match_score:.2f} F:{face_match_score:.2f})")
             return False  # ID Switch olabilir, güncellemeyi reddet
         
         # Güncelleme yap
@@ -114,17 +120,18 @@ class PersonTracker:
             if self.hair_color is None:
                 self.hair_color = np.array(hair_color) if isinstance(hair_color, (list, tuple)) else hair_color
             else:
-                current_hair_color = np.array(self.hair_color) if isinstance(self.hair_color, (list, tuple)) else self.hair_color
-                new_hair_color_arr = np.array(hair_color) if isinstance(hair_color, (list, tuple)) else hair_color
-                self.hair_color = 0.9 * current_hair_color + 0.1 * new_hair_color_arr # Yavaşça güncelle
+                # Renklerin numpy array olduğundan emin ol
+                current_hair_color_arr = np.array(self.hair_color)
+                new_hair_color_arr = np.array(hair_color)
+                self.hair_color = 0.9 * current_hair_color_arr + 0.1 * new_hair_color_arr # Yavaşça güncelle
                 
         if skin_tone is not None:
             if self.skin_tone is None:
                 self.skin_tone = np.array(skin_tone) if isinstance(skin_tone, (list, tuple)) else skin_tone
             else:
-                current_skin_tone = np.array(self.skin_tone) if isinstance(self.skin_tone, (list, tuple)) else self.skin_tone
-                new_skin_tone_arr = np.array(skin_tone) if isinstance(skin_tone, (list, tuple)) else skin_tone
-                self.skin_tone = 0.9 * current_skin_tone + 0.1 * new_skin_tone_arr # Yavaşça güncelle
+                current_skin_tone_arr = np.array(self.skin_tone)
+                new_skin_tone_arr = np.array(skin_tone)
+                self.skin_tone = 0.9 * current_skin_tone_arr + 0.1 * new_skin_tone_arr # Yavaşça güncelle
                 
         # Güvenilirlik skorunu güncelle (biraz ağırlıklı ortalama)
         self.reliability_score = 0.8 * self.reliability_score + 0.2 * new_reliability_raw
@@ -137,10 +144,12 @@ class PersonTrackerManager:
     Birden fazla kişiyi takip eden ve ID değişimlerini önleyen yönetici sınıf.
     DeepSORT'tan gelen takipleri filtreler ve güvenilirlik skorlarını yönetir.
     """
-    def __init__(self, reliability_threshold=0.5):
+    def __init__(self, reliability_threshold, max_frames_missing, id_change_threshold, embedding_distance_threshold):
         self.person_trackers = {}  # track_id -> PersonTracker
-        self.reliability_threshold = reliability_threshold
-        self.max_frames_missing = 30  # Bu kadar frame'dir görünmeyen track'leri sil
+        self.reliability_threshold = reliability_threshold # Parametreden al
+        self.max_frames_missing = max_frames_missing     # Parametreden al
+        self.id_change_threshold = id_change_threshold # PersonTracker'a iletilecek
+        self.embedding_distance_threshold = embedding_distance_threshold # PersonTracker'a iletilecek
         self.current_frame = 0
         
     def update(self, tracks, face_data, frame_idx):
@@ -186,15 +195,15 @@ class PersonTrackerManager:
             # Eğer bu track daha önce görülmemişse, yeni bir tracker oluştur
             if track_id not in self.person_trackers:
                 logger.info(f"Yeni kişi takibi başlatılıyor: ID {track_id}")
-                self.person_trackers[track_id] = PersonTracker(track_id, gender, embedding)
+                self.person_trackers[track_id] = PersonTracker(track_id, gender, embedding, self.id_change_threshold, self.embedding_distance_threshold)
                 # Yeni oluşturulan tracker'ın güvenilirliğini doğrudan kontrol et
                 if self.person_trackers[track_id].reliability_score >= self.reliability_threshold:
                     reliable_tracks.append(track_obj)
                 else:
-                    logger.info(f"Yeni takip ID {track_id} başlangıç güvenilirliği ({self.person_trackers[track_id].reliability_score:.2f}) düşük, listeye eklenmedi.")
+                    logger.info(f"Yeni takip ID {track_id} başlangıç güvenilirliği ({self.person_trackers[track_id].reliability_score:.2f}) düşük (eşik {self.reliability_threshold}), listeye eklenmedi.")
 
             # Mevcut tracker'ı güncelle (veya yeni oluşturulanı)
-            person_tracker_instance = self.person_trackers[track_id] # Değişken adı düzeltildi
+            person_tracker_instance = self.person_trackers[track_id]
             is_update_accepted = person_tracker_instance.update( # Değişken adı düzeltildi
                 embedding, gender, frame_idx,
                 face_landmarks=landmarks,
@@ -206,7 +215,10 @@ class PersonTrackerManager:
             if is_update_accepted and person_tracker_instance.reliability_score >= self.reliability_threshold: # Değişken adı düzeltildi
                 reliable_tracks.append(track_obj)
             else:
-                logger.warning(f"ID {track_id} için güncelleme reddedildi veya güvenilirlik düşük ({person_tracker_instance.reliability_score:.2f}), takip bu frame için filtrelendi") # Değişken adı düzeltildi
+                if not is_update_accepted:
+                    logger.warning(f"ID {track_id} için güncelleme reddedildi (olası ID switch), takip bu frame için filtrelendi")
+                else: # reliability_score < self.reliability_threshold
+                    logger.warning(f"ID {track_id} için güvenilirlik düşük ({person_tracker_instance.reliability_score:.2f} < {self.reliability_threshold}), takip bu frame için filtrelendi") 
         
         # Uzun süre görünmeyen track'leri temizle
         self._cleanup_old_trackers(seen_track_ids)
@@ -225,7 +237,7 @@ class PersonTrackerManager:
         
         # Eski takipleri sil
         for track_id in to_delete:
-            logger.info(f"Eski takip siliniyor: ID {track_id}, son görülme: {self.person_trackers[track_id].last_seen_frame}")
+            logger.info(f"Eski takip siliniyor: ID {track_id}, son görülme: {self.person_trackers[track_id].last_seen_frame}, kayıp frame sayısı: {self.current_frame - self.person_trackers[track_id].last_seen_frame} > {self.max_frames_missing}")
             del self.person_trackers[track_id]
     
     def get_reliability_score(self, track_id):

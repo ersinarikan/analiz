@@ -43,6 +43,9 @@
                     <li class="nav-item">
                         <a class="nav-link" href="#" id="trainModelBtn"><i class="fas fa-brain me-1"></i> Model Eğitimi</a>
                     </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#" data-bs-toggle="modal" data-bs-target="#analysisParamsModal"><i class="fas fa-cog me-1"></i> Analiz Parametreleri</a>
+                    </li>
                 </ul>
             </div>
         </div>
@@ -406,15 +409,13 @@
         </div>
     </template>
     
-    <!-- Analiz Parametreleri Modal -->
-    <div class="modal fade" id="analysisParamsModal" tabindex="-1" aria-labelledby="analysisParamsModalLabel" aria-hidden="true">
+    <!-- Anlık Analiz Ayarları Modalı ("Analiz Et" butonu için) -->
+    <div class="modal fade" id="runAnalysisSettingsModal" tabindex="-1" aria-labelledby="runAnalysisSettingsModalLabel" aria-hidden="true">
         <div class="modal-dialog">
             <div class="modal-content">
                 <div class="modal-header">
-                    <h5 class="modal-title" id="analysisParamsModalLabel">
-                        <i class="fas fa-cog me-2"></i> Analiz Parametreleri
-                    </h5>
-                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                    <h5 class="modal-title" id="runAnalysisSettingsModalLabel">Analiz Ayarları</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
                 <div class="modal-body">
                     <div class="mb-3">
@@ -435,9 +436,75 @@
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">İptal</button>
-                    <button type="button" class="btn btn-primary" id="startAnalysisBtn">
+                    <button type="button" class="btn btn-primary" id="startAnalysisBtn"> <!-- main.js bu ID'yi bekliyor -->
                         <i class="fas fa-play me-1"></i> Analizi Başlat
                     </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Analiz Parametreleri Modal (NAVBAR İÇİN GLOBAL AYARLAR) -->
+    <div class="modal fade" id="analysisParamsModal" tabindex="-1" aria-labelledby="analysisParamsModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="analysisParamsModalLabel">Global Analiz Parametreleri</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="analysisParamsForm">
+                        <!-- Yüz Algılama Güveni -->
+                        <div class="mb-3 row">
+                            <label for="faceDetectionConfidence" class="col-sm-4 col-form-label">Yüz Algılama Güveni: <span id="faceDetectionConfidenceValue">0.5</span></label>
+                            <div class="col-sm-8">
+                                <input type="range" class="form-range" id="faceDetectionConfidence" name="face_detection_confidence" min="0.1" max="1.0" step="0.05">
+                                <small class="form-text text-muted">Bir bölgenin 'yüz' olarak kabul edilmesi için gereken minimum güven (0.1 - 1.0). Düşük değer = daha fazla yüz, olası hatalarla.</small>
+                            </div>
+                        </div>
+
+                        <!-- Takip Güvenilirlik Eşiği -->
+                        <div class="mb-3 row">
+                            <label for="trackingReliabilityThreshold" class="col-sm-4 col-form-label">Takip Güvenilirlik Eşiği: <span id="trackingReliabilityThresholdValue">0.5</span></label>
+                            <div class="col-sm-8">
+                                <input type="range" class="form-range" id="trackingReliabilityThreshold" name="tracking_reliability_threshold" min="0.1" max="0.9" step="0.05">
+                                <small class="form-text text-muted">Bir kişinin takibinin 'güvenilir' sayılması için gereken minimum skor (0.1 - 0.9). Yüksek değer = daha güvenilir ama daha az takip.</small>
+                            </div>
+                        </div>
+
+                        <!-- ID Değişim Eşiği -->
+                        <div class="mb-3 row">
+                            <label for="idChangeThreshold" class="col-sm-4 col-form-label">ID Değişim Eşiği: <span id="idChangeThresholdValue">0.45</span></label>
+                            <div class="col-sm-8">
+                                <input type="range" class="form-range" id="idChangeThreshold" name="id_change_threshold" min="0.1" max="0.8" step="0.05">
+                                <small class="form-text text-muted">Yeni bir karenin aynı kişiye ait olup olmadığını belirleyen skor eşiği (0.1 - 0.8). Düşük değer ID değişimini zorlaştırır.</small>
+                            </div>
+                        </div>
+
+                        <!-- Maksimum Kayıp Kare -->
+                        <div class="mb-3 row">
+                            <label for="maxLostFrames" class="col-sm-4 col-form-label">Maksimum Kayıp Kare:</label>
+                            <div class="col-sm-8">
+                                <input type="number" class="form-control" id="maxLostFrames" name="max_lost_frames" min="5" max="300">
+                                <small class="form-text text-muted">Bir kişinin takibinin silinmeden önce kaç kare boyunca görünmemesine izin verileceği (5 - 300).</small>
+                            </div>
+                        </div>
+
+                        <!-- Embedding Mesafe Eşiği -->
+                        <div class="mb-3 row">
+                            <label for="embeddingDistanceThreshold" class="col-sm-4 col-form-label">Embedding Mesafe Eşiği: <span id="embeddingDistanceThresholdValue">0.4</span></label>
+                            <div class="col-sm-8">
+                                <input type="range" class="form-range" id="embeddingDistanceThreshold" name="embedding_distance_threshold" min="0.1" max="0.8" step="0.05">
+                                <small class="form-text text-muted">İki yüz embedding'inin aynı kişiye ait kabul edilmesi için maksimum kosinüs mesafesi (0.1 - 0.8). Düşük değer daha sıkı eşleşme gerektirir.</small>
+                            </div>
+                        </div>
+
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-primary" id="saveAnalysisParamsBtn">Ayarları Kaydet</button>
+                    <button type="button" class="btn btn-info" id="loadDefaultAnalysisParamsBtn">Varsayılan Değerler</button>
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Kapat</button>
                 </div>
             </div>
         </div>

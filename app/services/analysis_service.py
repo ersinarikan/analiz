@@ -8,13 +8,13 @@ import traceback
 from flask import current_app
 from app import db
 # Import the real analyzers
-from app.ai.content_analyzer import ContentAnalyzer
-from app.ai.insightface_age_estimator import InsightFaceAgeEstimator
-from app.models.analysis import Analysis, ContentDetection, AgeEstimation
+from app.ai.content_analyzer import ContentAnalyzer, get_content_analyzer
+from app.ai.insightface_age_estimator import InsightFaceAgeEstimator, get_age_estimator
+from app.models.analysis import Analysis, ContentDetection, AgeEstimation, FaceTracking
 from app.models.file import File
 from app.utils.video_utils import extract_frames
 from app.utils.image_utils import load_image
-from config import Config
+from app.routes.settings_routes import FACTORY_DEFAULTS
 import json
 import uuid
 from app.models.content import Content, ContentType, AnalysisResult, ContentCategory
@@ -676,13 +676,13 @@ def analyze_image(analysis):
                 h = y2 - y1
                 if x1 >= 0 and y1 >= 0 and w > 0 and h > 0 and x1+w <= image.shape[1] and y1+h <= image.shape[0]:
                     person_id = f"{analysis.id}_person_{i}"
-                    logger.info(f"[SVC_LOG][IMG] Yüz #{i} (person_id={person_id}) için yaş tahmini çağrılıyor. BBox: [{x1},{y1},{w},{h}]")
+                    logger.info(f"[SVC_LOG] Yüz #{i} (person_id={person_id}) için yaş tahmini çağrılıyor. BBox: [{x1},{y1},{w},{h}]")
                     # Yaş tahmini ve güven skoru hesapla
                     estimated_age, confidence = age_estimator.estimate_age(image, face)
-                    logger.info(f"[SVC_LOG][IMG] Yüz #{i} (person_id={person_id}) için sonuç alındı: Yaş={estimated_age}, Güven={confidence}")
+                    logger.info(f"[SVC_LOG] Yüz #{i} (person_id={person_id}) için sonuç alındı: Yaş={estimated_age}, Güven={confidence}")
 
                     if estimated_age is None or confidence is None:
-                        logger.warning(f"[SVC_LOG][IMG] Yüz #{i} için yaş/güven alınamadı, atlanıyor.")
+                        logger.warning(f"[SVC_LOG] Yüz #{i} için yaş/güven alınamadı, atlanıyor.")
                         continue
                                 
                     age = float(estimated_age)
@@ -714,15 +714,15 @@ def analyze_image(analysis):
                                 estimated_age=age,
                                 confidence_score=confidence
                             )
-                            logger.info(f"[SVC_LOG][IMG] Yeni AgeEstimation kaydı oluşturuldu: {person_id}")
+                            logger.info(f"[SVC_LOG] Yeni AgeEstimation kaydı oluşturuldu: {person_id}")
                         else:
                             if confidence > age_est.confidence_score:
                                 age_est.frame_path = file.file_path
                                 age_est.estimated_age = age
                                 age_est.confidence_score = confidence
-                                logger.info(f"[SVC_LOG][IMG] AgeEstimation kaydı güncellendi (daha iyi güven): {person_id}, Yeni Güven: {confidence:.4f}")
+                                logger.info(f"[SVC_LOG] AgeEstimation kaydı güncellendi (daha iyi güven): {person_id}, Yeni Güven: {confidence:.4f}")
                             else:
-                                logger.info(f"[SVC_LOG][IMG] AgeEstimation kaydı güncellenmedi (güven düşük): {person_id}, Mevcut Güven: {age_est.confidence_score:.4f}")
+                                logger.info(f"[SVC_LOG] AgeEstimation kaydı güncellenmedi (güven düşük): {person_id}, Mevcut Güven: {age_est.confidence_score:.4f}")
                         
                         db.session.add(age_est)
                         
@@ -783,7 +783,7 @@ def analyze_image(analysis):
                             continue
                             
                     except Exception as db_err:
-                        logger.error(f"[SVC_LOG][IMG] DB hatası (person_id={person_id}): {str(db_err)}")
+                        logger.error(f"[SVC_LOG] DB hatası (person_id={person_id}): {str(db_err)}")
                         continue
             
             db.session.commit()
@@ -833,63 +833,72 @@ def analyze_video(analysis):
         frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         duration = frame_count / fps if fps > 0 else 0
         
-        frames_per_second = analysis.frames_per_second
-        if not frames_per_second or frames_per_second <= 0:
-            frames_per_second = fps  # Eğer belirtilmemişse, videonun kendi FPS'ini kullan
+        frames_per_second_config = analysis.frames_per_second # Bu değer kullanıcıdan geliyor mu yoksa configden mi alınmalı?
+                                                            # Şimdilik analysis objesinden alınıyor.
+        if not frames_per_second_config or frames_per_second_config <= 0:
+            frames_per_second_config = fps  # Eğer belirtilmemişse, videonun kendi FPS'ini kullan
         
         # Kaç kare atlayacağımızı hesapla (her saniye için kaç kare analiz edilecek)
-        frame_skip = max(1, int(fps / frames_per_second))
+        frame_skip = max(1, int(fps / frames_per_second_config))
         
         # Kare indekslerini oluştur (istenen FPS'e göre)
         frame_indices = range(0, frame_count, frame_skip)
         
-        # Video'dan işlenecek kareleri oku ve kaydet
+        # Video'dan işlenecek kareleri oku ve kaydet (ilk 30 kare için)
         frame_paths = []
         frames_dir = os.path.join(current_app.config['PROCESSED_FOLDER'], f"frames_{analysis.id}")
         os.makedirs(frames_dir, exist_ok=True)
         
-        # İlk 30 kareyi işle (önizleme ve analiz amaçlı)
-        for i, frame_idx in enumerate(frame_indices):
-            if i >= 30:
+        for i_frame, frame_idx in enumerate(frame_indices):
+            if i_frame >= 30: # Sadece ilk 30 kareyi önceden kaydet
                 break
-                
             cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
             ret, frame = cap.read()
             if not ret:
                 break
-                
             timestamp = frame_idx / fps
-            
             frame_path = os.path.join(frames_dir, f"frame_{frame_idx:06d}_{timestamp:.2f}.jpg")
             cv2.imwrite(frame_path, frame)
             frame_paths.append(frame_path)
         
         # İçerik analizi için model yükle
         try:
-            analyzer = get_content_analyzer()
+            content_analyzer_instance = get_content_analyzer() # get_ ile alınıyor
             logger.info(f"İçerik analiz modeli yüklendi: Analiz #{analysis.id}")
         except Exception as model_err:
             logger.error(f"İçerik analiz modeli yüklenemedi: {str(model_err)}")
             return False, f"Model yükleme hatası: {str(model_err)}"
         
-        # Yaş analizi için gerekli modelleri yükle
+        # Yaş analizi için gerekli modelleri ve ayarları yükle
         age_estimator = None
         tracker = None
+        person_tracker_manager = None
+
         if analysis.include_age_analysis:
             try:
-                age_estimator = get_age_estimator()
+                age_estimator = get_age_estimator() # get_ ile alınıyor
                 logger.info(f"Yaş tahmin modeli yüklendi: Analiz #{analysis.id}")
                 
-                logger.info(f"DeepSORT başlatılıyor: max_age=150, n_init=2, Analiz #{analysis.id}")
-                tracker = DeepSort(max_age=150, n_init=2, nms_max_overlap=1.0, embedder=None)
+                # Config'den takip parametrelerini oku
+                max_lost_frames_config = current_app.config.get('MAX_LOST_FRAMES', FACTORY_DEFAULTS['MAX_LOST_FRAMES'])
+                tracking_reliability_thresh_config = current_app.config.get('TRACKING_RELIABILITY_THRESHOLD', FACTORY_DEFAULTS['TRACKING_RELIABILITY_THRESHOLD'])
+                id_change_thresh_config = current_app.config.get('ID_CHANGE_THRESHOLD', FACTORY_DEFAULTS['ID_CHANGE_THRESHOLD'])
+                embedding_dist_thresh_config = current_app.config.get('EMBEDDING_DISTANCE_THRESHOLD', FACTORY_DEFAULTS['EMBEDDING_DISTANCE_THRESHOLD'])
+
+                logger.info(f"DeepSORT başlatılıyor: max_age={max_lost_frames_config}, n_init=2, Analiz #{analysis.id}")
+                tracker = DeepSort(max_age=max_lost_frames_config, n_init=2, nms_max_overlap=1.0, embedder=None) # embedder=None (InsightFace kullanacak)
                 
-                # PersonTrackerManager'ı başlat
-                person_tracker_manager = PersonTrackerManager(reliability_threshold=0.30)
-                logger.info(f"PersonTrackerManager başlatıldı (reliability_threshold=0.30): Analiz #{analysis.id}")
+                person_tracker_manager = PersonTrackerManager(
+                    reliability_threshold=tracking_reliability_thresh_config,
+                    max_frames_missing=max_lost_frames_config,
+                    id_change_threshold=id_change_thresh_config,
+                    embedding_distance_threshold=embedding_dist_thresh_config
+                )
+                logger.info(f"PersonTrackerManager başlatıldı (reliability_threshold={tracking_reliability_thresh_config}, max_frames_missing={max_lost_frames_config}, id_change_threshold={id_change_thresh_config}, embedding_distance_threshold={embedding_dist_thresh_config}): Analiz #{analysis.id}")
             except Exception as age_err:
-                logger.error(f"Yaş tahmin modelleri yüklenemedi: {str(age_err)}")
+                logger.error(f"Yaş tahmin modelleri veya takipçi yüklenemedi: {str(age_err)}", exc_info=True)
                 logger.warning(f"Yaş analizi devre dışı bırakıldı: Analiz #{analysis.id}")
-                analysis.include_age_analysis = False
+                analysis.include_age_analysis = False # Yaş analizi yapılamıyorsa kapat
                 db.session.commit()
         
         # İlerleme bilgisi
@@ -903,44 +912,49 @@ def analyze_video(analysis):
         
         # Video'yu baştan sonra kadar işle
         for i, frame_idx in enumerate(frame_indices):
-            progress = min(100, int((i / total_frames_to_process) * 100))
-            analysis.progress = progress
-            timestamp = frame_idx / fps
-            status_message = f"Kare #{i+1}/{total_frames_to_process} işleniyor ({timestamp:.1f}s)"
-            db.session.commit()
-            
-            # Kareyi oku
-            cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
-            ret, image = cap.read()
-            if not ret:
-                logger.warning(f"Kare okunamadı: #{frame_idx}, işlem sonlandırıldı")
-                break
-            
-            # Kareyi kaydet
-            if i >= 30:  # İlk 30 kare zaten kaydedilmişti
-                frame_path = os.path.join(frames_dir, f"frame_{frame_idx:06d}_{timestamp:.2f}.jpg")
-                cv2.imwrite(frame_path, image)
-                frame_paths.append(frame_path)
-            else:
-                frame_path = frame_paths[i]
-            
-            # İçerik analizi yap
-            try:
-                # Her kategori için skorlar
-                violence_score, adult_content_score, harassment_score, weapon_score, drug_score, safe_score, safe_objects = analyzer.analyze_image(
-                    image
-                )
+            try: # ADDED MAIN TRY FOR FRAME PROCESSING
+                progress = min(100, int((i / total_frames_to_process) * 100))
+                analysis.progress = progress
+                timestamp = frame_idx / fps
+                status_message = f"Kare #{i+1}/{total_frames_to_process} işleniyor ({timestamp:.1f}s)"
+                db.session.commit()
                 
-                # Eğer herhangi bir kategoride yüksek risk varsa, yüksek riskli kare sayısını artır
-                if max(violence_score, adult_content_score, harassment_score, weapon_score, drug_score) > 0.7:
-                    high_risk_frames_count += 1
+                # Kareyi oku
+                cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
+                ret, image = cap.read()
+                if not ret:
+                    logger.warning(f"Kare okunamadı: #{frame_idx}, işlem sonlandırıldı")
+                    break
+                
+                # Kareyi kaydet
+                if i >= 30:  # İlk 30 kare zaten kaydedilmişti
+                    frame_path = os.path.join(frames_dir, f"frame_{frame_idx:06d}_{timestamp:.2f}.jpg")
+                    cv2.imwrite(frame_path, image)
+                    frame_paths.append(frame_path)
+                else:
+                    frame_path = frame_paths[i]
+                
+                # İçerik analizi yap
+                try:
+                    # Her kategori için skorlar
+                    violence_score, adult_content_score, harassment_score, weapon_score, drug_score, safe_score, safe_objects = content_analyzer_instance.analyze_image(
+                        image
+                    )
+                    
+                    # Eğer herhangi bir kategoride yüksek risk varsa, yüksek riskli kare sayısını artır
+                    if max(violence_score, adult_content_score, harassment_score, weapon_score, drug_score) > 0.7:
+                        high_risk_frames_count += 1
+                except Exception as e_content_analysis: # ADDED EXCEPTION HANDLING
+                    logger.error(f"Kare #{i} ({frame_path}) içerik analizi hatası: {str(e_content_analysis)}")
+                    violence_score, adult_content_score, harassment_score, weapon_score, drug_score, safe_score = 0.0, 0.0, 0.0, 0.0, 0.0, 1.0 # Default to safe
+                    safe_objects = []
                 
                 # ContentDetection nesnesini oluştur ve veritabanına ekle
                 detection = ContentDetection(
                     analysis_id=analysis.id,
                     frame_path=frame_path,
-                    frame_timestamp=timestamp,
-                    frame_index=frame_idx
+                        frame_timestamp=timestamp,
+                        frame_index=frame_idx
                 )
                 detection.violence_score = float(violence_score)
                 detection.adult_content_score = float(adult_content_score)
@@ -992,7 +1006,6 @@ def analyze_video(analysis):
                                 if not isinstance(age, (int, float)) or not isinstance(confidence, (int, float)):
                                     logger.warning(f"Geçersiz yaş veya güven skoru: age={age}, confidence={confidence}")
                                     continue
-                                    
                                 if age < 1 or age > 100 or confidence < 0.1:
                                     logger.warning(f"Geçersiz yaş aralığı veya düşük güven: age={age}, confidence={confidence}")
                                     continue
@@ -1017,7 +1030,7 @@ def analyze_video(analysis):
                                     continue
                                     
                                 embedding = face.embedding
-                                    
+                                        
                                 # Yüz özelliklerini çıkar
                                 face_features = extract_face_features(image, face, bbox)
                                 face_features_list.append(face_features)
@@ -1046,18 +1059,18 @@ def analyze_video(analysis):
                                 frame=image
                             )
                             logger.info(f"[SVC_LOG][VID] Kare #{i}: DeepSORT {len(tracks)} track döndürdü.")
-                            
+                                
                             # PersonTrackerManager ile güvenilir takipleri filtrele
                             reliable_tracks = person_tracker_manager.update(tracks, face_features_list, i)
                             logger.info(f"[SVC_LOG][VID] Kare #{i}: PersonTrackerManager {len(reliable_tracks)} güvenilir track döndürdü.")
-                            
+                                
                             processed_track_ids = set() # Aynı karede birden fazla kez loglamayı önle
                             
                             active_detections_in_frame = []
                             for det_idx, (det_data, track_obj) in enumerate(zip(detections, tracks)):
-                                # Sadece güvenilir takipleri ekle
-                                if track_obj in reliable_tracks:
-                                    active_detections_in_frame.append({'det': det_data, 'track': track_obj})
+                                    # Sadece güvenilir takipleri ekle
+                                    if track_obj in reliable_tracks:
+                                        active_detections_in_frame.append({'det': det_data, 'track': track_obj})
 
                             for item in active_detections_in_frame:
                                 det = item['det']
@@ -1066,9 +1079,9 @@ def analyze_video(analysis):
                                 if not track.is_confirmed() or track.track_id in processed_track_ids:
                                     continue
                                 processed_track_ids.add(track.track_id)
-                                
-                                # Bu kısımda gender_match kontrolü yerine PersonTrackerManager'ın güvenilirlik kontrolünü kullanıyoruz
-                                # Artık mevcut gender_match bloğunu kullanmak yerine, güvenilir takipleri işliyoruz
+                                    
+                                    # Bu kısımda gender_match kontrolü yerine PersonTrackerManager'ın güvenilirlik kontrolünü kullanıyoruz
+                                    # Artık mevcut gender_match bloğunu kullanmak yerine, güvenilir takipleri işliyoruz
                                 
                                 track_id_str = f"{analysis.id}_person_{track.track_id}"
                                 face_obj = det['face'] # Bu InsightFace face nesnesi
@@ -1084,87 +1097,87 @@ def analyze_video(analysis):
                                 
                                 age = float(estimated_age)
 
-                                # Takipteki kişi için en iyi kareyi kaydet
+                                    # Takipteki kişi için en iyi kareyi kaydet
                                 if track_id_str not in person_best_frames or confidence > person_best_frames[track_id_str]['confidence']:
                                     old_conf = person_best_frames.get(track_id_str, {}).get('confidence', -1)
                                     person_best_frames[track_id_str] = {
-                                        'confidence': confidence,
-                                        'frame_path': frame_path, 
-                                        'timestamp': timestamp,
-                                        'bbox': (x1, y1, w, h),
-                                        'age': age
+                                       'confidence': confidence,
+                                       'frame_path': frame_path, 
+                                       'timestamp': timestamp,
+                                       'bbox': (x1, y1, w, h),
+                                       'age': age
                                     }
                                     logger.info(f"[SVC_LOG][VID] person_best_frames güncellendi (Güvenilir takip). Kişi: {track_id_str}, Yeni Güven: {confidence:.4f} (Eski: {old_conf:.4f}), Kare: {i}")
                                 else:
                                     logger.info(f"[SVC_LOG][VID] person_best_frames güncellenmedi (Güvenilir takip, Güven Düşük). Kişi: {track_id_str}, Mevcut Güven: {person_best_frames[track_id_str]['confidence']:.4f} >= Yeni Güven: {confidence:.4f}, Kare: {i}")
 
-                                # AgeEstimation kaydını oluştur veya güncelle
-                                try:
-                                    age_est = AgeEstimation.query.filter_by(analysis_id=analysis.id, person_id=track_id_str).first()
-                                    if not age_est:
-                                        age_est = AgeEstimation(
-                                            analysis_id=analysis.id,
-                                            person_id=track_id_str,
-                                            frame_path=frame_path,
-                                            estimated_age=age,
-                                            confidence_score=confidence
-                                        )
-                                        logger.info(f"[SVC_LOG][VID] Yeni AgeEstimation kaydı (Güvenilir takip): {track_id_str}, Kare: {i}")
-                                    else:
-                                        if confidence > age_est.confidence_score:
-                                            age_est.frame_path = frame_path
-                                            age_est.estimated_age = age
-                                            age_est.confidence_score = confidence
-                                            logger.info(f"[SVC_LOG][VID] AgeEstimation güncellendi (Güvenilir takip, daha iyi güven): {track_id_str}, Yeni Güven: {confidence:.4f}, Kare: {i}")
-                                        else:
-                                             logger.info(f"[SVC_LOG][VID] AgeEstimation güncellenmedi (Güvenilir takip, güven düşük): {track_id_str}, Kare: {i}")
-                                    db.session.add(age_est)
-                                    
-                                    # Overlay oluştur
-                                    out_dir = os.path.join(current_app.config['PROCESSED_FOLDER'], f"frames_{analysis.id}", "overlays")
-                                    os.makedirs(out_dir, exist_ok=True)
-                                    # Overlay dosya adında track.track_id (sayısal) kullanalım ki çok uzun olmasın.
-                                    overlay_file_name_prefix = f"person_{track.track_id}" 
-                                    out_name = f"{overlay_file_name_prefix}_{os.path.basename(frame_path)}"
-                                    out_path = os.path.join(out_dir, out_name)
-                                    
+                                    # AgeEstimation kaydını oluştur veya güncelle
                                     try:
-                                        image_with_overlay = image.copy()
-                                        x2_o, y2_o = x1 + w, y1 + h
-                                        x1_o, y1_o = max(0, x1), max(0, y1)
-                                        x2_o, y2_o = min(image.shape[1], x2_o), min(image.shape[0], y2_o)
-                                        
-                                        cv2.rectangle(image_with_overlay, (x1_o, y1_o), (x2_o, y2_o), (0, 255, 0), 2)
-                                        text = f"ID: {track.track_id}  YAS: {int(age)}" # Overlay'de kısa ID
-                                        text_size = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.7, 2)[0]
-                                        text_y = y1_o - 10 if y1_o > 20 else y1_o + h + 25
-                                        text_bg_x1 = x1_o
-                                        text_bg_y1 = text_y - text_size[1] - 5
-                                        text_bg_x2, text_bg_y2 = x1_o + text_size[0] + 10, text_y + 5
-                                        
-                                        # Arka plan çiz
-                                        cv2.rectangle(image_with_overlay, (text_bg_x1, text_bg_y1), (text_bg_x2, text_bg_y2), (0, 0, 0), -1)
-                                        cv2.putText(image_with_overlay, text, (x1_o + 5, text_y), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-                                        
-                                        # Güvenilirlik skorunu ekle
-                                        reliability_score = person_tracker_manager.get_reliability_score(str(track.track_id))
-                                        reliability_text = f"G: {reliability_score:.2f}"
-                                        cv2.putText(image_with_overlay, reliability_text, 
-                                                   (x1_o + 5, text_bg_y2 + 20), 
-                                                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
-                                        
-                                        if cv2.imwrite(out_path, image_with_overlay):
-                                            rel_path = os.path.relpath(out_path, current_app.config['STORAGE_FOLDER']).replace('\\', '/')
-                                            age_est.processed_image_path = rel_path
-                                            db.session.add(age_est)
+                                        age_est = AgeEstimation.query.filter_by(analysis_id=analysis.id, person_id=track_id_str).first()
+                                        if not age_est:
+                                            age_est = AgeEstimation(
+                                                analysis_id=analysis.id,
+                                                person_id=track_id_str,
+                                                frame_path=frame_path,
+                                                estimated_age=age,
+                                                confidence_score=confidence
+                                            )
+                                            logger.info(f"[SVC_LOG][VID] Yeni AgeEstimation kaydı (Güvenilir takip): {track_id_str}, Kare: {i}")
                                         else:
-                                            logger.error(f"Overlay kaydedilemedi: {out_path}")
-                                            
-                                    except Exception as overlay_err:
-                                        logger.error(f"Overlay oluşturma hatası (person_id={track_id_str}): {str(overlay_err)}")
+                                            if confidence > age_est.confidence_score:
+                                                age_est.frame_path = frame_path
+                                                age_est.estimated_age = age
+                                                age_est.confidence_score = confidence
+                                                logger.info(f"[SVC_LOG][VID] AgeEstimation güncellendi (Güvenilir takip, daha iyi güven): {track_id_str}, Yeni Güven: {confidence:.4f}, Kare: {i}")
+                                            else:
+                                                 logger.info(f"[SVC_LOG][VID] AgeEstimation güncellenmedi (Güvenilir takip, güven düşük): {track_id_str}, Kare: {i}")
+                                        db.session.add(age_est)
                                         
-                                except Exception as db_err:
-                                    logger.error(f"[SVC_LOG][VID] DB hatası (track_id={track_id_str}, kare={i}): {str(db_err)}")
+                                        # Overlay oluştur
+                                        out_dir = os.path.join(current_app.config['PROCESSED_FOLDER'], f"frames_{analysis.id}", "overlays")
+                                        os.makedirs(out_dir, exist_ok=True)
+                                        # Overlay dosya adında track.track_id (sayısal) kullanalım ki çok uzun olmasın.
+                                        overlay_file_name_prefix = f"person_{track.track_id}" 
+                                        out_name = f"{overlay_file_name_prefix}_{os.path.basename(frame_path)}"
+                                        out_path = os.path.join(out_dir, out_name)
+                                        
+                                        try:
+                                            image_with_overlay = image.copy()
+                                            x2_o, y2_o = x1 + w, y1 + h
+                                            x1_o, y1_o = max(0, x1), max(0, y1)
+                                            x2_o, y2_o = min(image.shape[1], x2_o), min(image.shape[0], y2_o)
+                                            
+                                            cv2.rectangle(image_with_overlay, (x1_o, y1_o), (x2_o, y2_o), (0, 255, 0), 2)
+                                            text = f"ID: {track.track_id}  YAS: {int(age)}" # Overlay'de kısa ID
+                                            text_size = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.7, 2)[0]
+                                            text_y = y1_o - 10 if y1_o > 20 else y1_o + h + 25
+                                            text_bg_x1 = x1_o
+                                            text_bg_y1 = text_y - text_size[1] - 5
+                                            text_bg_x2, text_bg_y2 = x1_o + text_size[0] + 10, text_y + 5
+                                            
+                                            # Arka plan çiz
+                                            cv2.rectangle(image_with_overlay, (text_bg_x1, text_bg_y1), (text_bg_x2, text_bg_y2), (0, 0, 0), -1)
+                                            cv2.putText(image_with_overlay, text, (x1_o + 5, text_y), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+                                            
+                                            # Güvenilirlik skorunu ekle
+                                            reliability_score = person_tracker_manager.get_reliability_score(str(track.track_id))
+                                            reliability_text = f"G: {reliability_score:.2f}"
+                                            cv2.putText(image_with_overlay, reliability_text, 
+                                                         (x1_o + 5, text_bg_y2 + 20), 
+                                                         cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
+                                            
+                                            if cv2.imwrite(out_path, image_with_overlay):
+                                                rel_path = os.path.relpath(out_path, current_app.config['STORAGE_FOLDER']).replace('\\', '/')
+                                                age_est.processed_image_path = rel_path
+                                                db.session.add(age_est)
+                                            else:
+                                                logger.error(f"Overlay kaydedilemedi: {out_path}")
+                                                
+                                        except Exception as overlay_err:
+                                            logger.error(f"Overlay oluşturma hatası (person_id={track_id_str}): {str(overlay_err)}")
+                                            
+                                    except Exception as db_err:
+                                        logger.error(f"[SVC_LOG][VID] DB hatası (track_id={track_id_str}, kare={i}): {str(db_err)}")
 
                         except Exception as track_err:
                             logger.error(f"DeepSORT takip hatası: {str(track_err)}")
@@ -1202,7 +1215,7 @@ def analyze_video(analysis):
                             'analysis_id': analysis.id,
                             'file_id': analysis.file_id,
                             'current_frame': i + 1,
-                            'total_frames': len(frame_indices),
+                                'total_frames': len(frame_indices),
                             'progress': progress,
                             'timestamp': timestamp,
                             'detected_faces': detected_faces_count,
@@ -1212,8 +1225,8 @@ def analyze_video(analysis):
                         })
                     except Exception as socket_err:
                         logger.warning(f"Socket.io ilerleme bildirimi hatası: {str(socket_err)}")
-                
-            except Exception as frame_err:
+                    
+            except Exception as frame_err: # ALIGNED WITH THE NEW MAIN TRY BLOCK
                 logger.error(f"Kare #{i} ({frame_path}) analiz hatası: {str(frame_err)}")
                 continue
         
