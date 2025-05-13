@@ -1325,8 +1325,8 @@ def analyze_video(analysis):
 def calculate_overall_scores(analysis):
     """
     Bir analiz için genel skorları hesaplar.
-    Tüm tespit edilen kareler için ortalama skorları hesaplar ve 
-    en yüksek risk içeren kareyi belirler.
+    Her kategori için tüm karelerdeki skorların basit aritmetik ortalamasını alır
+    ve her kategori için en yüksek risk içeren kareyi belirler.
     
     Args:
         analysis: Skorları hesaplanacak analiz nesnesi
@@ -1337,90 +1337,89 @@ def calculate_overall_scores(analysis):
         
         if not detections:
             logger.warning(f"ContentDetection kaydı bulunamadı: Analiz #{analysis.id}")
+            analysis.status_message = "Analiz tamamlandı ancak içerik skoru hesaplanacak kare bulunamadı."
+            db.session.commit()
             return
         
         logger.info(f"Calculate_overall_scores: Analiz #{analysis.id} için {len(detections)} ContentDetection kaydı bulundu")
         
-        # Her kategori için tüm skorları topla
-        violence_scores = [d.violence_score for d in detections]
-        adult_content_scores = [d.adult_content_score for d in detections]
-        harassment_scores = [d.harassment_score for d in detections]
-        weapon_scores = [d.weapon_score for d in detections]
-        drug_scores = [d.drug_score for d in detections]
-        safe_scores = [d.safe_score for d in detections]
+        categories = ['violence', 'adult_content', 'harassment', 'weapon', 'drug', 'safe']
+        category_scores_sum = {cat: 0 for cat in categories}
+        category_counts = {cat: 0 for cat in categories} # Her kategoride skoru olan kare sayısı
         
-        # Genel skorları ortalama alarak hesapla
-        analysis.overall_violence_score = sum(violence_scores) / len(violence_scores) if violence_scores else 0
-        analysis.overall_adult_content_score = sum(adult_content_scores) / len(adult_content_scores) if adult_content_scores else 0
-        analysis.overall_harassment_score = sum(harassment_scores) / len(harassment_scores) if harassment_scores else 0
-        analysis.overall_weapon_score = sum(weapon_scores) / len(weapon_scores) if weapon_scores else 0
-        analysis.overall_drug_score = sum(drug_scores) / len(drug_scores) if drug_scores else 0
-        analysis.overall_safe_score = sum(safe_scores) / len(safe_scores) if safe_scores else 0
-        
-        # Skorların toplamının %100 olmasını sağla
-        total_score = (analysis.overall_violence_score + analysis.overall_adult_content_score + 
-                      analysis.overall_harassment_score + analysis.overall_weapon_score + 
-                      analysis.overall_drug_score + analysis.overall_safe_score)
-        
-        if total_score > 0:
-            # Her skoru normalize et (toplamı 1.0 olacak şekilde)
-            analysis.overall_violence_score /= total_score
-            analysis.overall_adult_content_score /= total_score
-            analysis.overall_harassment_score /= total_score
-            analysis.overall_weapon_score /= total_score
-            analysis.overall_drug_score /= total_score
-            analysis.overall_safe_score /= total_score
-            
-            # Toplam skorun 1.0 olduğunu doğrula
-            logger.info(f"Normalize edilmiş toplam skor: {analysis.overall_violence_score + analysis.overall_adult_content_score + analysis.overall_harassment_score + analysis.overall_weapon_score + analysis.overall_drug_score + analysis.overall_safe_score}")
-        
-        # En yüksek riskli kareyi bul (en yüksek riskli kare "safe" hariç)
-        highest_risk_score = 0
-        highest_risk_category = None
-        highest_risk_detection = None
-        
+        category_specific_highest_risks = {
+            cat: {'score': -1, 'frame_path': None, 'timestamp': None, 'detection_id': None} for cat in categories
+        }
+
         for detection in detections:
-            scores = {
+            detection_scores = {
                 'violence': detection.violence_score,
                 'adult_content': detection.adult_content_score,
                 'harassment': detection.harassment_score,
                 'weapon': detection.weapon_score,
-                'drug': detection.drug_score
+                'drug': detection.drug_score,
+                'safe': detection.safe_score
             }
             
-            # En yüksek skora sahip kategoriyi bul
-            max_category = max(scores, key=scores.get)
-            max_score = scores[max_category]
-            
-            logger.debug(f"Kare: {detection.frame_path}, En yüksek risk kategorisi: {max_category}, skor: {max_score}")
-            
-            # Şimdiye kadarki en yüksek skordan büyükse güncelle
-            if max_score > highest_risk_score:
-                highest_risk_score = max_score
-                highest_risk_category = max_category
-                highest_risk_detection = detection
-                logger.debug(f"Yeni en yüksek riskli kare bulundu: {detection.frame_path}, Kategori: {max_category}, Skor: {max_score}")
+            for category in categories:
+                score = detection_scores.get(category)
+                if score is not None:
+                    category_scores_sum[category] += score
+                    category_counts[category] += 1
+                    
+                    if score > category_specific_highest_risks[category]['score']:
+                        category_specific_highest_risks[category]['score'] = score
+                        category_specific_highest_risks[category]['frame_path'] = detection.frame_path
+                        category_specific_highest_risks[category]['timestamp'] = detection.frame_timestamp
+                        category_specific_highest_risks[category]['detection_id'] = detection.id
+
+        # Genel skorları basit aritmetik ortalama alarak hesapla
+        analysis.overall_violence_score = category_scores_sum['violence'] / category_counts['violence'] if category_counts['violence'] > 0 else 0
+        analysis.overall_adult_content_score = category_scores_sum['adult_content'] / category_counts['adult_content'] if category_counts['adult_content'] > 0 else 0
+        analysis.overall_harassment_score = category_scores_sum['harassment'] / category_counts['harassment'] if category_counts['harassment'] > 0 else 0
+        analysis.overall_weapon_score = category_scores_sum['weapon'] / category_counts['weapon'] if category_counts['weapon'] > 0 else 0
+        analysis.overall_drug_score = category_scores_sum['drug'] / category_counts['drug'] if category_counts['drug'] > 0 else 0
+        analysis.overall_safe_score = category_scores_sum['safe'] / category_counts['safe'] if category_counts['safe'] > 0 else 0
         
-        # En riskli kare bilgilerini analiz nesnesine kaydet
-        if highest_risk_detection:
-            logger.info(f"En yüksek riskli kare: {highest_risk_detection.frame_path}, Kategori: {highest_risk_category}, Skor: {highest_risk_score}")
-            analysis.highest_risk_frame = highest_risk_detection.frame_path
-            analysis.highest_risk_frame_timestamp = highest_risk_detection.frame_timestamp
-            analysis.highest_risk_score = highest_risk_score
-            analysis.highest_risk_category = highest_risk_category
+        logger.info(f"Analiz #{analysis.id} - Ortalama Skorlar: Violence={analysis.overall_violence_score:.4f}, Adult={analysis.overall_adult_content_score:.4f}, Harassment={analysis.overall_harassment_score:.4f}, Weapon={analysis.overall_weapon_score:.4f}, Drug={analysis.overall_drug_score:.4f}, Safe={analysis.overall_safe_score:.4f}")
+
+        # Kategori bazlı en yüksek risk bilgilerini JSON olarak kaydetmek için (Analysis modelinde alan olmalı)
+        # Şimdilik loglayalım ve dinamik attribute olarak ekleyelim. DB'ye yazmak için model değişikliği gerekebilir.
+        analysis.category_specific_highest_risks_data = json.dumps(category_specific_highest_risks, cls=NumPyJSONEncoder) # NumPyJSONEncoder eklendi
+        logger.info(f"Analiz #{analysis.id} - Kategori Bazlı En Yüksek Riskler: {analysis.category_specific_highest_risks_data}")
+
+        # Mevcut en yüksek risk alanlarını (safe hariç genel en yüksek) yine de dolduralım, ama bu yeni mantığa göre olacak.
+        # Tüm kategoriler (safe hariç) arasında en yüksek olanı bulalım.
+        overall_highest_risk_score = -1
+        overall_highest_risk_category = None
+        overall_highest_risk_frame_path = None
+        overall_highest_risk_timestamp = None
+
+        for cat in categories:
+            if cat == 'safe': # 'safe' kategorisini genel en yüksek risk için dahil etme
+                continue
+            if category_specific_highest_risks[cat]['score'] > overall_highest_risk_score:
+                overall_highest_risk_score = category_specific_highest_risks[cat]['score']
+                overall_highest_risk_category = cat
+                overall_highest_risk_frame_path = category_specific_highest_risks[cat]['frame_path']
+                overall_highest_risk_timestamp = category_specific_highest_risks[cat]['timestamp']
+        
+        if overall_highest_risk_category:
+            analysis.highest_risk_frame = overall_highest_risk_frame_path
+            analysis.highest_risk_frame_timestamp = overall_highest_risk_timestamp
+            analysis.highest_risk_score = overall_highest_risk_score
+            analysis.highest_risk_category = overall_highest_risk_category
+            logger.info(f"Analiz #{analysis.id} - Genel En Yüksek Risk ('safe' hariç): {overall_highest_risk_category} skoru {overall_highest_risk_score:.4f}, kare: {overall_highest_risk_frame_path}")
         else:
-            logger.warning(f"En yüksek riskli kare bulunamadı: Analiz #{analysis.id}")
-        
-        # Değişiklikleri veritabanına kaydet
+            # Eğer safe dışında hiçbir kategoride risk bulunamazsa (çok nadir olmalı)
+            analysis.highest_risk_score = category_specific_highest_risks['safe']['score']
+            analysis.highest_risk_category = 'safe'
+            analysis.highest_risk_frame = category_specific_highest_risks['safe']['frame_path']
+            analysis.highest_risk_frame_timestamp = category_specific_highest_risks['safe']['timestamp']
+            logger.info(f"Analiz #{analysis.id} - 'safe' dışında risk bulunamadı. En yüksek 'safe' skoru: {analysis.highest_risk_score:.4f}")
+
         db.session.commit()
         
-        # Kaydedilen verileri doğrula
-        saved_analysis = Analysis.query.get(analysis.id)
-        logger.info(f"Kaydedilen analiz verisi: highest_risk_frame={saved_analysis.highest_risk_frame}, "
-                   f"timestamp={saved_analysis.highest_risk_frame_timestamp}, "
-                   f"score={saved_analysis.highest_risk_score}, "
-                   f"category={saved_analysis.highest_risk_category}")
-    
     except Exception as e:
         current_app.logger.error(f"Genel skor hesaplama hatası: {str(e)}")
         logger.error(f"Hata detayı: {traceback.format_exc()}")

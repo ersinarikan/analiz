@@ -275,9 +275,9 @@ class ContentAnalyzer:
                 similarity_score = similarity.item()
                 
                 # logit scale ile sıcaklık ayarı (daha net skorlar için)
-                temperature = 10.0  # Daha düşük bir sıcaklık değeri kullanıyoruz 
+                temperature = 1.0 
                 scaled_score = torch.sigmoid(similarity * temperature).item()
-                
+
                 raw_scores[category] = scaled_score
                 
                 # Güven skorunu hesapla - benzerlik değerinin mutlak değeri bir tür güven göstergesidir
@@ -293,8 +293,8 @@ class ContentAnalyzer:
             self._apply_contextual_adjustments(raw_scores, object_labels, person_count)
             
             # Percentile-bazlı normalizasyon yap
-            normalized_scores = self._percentile_normalize(raw_scores)
-            
+            adjusted_scores = raw_scores # Artık percentile normalizasyon olmadığı için ayarlanmış skorlar doğrudan bunlar olacak.
+
             # Skor geçmişini güncelle
             self._update_score_history(raw_scores)
             
@@ -303,12 +303,12 @@ class ContentAnalyzer:
                 logger.info(f"CLIP güven skoru: {confidence:.4f} (category={category})")
             
             # Kategorilere göre skorları döndür
-            violence_score = normalized_scores['violence']
-            adult_content_score = normalized_scores['adult_content']
-            harassment_score = normalized_scores['harassment']
-            weapon_score = normalized_scores['weapon']
-            drug_score = normalized_scores['drug']
-            safe_score = normalized_scores['safe']
+            violence_score = adjusted_scores['violence']
+            adult_content_score = adjusted_scores['adult_content']
+            harassment_score = adjusted_scores['harassment']
+            weapon_score = adjusted_scores['weapon']
+            drug_score = adjusted_scores['drug']
+            safe_score = adjusted_scores['safe']
             
             # NumPy türlerini Python türlerine dönüştür
             safe_objects = convert_numpy_types_to_python(detected_objects)
@@ -428,36 +428,6 @@ class ContentAnalyzer:
             original_drug_score = scores['drug']
             scores['drug'] *= yolo_miss_reduction_factor
             logger.info(f"CLIP 'drug' skoru yüksek ({original_drug_score:.2f}) ama YOLO spesifik onayı yok, skor {scores['drug']:.2f}'ye düşürüldü.")
-    
-    def _percentile_normalize(self, scores):
-        """
-        Skorları geçmiş analiz skorlarından oluşan bir veri setiyle karşılaştırarak
-        yüzdelik dilim sonuçları elde eder.
-        
-        Args:
-            scores: Mevcut analiz skorları
-            
-        Returns:
-            dict: Yüzdelik dilim skorları (0-1 arası)
-        """
-        normalized_scores = {}
-        
-        # Her kategori için percentile hesapla
-        for category, score in scores.items():
-            if category in self.score_history and len(self.score_history[category]) > 10:
-                # Bu kategori için geçmiş skorları sırala
-                history = sorted(self.score_history[category])
-                
-                # Bu skorun yüzdelik dilimini hesapla
-                percentile = sum(1 for h in history if h <= score) / len(history)
-                normalized_scores[category] = percentile
-                logger.info(f"Percentile normalizasyon - {category}: {score:.4f} -> {percentile:.4f} (geçmiş: {len(history)} örnek)")
-            else:
-                # Yeterli tarihsel veri yoksa sigmoid ile normalize et
-                normalized_scores[category] = 1.0 / (1.0 + math.exp(-5 * (score - 0.5)))
-                logger.info(f"Sigmoid normalizasyon - {category}: {score:.4f} -> {normalized_scores[category]:.4f} (yeterli geçmiş veri yok)")
-        
-        return normalized_scores
     
     def _load_score_history(self):
         """Skor geçmişini yükler veya yoksa yeni oluşturur"""

@@ -2,6 +2,7 @@
 let uploadedFiles = [];
 let analysisInProgress = false;
 let socket;
+let hideLoaderTimeout; // Yükleyici için zaman aşımı ID'si
 
 // Dosya yolu normalleştirme fonksiyonu
 function normalizePath(path) {
@@ -23,8 +24,10 @@ let MAX_STATUS_CHECK_RETRIES = 5;
 
 // Sayfa yüklendiğinde çalışacak fonksiyon
 document.addEventListener('DOMContentLoaded', () => {
+    const settingsSaveLoader = document.getElementById('settingsSaveLoader'); // Yükleyici elementi
+    
     // Socket.io bağlantısı
-    initializeSocket();
+    initializeSocket(settingsSaveLoader); // Yükleyici elementini initializeSocket'a parametre olarak geç
     
     // Event Listeners
     initializeEventListeners();
@@ -38,7 +41,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const globalAnalysisParamsModal = new bootstrap.Modal(globalAnalysisParamsModalElement);
         const globalAnalysisParamsForm = document.getElementById('analysisParamsForm'); 
         const saveGlobalAnalysisParamsBtn = document.getElementById('saveAnalysisParamsBtn');
-        const loadDefaultAnalysisParamsBtn = document.getElementById('loadDefaultAnalysisParamsBtn'); // Yeni buton
+        const loadDefaultAnalysisParamsBtn = document.getElementById('loadDefaultAnalysisParamsBtn');
 
         // Helper function to setup slider and its value display
         function setupSliderWithValueDisplay(sliderId, valueDisplayId, defaultValue) {
@@ -48,10 +51,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 slider.addEventListener('input', () => {
                     valueDisplay.textContent = slider.value;
                 });
-                // Set default value display on load, will be overwritten by fetched value if available
                 valueDisplay.textContent = slider.value || defaultValue;
             }
-            return slider; // Return slider for direct value setting later
+            return slider;
         }
 
         const faceDetectionConfidenceSlider = setupSliderWithValueDisplay('faceDetectionConfidence', 'faceDetectionConfidenceValue', '0.5');
@@ -102,7 +104,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // Varsayılan ayarları yükle butonu
         if (loadDefaultAnalysisParamsBtn) {
             loadDefaultAnalysisParamsBtn.addEventListener('click', function() {
-                fetch('/api/get_analysis_params?use_defaults=true') // use_defaults query parametresi eklenebilir (opsiyonel, backend zaten varsayılanı dönebilir)
+                fetch('/api/get_analysis_params?use_defaults=true') 
                     .then(response => {
                         if (!response.ok) {
                             throw new Error(`HTTP error! status: ${response.status}`);
@@ -180,6 +182,20 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (!formIsValid) return;
                 console.log('Saving global params:', params);
 
+                if(settingsSaveLoader) settingsSaveLoader.style.display = 'flex'; // Yükleyiciyi göster
+
+                clearTimeout(hideLoaderTimeout); // Önceki zaman aşımını temizle
+                hideLoaderTimeout = setTimeout(() => {
+                    if (settingsSaveLoader && settingsSaveLoader.style.display === 'flex') {
+                        settingsSaveLoader.style.display = 'none';
+                        showToast('Uyarı', 'Sunucuyla bağlantı beklenenden uzun sürdü. Sayfayı yenilemeniz gerekebilir.', 'warning');
+                        // Modal hala açıksa ve yükleyici zaman aşımına uğradıysa modalı da kapatabiliriz.
+                        if (globalAnalysisParamsModalElement && bootstrap.Modal.getInstance(globalAnalysisParamsModalElement)) {
+                             bootstrap.Modal.getInstance(globalAnalysisParamsModalElement).hide();
+                        }
+                    }
+                }, 15000); // 15 saniye
+
                 fetch('/api/set_analysis_params', {
                     method: 'POST',
                     headers: {
@@ -190,9 +206,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 .then(response => response.json().then(data => ({ status: response.status, body: data })))
                 .then(({ status, body }) => {
                     if (status === 200 && body.message) {
-                        alert(body.message);
-                        globalAnalysisParamsModal.hide();
+                        showToast('Bilgi', body.message + ' Sunucu yeniden başlatılıyor, lütfen bekleyin...', 'info');
+                        // Yükleyici zaten gösteriliyor, WebSocket bağlantısı ve modalın kapanması bekleniyor.
+                        // globalAnalysisParamsModal.hide(); // Hemen gizleme, socket connect'te gizlenecek
                     } else {
+                        if(settingsSaveLoader) settingsSaveLoader.style.display = 'none';
+                        clearTimeout(hideLoaderTimeout);
                         let errorMessage = 'Global ayarlar kaydedilirken bir hata oluştu.';
                         if (body.error) errorMessage += '\nSunucu Mesajı: ' + body.error;
                         if (body.details && Array.isArray(body.details)) errorMessage += '\nDetaylar: ' + body.details.join('\n');
@@ -202,6 +221,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
                 })
                 .catch(error => {
+                    if(settingsSaveLoader) settingsSaveLoader.style.display = 'none';
+                    clearTimeout(hideLoaderTimeout);
                     console.error('Error saving global analysis params:', error);
                     alert('Global ayarlar kaydedilirken bir ağ hatası oluştu: ' + error.message);
                 });
@@ -211,134 +232,105 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 // Socket.io bağlantısını başlat
-function initializeSocket() {
+function initializeSocket(settingsSaveLoader) { // settingsSaveLoader parametre olarak alındı
     socket = io();
     
-    // Socket.io olayları dinle
     socket.on('connect', () => {
         console.log('WebSocket bağlantısı kuruldu.');
+        // const settingsSaveLoader = document.getElementById('settingsSaveLoader'); // Burada tekrar seçmeye gerek yok, parametre olarak geldi
+        const globalAnalysisParamsModalElement = document.getElementById('analysisParamsModal');
+        
+        if (settingsSaveLoader && settingsSaveLoader.style.display === 'flex') {
+            settingsSaveLoader.style.display = 'none'; 
+            clearTimeout(hideLoaderTimeout); // Başarılı bağlantıda zaman aşımını temizle
+            if (globalAnalysisParamsModalElement) {
+                const modalInstance = bootstrap.Modal.getInstance(globalAnalysisParamsModalElement);
+                if (modalInstance) {
+                    modalInstance.hide(); 
+                }
+            }
+            showToast('Bilgi', 'Ayarlar kaydedildi ve sunucu bağlantısı yeniden kuruldu.', 'success');
+        }
     });
     
     socket.on('disconnect', () => {
         console.log('WebSocket bağlantısı kesildi.');
     });
     
-    // Kuyruk durumu güncellemeleri
     socket.on('queue_status', (data) => {
         console.log('Kuyruk durumu güncellendi:', data);
         updateQueueStatus(data);
     });
     
-    // Analiz durumu güncelleme (yeni, tüm status değişikliklerini takip eder)
     socket.on('analysis_status_update', (data) => {
         console.log('Analiz durumu güncellendi:', data);
         const { analysis_id, file_id, status, progress, message } = data;
         
-        // Dosya ID'sini bul
         const file = uploadedFiles.find(f => f.fileId == file_id);
         if (file) {
-            // Dosya durumunu güncelle
             fileStatuses.set(file.id, status);
-            
-            // UI güncelle
             updateFileStatus(file.id, status, progress);
-            
-            // Eğer tamamlandıysa sonuçları göster
             if (status === 'completed') {
-                // Analiz ID'sini kaydet
                 file.analysisId = analysis_id;
                 fileAnalysisMap.set(file.id, analysis_id);
                 getAnalysisResults(file.id, analysis_id);
             }
-            
-            // Genel ilerlemeyi güncelle
             updateGlobalProgress();
         }
     });
     
-    // Analiz başladı
     socket.on('analysis_started', (data) => {
         console.log('Analiz başladı:', data);
         const { analysis_id, file_id, file_name, file_type } = data;
-        
-        // Dosyanın durumunu güncelle
         const file = uploadedFiles.find(f => f.fileId == file_id);
         if (file) {
-            // Analiz ID'sini kaydet
             file.analysisId = analysis_id;
             fileAnalysisMap.set(file.id, analysis_id);
-            
             updateFileStatus(file.id, 'Analiz Başlatıldı', 10);
             console.log(`Analiz başlatıldı: ${file_name} (${file_type}), ID: ${analysis_id}`);
             showToast('Bilgi', `${file_name} analizi başlatıldı.`, 'info');
-            
-            // Analiz durumunu kontrol etmeye başla
             setTimeout(() => checkAnalysisStatus(analysis_id, file.id), 1000);
         }
     });
     
-    // Analiz ilerleme durumu
     socket.on('analysis_progress', (data) => {
         console.log('Analiz ilerliyor:', data);
         const { analysis_id, file_id, current_frame, total_frames, progress, detected_faces, high_risk_frames } = data;
-        
-        // İlerleme bilgisini ekranda göster
         const file = uploadedFiles.find(f => f.fileId == file_id);
         if (file) {
-            const status = `Analiz: ${current_frame}/${total_frames} kare`;
-            updateFileStatus(file.id, status, progress);
-            
-            // İlerleme detaylarını tooltip'te göster
+            const status_msg = `Analiz: ${current_frame}/${total_frames} kare`; // status değişken adını status_msg olarak değiştirdim.
+            updateFileStatus(file.id, status_msg, progress);
             const fileCard = document.getElementById(file.id);
             if (fileCard) {
                 const statusElement = fileCard.querySelector('.file-status-text');
                 if (statusElement) {
-                    statusElement.title = `İşlenen kare: ${current_frame}/${total_frames}
-Tespit edilen yüz: ${detected_faces || 0}
-Yüksek riskli kare: ${high_risk_frames || 0}
-İlerleme: %${progress.toFixed(1)}`;
+                    statusElement.title = `İşlenen kare: ${current_frame}/${total_frames}\nTespit edilen yüz: ${detected_faces || 0}\nYüksek riskli kare: ${high_risk_frames || 0}\nİlerleme: %${progress.toFixed(1)}`;
                 }
             }
-            
-            // Her 10 karede bir mesaj göster
             if (current_frame % 10 === 0 || current_frame === total_frames) {
                 console.log(`Analiz ilerliyor: ${file.name}, Kare: ${current_frame}/${total_frames}, İlerleme: %${progress.toFixed(1)}`);
             }
         }
     });
     
-    // Analiz tamamlandı
     socket.on('analysis_completed', (data) => {
         console.log('Analiz tamamlandı:', data);
         const { analysis_id, file_id, elapsed_time, message } = data;
-        
-        // Dosya durumunu güncelle
         const file = uploadedFiles.find(f => f.fileId == file_id);
         if (file) {
             updateFileStatus(file.id, 'completed', 100);
             console.log(`Analiz tamamlandı: ${file.name}, Süre: ${elapsed_time ? elapsed_time.toFixed(1) + 's' : 'bilinmiyor'}`);
-            
-            // Analiz ID'sini file.analysisId olarak kaydet
             file.analysisId = analysis_id;
             fileAnalysisMap.set(file.id, analysis_id);
-            
-            // Analiz sonuçlarını getir ve göster
             getAnalysisResults(file.id, analysis_id);
-            
-            // Tamamlandı bildirimi göster
             showToast('Başarılı', `${file.name} analizi tamamlandı (${elapsed_time ? elapsed_time.toFixed(1) + ' saniye' : 'bilinmiyor'}).`, 'success');
-            
-            // Genel ilerlemeyi güncelle
             updateGlobalProgress();
         }
     });
     
-    // Analiz hatası
     socket.on('analysis_failed', (data) => {
         console.error('Analiz hatası:', data);
         const { analysis_id, file_id, error, elapsed_time } = data;
-        
-        // Dosya durumunu güncelle
         const file = uploadedFiles.find(f => f.fileId == file_id);
         if (file) {
             updateFileStatus(file.id, 'failed', 0);
@@ -347,12 +339,10 @@ Yüksek riskli kare: ${high_risk_frames || 0}
         }
     });
     
-    // Model eğitim durumu
     socket.on('training_progress', (data) => {
         updateTrainingProgress(data);
     });
     
-    // Model eğitimi tamamlandı
     socket.on('training_completed', (data) => {
         handleTrainingCompleted(data);
     });
