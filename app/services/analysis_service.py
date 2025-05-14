@@ -1478,7 +1478,6 @@ def get_analysis_results(analysis_id):
         result['age_estimations'] = best_estimations
         logger.info(f"[SVC_LOG][RESULTS] get_analysis_results: API yanıtına {len(best_estimations)} en iyi tahmin eklendi.")
     return result 
-
 # Model yükleme için yardımcı fonksiyonlar
 def get_content_analyzer():
     """İçerik analizi için ContentAnalyzer nesnesi döndürür"""

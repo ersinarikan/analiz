@@ -1304,19 +1304,21 @@ function displayAnalysisResults(fileId, results) {
         riskScoresContainer.appendChild(infoText);
         
         // Şüpheli skorları tespit et
-        const suspiciousScores = detectSuspiciousScores(results);
+        // const suspiciousScores = detectSuspiciousScores(results);
         
-        // Şüpheli skor varsa uyarı göster
+        // Şüpheli skor varsa uyarı göster (BU KISIM KALDIRILDI)
+        /*
         if (suspiciousScores.length > 0) {
             const warningEl = document.createElement('div');
             warningEl.className = 'alert alert-warning mb-3';
             warningEl.innerHTML = `
                 <i class="fas fa-exclamation-triangle me-2"></i>
                 <strong>Dikkat:</strong> Bazı kategorilerde skorlar beklenenden yüksek çıkmış olabilir.
-                <small>(${suspiciousScores.join(', ')} kategorilerinde değerlendirme yaparken dikkatli olunuz)</small>
+                <small>(${suspiciousScores.join(', ')}) kategorilerinde değerlendirme yaparken dikkatli olunuz)</small>
             `;
             riskScoresContainer.appendChild(warningEl);
         }
+        */
         
         const scores = results.overall_scores;
         
@@ -1389,7 +1391,7 @@ function displayAnalysisResults(fileId, results) {
             }
             
             // Şüpheli skor ise işaretle
-            const isSuspicious = suspiciousScores.includes(categoryName);
+            // const isSuspicious = suspiciousScores.includes(categoryName);
             
             // Kategori rengini belirle
             let progressBarClass = '';
@@ -1409,7 +1411,7 @@ function displayAnalysisResults(fileId, results) {
             // Skor elementi HTML'i - güven skoru varsa ekle
             scoreElement.innerHTML = `
                 <div class="d-flex justify-content-between align-items-center">
-                    <span>${categoryName} ${isSuspicious ? '<i class="fas fa-question-circle text-warning" title="Bu kategori skoru tutarsız olabilir"></i>' : ''}</span>
+                    <span>${categoryName} ${/*isSuspicious ? '<i class="fas fa-question-circle text-warning" title="Bu kategori skoru tutarsız olabilir"></i>' : ''*/''}</span>
                     <span class="risk-score ${riskClass}">${score.toFixed(0)}% - ${riskLevel}</span>
                 </div>
                 <div class="progress mb-1">

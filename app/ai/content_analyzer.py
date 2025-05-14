@@ -110,9 +110,6 @@ class ContentAnalyzer:
                     avg_text_features /= avg_text_features.norm()
                     self.category_text_features[category] = avg_text_features
             
-            # Skor geçmişini yükle
-            self.score_history = self._load_score_history()
-            
             self.initialized = True
             logger.info("ContentAnalyzer - CLIP modeli başarıyla yüklendi")
         except Exception as e:
@@ -275,7 +272,7 @@ class ContentAnalyzer:
                 similarity_score = similarity.item()
                 
                 # logit scale ile sıcaklık ayarı (daha net skorlar için)
-                temperature = 1.0 
+                temperature = 2.0 
                 scaled_score = torch.sigmoid(similarity * temperature).item()
 
                 raw_scores[category] = scaled_score
@@ -283,6 +280,7 @@ class ContentAnalyzer:
                 # Güven skorunu hesapla - benzerlik değerinin mutlak değeri bir tür güven göstergesidir
                 confidences[category] = abs(similarity_score)
                 
+                logger.info(f"Kategori '{category}' için CLIP Prompt\'ları: {self.category_texts[category]}")
                 logger.info(f"CLIP skorları - {category}: {scaled_score:.4f}, benzerlik: {similarity_score:.4f}")
             
             # YOLO ile tespit edilen nesneleri kullanarak içerik bağlamını zenginleştir
@@ -294,9 +292,6 @@ class ContentAnalyzer:
             
             # Percentile-bazlı normalizasyon yap
             adjusted_scores = raw_scores # Artık percentile normalizasyon olmadığı için ayarlanmış skorlar doğrudan bunlar olacak.
-
-            # Skor geçmişini güncelle
-            self._update_score_history(raw_scores)
             
             # Finalize confidence scores - log ile güven skorlarını göster
             for category, confidence in confidences.items():
@@ -318,14 +313,18 @@ class ContentAnalyzer:
                    float(weapon_score), float(drug_score), float(safe_score), safe_objects)
         except Exception as e:
             logger.error(f"CLIP görüntü analizi hatası: {str(e)}")
-            # Hata durumunda alternatif analiz yöntemi
-            return self._fallback_analysis(cv_image)
+            # Hata durumunda, hatayı logladıktan sonra yeniden fırlat.
+            # Bu, üst katmanların (örn: analysis_service) hatayı yakalayıp
+            # analizi uygun şekilde "başarısız" olarak işaretlemesini sağlar.
+            raise
     
     def _apply_contextual_adjustments(self, scores, object_labels, person_count):
         """
         Nesne tespitine dayalı bağlamsal ayarlamalar yapar.
         Bu fonksiyon, CLIP sonuçlarını tespit edilen nesnelere göre ayarlar.
         """
+        logger.info(f"[ContextualAdjust] Fonksiyon başlangıcı. Gelen skorlar: {scores}, Nesne etiketleri: {object_labels}, Kişi sayısı: {person_count}")
+
         # Silahla ilgili nesneler ve potansiyel riskli nesneler
         weapon_objects = ['gun', 'rifle', 'pistol', 'shotgun', 'weapon', 'explosive', 'bomb']
         drug_objects = ['bottle', 'wine glass', 'cup', 'cigarette', 'syringe', 'pipe', 'bong', 'pills', 'powder'] # 'bottle', 'cup' gibi genel nesneler dikkatli kullanılmalı
@@ -337,6 +336,8 @@ class ContentAnalyzer:
         weapon_detected = any(obj in object_labels for obj in weapon_objects)
         drug_related_detected = any(obj in object_labels for obj in drug_objects if obj not in ['bottle', 'cup']) # Daha spesifik uyuşturucu nesneleri
         general_drug_indicators = any(obj in ['bottle', 'cup'] for obj in object_labels) # Şişe, bardak gibi genel ama bağlama göre riskli olabilecekler
+
+        logger.info(f"[ContextualAdjust] Hesaplanan bayraklar -> weapon_detected: {weapon_detected}, drug_related_detected: {drug_related_detected}, general_drug_indicators: {general_drug_indicators}")
 
         if weapon_detected:
             is_kitchen_context_with_knife = 'knife' in object_labels and any(ko in object_labels for ko in kitchen_objects)
@@ -383,6 +384,8 @@ class ContentAnalyzer:
         all_other_scores_truly_low = all(scores.get(cat, 0) < 0.3 for cat in other_categories_for_safe_check)
         # Eşik değeri (0.3) ayarlanabilir bir parametre olabilir.
 
+        logger.info(f"[ContextualAdjust] Güvenli kategori güçlendirme bayrakları -> no_immediate_risk_objects: {no_immediate_risk_objects}, all_other_scores_truly_low: {all_other_scores_truly_low}")
+
         if no_immediate_risk_objects and all_other_scores_truly_low and person_count <= 1:
             # Belirgin YOLO riski yok, TÜM DİĞER CLIP SKORLARI DÜŞÜK ve ortam sakin görünüyorsa
             original_safe_score = scores.get('safe', 0)
@@ -414,6 +417,7 @@ class ContentAnalyzer:
 
         high_clip_threshold = 0.7 # CLIP skorunun yüksek kabul edileceği eşik
         yolo_miss_reduction_factor = 0.5 # YOLO onayı olmadığında uygulanacak azaltma faktörü
+        logger.info(f"[ContextualAdjust] Yüksek CLIP skoru düşürme kontrol parametreleri -> high_clip_threshold: {high_clip_threshold}, yolo_miss_reduction_factor: {yolo_miss_reduction_factor}")
 
         # Silah için
         if scores.get('weapon', 0) > high_clip_threshold and not weapon_detected:
@@ -428,208 +432,6 @@ class ContentAnalyzer:
             original_drug_score = scores['drug']
             scores['drug'] *= yolo_miss_reduction_factor
             logger.info(f"CLIP 'drug' skoru yüksek ({original_drug_score:.2f}) ama YOLO spesifik onayı yok, skor {scores['drug']:.2f}'ye düşürüldü.")
-    
-    def _load_score_history(self):
-        """Skor geçmişini yükler veya yoksa yeni oluşturur"""
-        history_path = os.path.join(current_app.config.get('MODELS_FOLDER', ''), 'clip_score_history.json')
-        
-        if os.path.exists(history_path):
-            try:
-                with open(history_path, 'r') as f:
-                    history = json.load(f)
-                    logger.info(f"Skor geçmişi yüklendi: {sum(len(scores) for scores in history.values())} toplam örnek")
-                    return history
-            except Exception as e:
-                logger.error(f"Skor geçmişi yüklenirken hata: {str(e)}")
-        
-        # Varsayılan boş geçmiş
-        logger.info("Yeni skor geçmişi oluşturuluyor")
-        return {
-            "violence": [], 
-            "adult_content": [], 
-            "harassment": [], 
-            "weapon": [], 
-            "drug": [], 
-            "safe": []
-        }
-    
-    def _update_score_history(self, scores):
-        """Yeni skorları geçmiş verisine ekler"""
-        # Geçmiş veriye yeni skorları ekle
-        for category, score in scores.items():
-            if category in self.score_history:
-                self.score_history[category].append(score)
-                # Listeyi MAX_HISTORY ile sınırla
-                MAX_HISTORY = 1000
-                if len(self.score_history[category]) > MAX_HISTORY:
-                    self.score_history[category] = self.score_history[category][-MAX_HISTORY:]
-        
-        # Periyodik olarak kaydet (her 10 ekleme sonrası)
-        if sum(1 for scores in self.score_history.values() for _ in scores) % 10 == 0:
-            self._save_score_history()
-    
-    def _save_score_history(self):
-        """Skor geçmişini dosyaya kaydeder"""
-        history_path = os.path.join(current_app.config.get('MODELS_FOLDER', ''), 'clip_score_history.json')
-        
-        try:
-            # Dizini oluştur
-            os.makedirs(os.path.dirname(history_path), exist_ok=True)
-            
-            # Dosyaya kaydet
-            with open(history_path, 'w') as f:
-                json.dump(self.score_history, f)
-                
-            logger.info(f"Skor geçmişi kaydedildi: {sum(len(scores) for scores in self.score_history.values())} toplam örnek")
-        except Exception as e:
-            logger.error(f"Skor geçmişi kaydedilirken hata: {str(e)}")
-            
-    def _fallback_analysis(self, image):
-        """
-        CLIP modeli başarısız olursa klasik analiz yöntemlerine geri dön.
-        """
-        try:
-            logger.warning("CLIP analizi başarısız oldu, geleneksel analize dönülüyor")
-            
-            # Görüntü özelliklerini analiz et
-            gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-            avg_brightness = np.mean(gray) / 255.0
-            contrast = np.std(gray) / 255.0
-            
-            # Renk analizleri
-            hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
-            saturation = np.mean(hsv[:, :, 1]) / 255.0
-            hue_var = np.std(hsv[:, :, 0]) / 180.0
-            
-            # Kenar tespiti
-            edges = cv2.Canny(gray, 100, 200)
-            edge_density = np.sum(edges) / (image.shape[0] * image.shape[1] * 255)
-            
-            # Şiddet skoru
-            violence_score = 0.1 + (edge_density * 0.5) + (contrast * 0.2)
-            violence_score = min(max(violence_score, 0.1), 0.5)
-            
-            # Yetişkin içeriği
-            has_skin_tones = self._detect_skin_tones(image)
-            adult_score = 0.05 + (saturation * 0.3) + (0.2 if has_skin_tones else 0.0)
-            adult_score = min(max(adult_score, 0.05), 0.3)
-            
-            # Taciz
-            harassment_score = 0.1 + (hue_var * 0.2)
-            harassment_score = min(max(harassment_score, 0.1), 0.3)
-            
-            # Silah
-            weapon_score = 0.05 + (edge_density * 0.4) + (contrast * 0.1)
-            weapon_score = min(max(weapon_score, 0.05), 0.3)
-            
-            # Madde kullanımı
-            drug_score = 0.05 + (saturation * 0.2)
-            drug_score = min(max(drug_score, 0.05), 0.25)
-            
-            # Güvenli
-            safe_score = 1.0 - max(violence_score, adult_score, harassment_score, weapon_score, drug_score)
-            safe_score = max(safe_score, 0.0)
-            
-            # Normalize et
-            scores = {
-                'violence': violence_score,
-                'adult_content': adult_score,
-                'harassment': harassment_score,
-                'weapon': weapon_score,
-                'drug': drug_score,
-                'safe': safe_score
-            }
-            
-            normalized_scores = self._normalize_scores(scores)
-            
-            # Boş nesne listesi
-            empty_objects = []
-            
-            return (float(normalized_scores['violence']), 
-                    float(normalized_scores['adult_content']),
-                    float(normalized_scores['harassment']), 
-                    float(normalized_scores['weapon']),
-                    float(normalized_scores['drug']), 
-                    float(normalized_scores['safe']),
-                    empty_objects)
-        except Exception as e:
-            logger.error(f"Fallback analiz hatası: {str(e)}")
-            # En son çare olarak varsayılan değerler
-            return (0.1, 0.1, 0.1, 0.1, 0.1, 0.5, [])
-    
-    def _detect_skin_tones(self, image):
-        """Görüntüde cilt tonları olup olmadığını tespit eder (basit yaklaşım)"""
-        try:
-            # HSV renk uzayına dönüştür
-            hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
-            
-            # Cilt tonu aralığı (HSV'de)
-            lower_skin = np.array([0, 20, 70], dtype=np.uint8)
-            upper_skin = np.array([20, 150, 255], dtype=np.uint8)
-            
-            # Cilt tonu maskesi oluştur
-            mask = cv2.inRange(hsv, lower_skin, upper_skin)
-            
-            # Cilt pikseli oranı hesapla
-            skin_ratio = np.sum(mask) / (image.shape[0] * image.shape[1] * 255)
-            
-            # Belirli bir eşiğin üzerinde cilt tonu varsa true döndür
-            return skin_ratio > 0.15  # %15'den fazla cilt tonu içeriyorsa
-        
-        except Exception as e:
-            logger.error(f"Cilt tonu tespiti hatası: {str(e)}")
-            return False 
-    
-    def _normalize_scores(self, scores):
-        """
-        Kategorik skorları normalize eder, böylece toplam %100 olur.
-        Daha ayırt edici sonuçlar için, skorları sıralar ve sıralamaya göre ağırlıklandırır.
-        
-        Args:
-            scores: Kategori skorlarını içeren sözlük
-            
-        Returns:
-            dict: Normalize edilmiş skorları içeren sözlük
-        """
-        try:
-            # Tüm skorlar çok düşükse (0.1'den küçük)
-            if all(score < 0.1 for score in scores.values()):
-                # Güvenli kategorisine daha yüksek değer ver
-                normalized_scores = {key: 0.05 for key in scores}
-                normalized_scores['safe'] = 0.75
-                return normalized_scores
-            
-            # Skorları büyükten küçüğe sırala
-            sorted_categories = sorted(scores.items(), key=lambda x: x[1], reverse=True)
-            
-            # İlk üç kategoriye daha yüksek değerler ver (toplam 1.0 olacak şekilde)
-            normalized_scores = {key: 0.05 for key in scores}  # Başlangıç değeri
-            
-            # En yüksek skora sahip kategori %50, ikinci %20, üçüncü %10 alır
-            weights = [0.50, 0.20, 0.10]
-            remaining_weight = 0.20  # Kalan %20'yi diğer kategorilere dağıt
-            
-            # En yüksek skorlu 3 kategoriye özel ağırlıklar ver
-            for i, (category, _) in enumerate(sorted_categories[:min(3, len(sorted_categories))]):
-                if i < len(weights):
-                    normalized_scores[category] = weights[i]
-            
-            # Kalan kategoriler için toplam 'remaining_weight' dağıt
-            remaining_categories = len(sorted_categories) - min(3, len(sorted_categories))
-            if remaining_categories > 0:
-                for i, (category, _) in enumerate(sorted_categories[3:]):
-                    normalized_scores[category] = remaining_weight / remaining_categories
-            
-            # Log çıktısı
-            logger.info(f"Normalize edilmiş toplam skor: {sum(normalized_scores.values()):.4f}")
-            for category, score in normalized_scores.items():
-                logger.info(f"  {category}: {score:.4f} (%{score * 100:.1f})")
-            
-            return normalized_scores
-        except Exception as e:
-            logger.error(f"Skor normalizasyonu hatası: {str(e)}")
-            # Hata durumunda orijinal skorları döndür
-            return scores 
 
 # Bu fonksiyonu analysis_service.py tarafından import edilebilmesi için ekliyoruz.
 def get_content_analyzer():
