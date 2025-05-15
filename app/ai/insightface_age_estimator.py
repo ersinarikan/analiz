@@ -101,12 +101,10 @@ class InsightFaceAgeEstimator:
         try:
             logger.info("CLIP modeli yükleniyor (yaş tahmin güven skoru için)")
             device = "cuda" if torch.cuda.is_available() else "cpu"
-            
-            # Sadece büyük modeli yükle, küçük modele otomatik geçiş yok
-            logger.info("ViT-B/32 CLIP modeli yükleniyor - en büyük ve doğru model")
-            self.clip_model, self.clip_preprocess = clip.load("ViT-B/32", device=device)
+            # ViT-L/14@336px modelini yükle
+            logger.info("ViT-L/14@336px CLIP modeli yükleniyor - büyük ve güvenilir model")
+            self.clip_model, self.clip_preprocess = clip.load("ViT-L/14@336px", device=device)
             logger.info(f"CLIP modeli ({device} üzerinde) başarıyla yüklendi.")
-            
             self.clip_device = device
             logger.info(f"CLIP modeli başarıyla yüklendi, çalışma ortamı: {device}")
         except Exception as e:

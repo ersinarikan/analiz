@@ -2,7 +2,7 @@
 let uploadedFiles = [];
 let analysisInProgress = false;
 let socket;
-let hideLoaderTimeout; // Yükleyici için zaman aşımı ID'si
+let hideLoaderTimeout; // Add this line
 
 // Dosya yolu normalleştirme fonksiyonu
 function normalizePath(path) {
@@ -22,6 +22,35 @@ const fileErrorCounts = new Map();  // Maps fileId to error count
 let totalAnalysisCount = 0;
 let MAX_STATUS_CHECK_RETRIES = 5;
 
+// Analiz parametreleri butonu için uyarı gösterme fonksiyonu
+function handleParamsAlert(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    alert('Analiz parametrelerini değiştirmeden önce lütfen yüklenmiş dosyaları kaldırın veya analizi tamamlayın.');
+}
+
+// Analiz parametreleri butonunun durumunu güncelleme fonksiyonu
+function updateAnalysisParamsButtonState() {
+    const analysisParamsBtn = document.getElementById('openAnalysisParamsModalBtn');
+    if (!analysisParamsBtn) return;
+
+    if (uploadedFiles.length > 0) {
+        analysisParamsBtn.classList.add('disabled');
+        analysisParamsBtn.setAttribute('aria-disabled', 'true');
+        analysisParamsBtn.removeAttribute('data-bs-toggle');
+        analysisParamsBtn.removeAttribute('data-bs-target');
+        // Eski listener'ı kaldır (varsa) ve yenisini ekle
+        analysisParamsBtn.removeEventListener('click', handleParamsAlert);
+        analysisParamsBtn.addEventListener('click', handleParamsAlert);
+    } else {
+        analysisParamsBtn.classList.remove('disabled');
+        analysisParamsBtn.setAttribute('aria-disabled', 'false');
+        analysisParamsBtn.setAttribute('data-bs-toggle', 'modal');
+        analysisParamsBtn.setAttribute('data-bs-target', '#analysisParamsModal');
+        analysisParamsBtn.removeEventListener('click', handleParamsAlert);
+    }
+}
+
 // Sayfa yüklendiğinde çalışacak fonksiyon
 document.addEventListener('DOMContentLoaded', () => {
     const settingsSaveLoader = document.getElementById('settingsSaveLoader'); // Yükleyici elementi
@@ -34,6 +63,7 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // Eğitim butonu kurulumu
     setupTrainingButton();
+    updateAnalysisParamsButtonState(); // Butonun başlangıç durumunu ayarla
 
     // --- Yeni Analiz Parametreleri Modalı (GLOBAL) için Event Listener'lar ve Fonksiyonlar ---
     const globalAnalysisParamsModalElement = document.getElementById('analysisParamsModal'); 
@@ -184,18 +214,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 if(settingsSaveLoader) settingsSaveLoader.style.display = 'flex'; // Yükleyiciyi göster
 
-                clearTimeout(hideLoaderTimeout); // Önceki zaman aşımını temizle
-                hideLoaderTimeout = setTimeout(() => {
-                    if (settingsSaveLoader && settingsSaveLoader.style.display === 'flex') {
-                        settingsSaveLoader.style.display = 'none';
-                        showToast('Uyarı', 'Sunucuyla bağlantı beklenenden uzun sürdü. Sayfayı yenilemeniz gerekebilir.', 'warning');
-                        // Modal hala açıksa ve yükleyici zaman aşımına uğradıysa modalı da kapatabiliriz.
-                        if (globalAnalysisParamsModalElement && bootstrap.Modal.getInstance(globalAnalysisParamsModalElement)) {
-                             bootstrap.Modal.getInstance(globalAnalysisParamsModalElement).hide();
-                        }
-                    }
-                }, 15000); // 15 saniye
-
                 fetch('/api/set_analysis_params', {
                     method: 'POST',
                     headers: {
@@ -211,7 +229,10 @@ document.addEventListener('DOMContentLoaded', () => {
                         // globalAnalysisParamsModal.hide(); // Hemen gizleme, socket connect'te gizlenecek
                     } else {
                         if(settingsSaveLoader) settingsSaveLoader.style.display = 'none';
-                        clearTimeout(hideLoaderTimeout);
+                        if (hideLoaderTimeout) { // Add this check
+                            clearTimeout(hideLoaderTimeout);
+                            hideLoaderTimeout = null; // Optional: reset after clearing
+                        }
                         let errorMessage = 'Global ayarlar kaydedilirken bir hata oluştu.';
                         if (body.error) errorMessage += '\nSunucu Mesajı: ' + body.error;
                         if (body.details && Array.isArray(body.details)) errorMessage += '\nDetaylar: ' + body.details.join('\n');
@@ -222,7 +243,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 })
                 .catch(error => {
                     if(settingsSaveLoader) settingsSaveLoader.style.display = 'none';
-                    clearTimeout(hideLoaderTimeout);
+                    if (hideLoaderTimeout) { // Add this check
+                        clearTimeout(hideLoaderTimeout);
+                        hideLoaderTimeout = null; // Optional: reset after clearing
+                    }
                     console.error('Error saving global analysis params:', error);
                     alert('Global ayarlar kaydedilirken bir ağ hatası oluştu: ' + error.message);
                 });
@@ -242,7 +266,10 @@ function initializeSocket(settingsSaveLoader) { // settingsSaveLoader parametre 
         
         if (settingsSaveLoader && settingsSaveLoader.style.display === 'flex') {
             settingsSaveLoader.style.display = 'none'; 
-            clearTimeout(hideLoaderTimeout); // Başarılı bağlantıda zaman aşımını temizle
+            if (hideLoaderTimeout) { // Add this check
+                clearTimeout(hideLoaderTimeout);
+                hideLoaderTimeout = null; // Optional: reset after clearing
+            }
             if (globalAnalysisParamsModalElement) {
                 const modalInstance = bootstrap.Modal.getInstance(globalAnalysisParamsModalElement);
                 if (modalInstance) {
@@ -538,6 +565,7 @@ function handleFiles(files) {
     
     // Dosyaları yüklemeye başla
     uploadFilesSequentially(0);
+    updateAnalysisParamsButtonState(); // Dosya eklendiğinde buton durumunu güncelle
 }
 
 // Dosyaları sırayla yükle
@@ -561,7 +589,7 @@ function uploadFilesSequentially(index) {
     
     // FormData nesnesi oluştur
     const formData = new FormData();
-    formData.append('file', file);
+    formData.append('file', file.originalFile); // Send the original File object
     
     // Dosyayı yükle
     fetch('/api/files/', {
@@ -602,26 +630,38 @@ function uploadFilesSequentially(index) {
 
 // Dosyayı listeye ekle
 function addFileToList(file) {
+    const newFile = {
+        id: 'file-' + Date.now() + '-' + Math.random().toString(36).substring(2, 9),
+        name: file.name,
+        size: file.size,
+        type: file.type,
+        status: 'pending',
+        progress: 0,
+        originalFile: file, // Orijinal File nesnesini sakla
+        fileId: null, // Sunucudan gelen file_id, analiz başladığında atanacak
+        analysisId: null // Sunucudan gelen analysis_id, analiz başladığında atanacak
+    };
+
     // Dosya zaten listeye eklenmişse tekrar ekleme
-    if (uploadedFiles.some(f => f.name === file.name && f.size === file.size)) {
-        showToast('Bilgi', `${file.name} dosyası zaten eklenmiş.`, 'info');
-        return;
+    if (uploadedFiles.some(f => f.name === newFile.name && f.size === newFile.size)) {
+        console.warn(`File ${newFile.name} already in list. Skipping.`);
+        return null; // Veya uygun bir değer döndür
     }
     
-    // Dosya ID'si oluştur
-    const fileId = `file-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    uploadedFiles.push(newFile);
+    updateAnalysisParamsButtonState(); // Add this line
+
+    const fileList = document.getElementById('fileList');
+    if (!fileList) return null;
+
+    const fileCard = createFileCard(newFile);
+    fileList.appendChild(fileCard);
     
-    // Dosyaya ID ekle
-    file.id = fileId;
-    
-    // Dosyayı global listeye ekle
-    uploadedFiles.push(file);
-    
-    // Dosya önizleme kartını oluştur
-    const fileCard = createFileCard(file);
-    
-    // Dosya listesine ekle
-    document.getElementById('fileList').appendChild(fileCard);
+    // "Analiz Başlat" butonunu etkinleştir
+    const analyzeBtn = document.getElementById('analyzeBtn');
+    if(analyzeBtn) analyzeBtn.disabled = false;
+
+    return newFile; // Eklenen dosya nesnesini döndür
 }
 
 // Dosya kartı oluştur
@@ -638,7 +678,7 @@ function createFileCard(file) {
     fileCard.querySelector('.filesize').textContent = formatFileSize(file.size);
     
     // Dosya önizlemesi oluştur
-    createFilePreview(file, fileCard.querySelector('.file-preview'));
+    createFilePreview(file.originalFile, fileCard.querySelector('.file-preview')); // Pass the original File object
     
     // Dosya silme butonuna olay dinleyicisi ekle
     fileCard.querySelector('.remove-file-btn').addEventListener('click', () => removeFile(file.id));
@@ -699,13 +739,29 @@ function createFilePreview(file, previewElement) {
 
 // Dosyayı kaldır
 function removeFile(fileId) {
-    // Global listeden dosyayı kaldır
-    const fileIndex = uploadedFiles.findIndex(file => file.id === fileId);
-    
-    if (fileIndex !== -1) {
-        uploadedFiles.splice(fileIndex, 1);
-        
-        // DOM'dan dosya kartını kaldır
+    console.log("Attempting to remove file with ID:", fileId);
+    const fileToRemove = uploadedFiles.find(f => f.id === fileId);
+
+    if (fileToRemove) {
+        // Eğer analiz devam ediyorsa ve bir analysisId varsa, iptal etmeyi dene
+        if (fileToRemove.status !== 'pending' && fileToRemove.status !== 'failed' && fileToRemove.status !== 'completed' && fileToRemove.analysisId) {
+            if (socket && socket.connected) {
+                console.log(`Requesting cancellation for analysis ID: ${fileToRemove.analysisId} of file ${fileToRemove.name}`);
+                socket.emit('cancel_analysis', { analysis_id: fileToRemove.analysisId });
+                cancelledAnalyses.add(fileToRemove.analysisId); // İptal edilenler setine ekle
+                // Sunucudan onay beklemeden UI'ı hemen güncellemek yerine,
+                // sunucudan bir 'analysis_cancelled' veya 'status_update' olayı bekleyebiliriz.
+                // Şimdilik, kullanıcıya işlemin başlatıldığını bildirelim.
+                showToast('Bilgi', `${fileToRemove.name} için analiz iptal isteği gönderildi.`, 'info');
+            } else {
+                showToast('Uyarı', 'WebSocket bağlı değil, analiz iptal edilemedi.', 'warning');
+            }
+        }
+
+        // Dosyayı listeden ve UI'dan kaldır
+        uploadedFiles = uploadedFiles.filter(f => f.id !== fileId);
+        updateAnalysisParamsButtonState(); // Add this line
+
         const fileCard = document.getElementById(fileId);
         if (fileCard) {
             fileCard.remove();

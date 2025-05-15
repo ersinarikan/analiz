@@ -51,64 +51,89 @@ class ContentAnalyzer:
             # CLIP modelini yükle - daha büyük ve daha doğru olan versiyonu seçiyoruz
             self.clip_model, self.clip_preprocess = self._load_clip_model()
             
-            # Kategori tanımlayıcıları - CLIP için kullanılacak metinler
-            # Daha spesifik, detaylı ve ayırt edici prompt\'lar
-            self.category_texts = {
-                "violence": [
-                    "graphic violence, fighting, or assault",
-                    "images depicting severe injuries, blood, or gore",
-                    "people physically attacking others",
-                    "scenes of combat or warfare",
-                    "a person visibly in pain or suffering due to aggression"
-                ],
-                "adult_content": [
-                    "explicit nudity or sexually suggestive content",
-                    "depiction of sexual acts or genitalia",
-                    "content intended to cause sexual arousal",
-                    "pornographic material",
-                    "highly revealing clothing in a sexual context"
-                ],
-                "harassment": [
-                    "images showing bullying, intimidation, or verbal abuse",
-                    "a person looking distressed or fearful due to others\' actions",
-                    "scenes of mobbing or targeted humiliation",
-                    "content that demeans or attacks a specific group",
-                    "non-consensual pursuit or stalking"
-                ],
-                "weapon": [
-                    "a person holding or aiming a firearm (gun, rifle)",
-                    "visible knives, swords, or daggers used threateningly",
-                    "explosives or bombs",
-                    "military weapons outside of a ceremonial context",
-                    "close-up image of a dangerous weapon"
-                ],
-                "drug": [
-                    "images depicting illegal drug use (injection, smoking, snorting)",
-                    "visible illicit drugs like cocaine, heroin, or pills",
-                    "drug paraphernalia such as syringes, pipes, or bongs",
-                    "scenes suggesting drug dealing or manufacturing",
-                    "person showing signs of drug overdose or severe intoxication"
-                ],
-                "safe": [
-                    "a harmless scene with no offensive content",
-                    "neutral images of objects, landscapes, or animals",
-                    "people in normal, everyday situations",
-                    "standard workplace or educational settings",
-                    "family-friendly content suitable for all audiences"
-                ]
+            # Kategori tanımlayıcıları - Pozitif ve zıt (negatif) promptlar
+            self.category_prompts = {
+                "violence": {
+                    "positive": [
+                        "violence",
+                        "aggression",
+                        "brutality"
+                    ],
+                    "negative": [
+                        "gentleness",
+                        "calmness",
+                        "tenderness"
+                    ]
+                },
+                "adult_content": {
+                    "positive": [
+                        "adult content",
+                        "explicit content",
+                        "mature content"
+                    ],
+                    "negative": [
+                        "innocence",
+                        "purity",
+                        "youthfulness"
+                    ]
+                },
+                "harassment": {
+                    "positive": [
+                        "harassment",
+                        "intimidation",
+                        "coercion"
+                    ],
+                    "negative": [
+                        "peaceful",
+                        "serenity",
+                        "tranquility"
+                    ]
+                },
+                "weapon": {
+                    "positive": [
+                        "weapon",
+                        "violence in the form of weapons",
+                        "armament"
+                    ],
+                    "negative": [
+                        "unarmed",
+                        "nonviolence",
+                        "peaceful situation"
+                    ]
+                },
+                "drug": {
+                    "positive": [
+                        "drug",
+                        "substance abuse",
+                        "illegal drugs"
+                    ],
+                    "negative": [
+                        "drug-free",
+                        "sobriety",
+                        "purity"
+                    ]
+                },
+                "safe": {
+                    "positive": [
+                        "safe",
+                        "security",
+                        "secure environment"
+                    ],
+                    "negative": [
+                        "dangerous",
+                        "risk",
+                        "harm"
+                    ]
+                }
             }
-            
-            # Kategori text tokenları önceden hesapla
+            # Kategori text tokenları önceden hesapla (tek prompt)
             self.category_text_features = {}
-            for category, prompts in self.category_texts.items():
-                text_inputs = torch.cat([clip.tokenize(prompt) for prompt in prompts]).to("cuda" if torch.cuda.is_available() else "cpu")
+            for category, prompts in self.category_prompts.items():
+                text_input = clip.tokenize(prompts["positive"][0]).to("cuda" if torch.cuda.is_available() else "cpu")
                 with torch.no_grad():
-                    text_features = self.clip_model.encode_text(text_inputs)
-                    text_features /= text_features.norm(dim=-1, keepdim=True)
-                    # Tüm prompt'ların ortalamasını al
-                    avg_text_features = text_features.mean(dim=0)
-                    avg_text_features /= avg_text_features.norm()
-                    self.category_text_features[category] = avg_text_features
+                    text_feature = self.clip_model.encode_text(text_input)
+                    text_feature = text_feature / text_feature.norm(dim=-1, keepdim=True)
+                    self.category_text_features[category] = text_feature[0]  # Tek vektör
             
             self.initialized = True
             logger.info("ContentAnalyzer - CLIP modeli başarıyla yüklendi")
@@ -120,30 +145,15 @@ class ContentAnalyzer:
     def _load_clip_model(self):
         """CLIP modelini yükler, önbellek kontrolü yapar"""
         cache_key = "clip_model"
-        
-        # Önbellekte varsa direkt döndür
         if cache_key in _models_cache:
             logger.info("CLIP modeli önbellekten kullanılıyor")
             return _models_cache[cache_key]
-            
         try:
-            logger.info("CLIP modeli yükleniyor (ViT-L/14@336px)")  # En büyük ve en doğru model
-            # Model ve önişleyici yükle (GPU varsa GPU'ya taşı)
+            logger.info("CLIP modeli yükleniyor (ViT-L/14@336px)")
             device = "cuda" if torch.cuda.is_available() else "cpu"
-            
-            try:
-                # Önce en büyük modeli yüklemeyi dene
-                model, preprocess = clip.load("ViT-L/14@336px", device=device)
-                logger.info("ViT-L/14@336px CLIP modeli başarıyla yüklendi")
-            except Exception as e:
-                # Yükleme başarısız olursa daha küçük modele geri dön
-                logger.warning(f"Büyük CLIP modeli yüklenemedi, daha küçük model kullanılıyor: {str(e)}")
-                model, preprocess = clip.load("ViT-B/32", device=device)
-                logger.info("ViT-B/32 CLIP modeli başarıyla yüklendi")
-            
+            model, preprocess = clip.load("ViT-L/14@336px", device=device)
+            logger.info("ViT-L/14@336px CLIP modeli başarıyla yüklendi")
             logger.info(f"CLIP modeli başarıyla yüklendi, çalışma ortamı: {device}")
-            
-            # Modeli önbelleğe ekle
             _models_cache[cache_key] = (model, preprocess)
             return model, preprocess
         except Exception as e:
@@ -200,12 +210,7 @@ class ContentAnalyzer:
     def analyze_image(self, image_path):
         """
         Bir resmi CLIP modeli ile analiz eder ve içerik skorlarını hesaplar.
-        
-        Args:
-            image_path: Analiz edilecek resmin dosya yolu
-            
-        Returns:
-            tuple: (şiddet skoru, yetişkin içerik skoru, taciz skoru, silah skoru, madde kullanımı skoru, güvenli skoru, tespit edilen nesneler)
+        (YENİ: Her kategori için 'var mı/yok mu' promptları ve farkın normalize edilmesi)
         """
         try:
             # OpenCV ile görüntüyü yükle (YOLO için)
@@ -213,109 +218,68 @@ class ContentAnalyzer:
                 cv_image = cv2.imread(image_path)
                 if cv_image is None:
                     raise ValueError(f"Resim yüklenemedi: {image_path}")
-                # CLIP için PIL formatına dönüştür
                 if os.path.exists(image_path):
                     pil_image = Image.open(image_path).convert("RGB")
                 else:
-                    # OpenCV görüntüsünü PIL'e dönüştür
                     cv_rgb = cv2.cvtColor(cv_image, cv2.COLOR_BGR2RGB)
                     pil_image = Image.fromarray(cv_rgb)
             else:
-                cv_image = image_path  # Zaten numpy array
-                # OpenCV görüntüsünü PIL'e dönüştür
+                cv_image = image_path
                 cv_rgb = cv2.cvtColor(cv_image, cv2.COLOR_BGR2RGB)
                 pil_image = Image.fromarray(cv_rgb)
-            
-            # YOLOv8 ile nesne tespiti (ek bilgi için)
+            # YOLOv8 ile nesne tespiti (devre dışı bırakılmıyor)
             results = self.yolo_model(cv_image)
-            
-            # Nesne tespiti sonuçlarını işle
             detected_objects = []
             for r in results:
                 boxes = r.boxes
                 for box in boxes:
-                    # Kutu koordinatları
                     x1, y1, x2, y2 = box.xyxy[0]
-                    # Yuvarlama ve Python int türüne dönüştürme
                     x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2)
                     w, h = x2 - x1, y2 - y1
-                    
-                    # Güven skoru ve sınıf ID'si
                     conf = float(box.conf[0])
                     cls_id = int(box.cls[0])
-                    
-                    # Etiket
                     label = self.yolo_model.names[cls_id]
-                    
-                    # Nesne bilgisini ekle
-                    detected_objects.append({
-                        'label': label,
-                        'confidence': conf,
-                        'box': [x1, y1, w, h]
-                    })
-            
-            # CLIP ile görüntüyü analiz et
+                    detected_objects.append({'label': label, 'confidence': conf, 'box': [x1, y1, w, h]})
             preprocessed_image = self.clip_preprocess(pil_image).unsqueeze(0).to("cuda" if torch.cuda.is_available() else "cpu")
-            
-            # Görüntü özelliklerini CLIP ile çıkar
             with torch.no_grad():
                 image_features = self.clip_model.encode_image(preprocessed_image)
-                image_features /= image_features.norm(dim=-1, keepdim=True)
+                image_features = image_features / image_features.norm(dim=-1, keepdim=True)
+            categories = list(self.category_prompts.keys())
+            final_scores = {}
+            for cat in categories:
+                pos_prompts = [f"Is there {p} in this frame?" for p in self.category_prompts[cat]["positive"]]
+                neg_prompts = [f"Is there {p} in this frame?" for p in self.category_prompts[cat]["negative"]]
+                all_prompts = pos_prompts + neg_prompts
+                text_inputs = clip.tokenize(all_prompts).to("cuda" if torch.cuda.is_available() else "cpu")
+                with torch.no_grad():
+                    text_features = self.clip_model.encode_text(text_inputs)
+                    text_features = text_features / text_features.norm(dim=-1, keepdim=True)
+                    similarities = (image_features @ text_features.T).squeeze(0).cpu().numpy()  # len = len(all_prompts)
+                pos_score = float(np.mean(similarities[:len(pos_prompts)]))
+                neg_score = float(np.mean(similarities[len(pos_prompts):]))
+                fark = pos_score - neg_score
+                nihai_skor = (fark + 1) / 2  # 0-1 aralığına çek
+                # Detaylı log
+                logger.info(f"[CLIP_PROMPT_LOG] Category: {cat}")
+                for i, prompt in enumerate(pos_prompts):
+                    logger.info(f"  Prompt: {prompt}    Score: {similarities[i]:.4f}")
+                for i, prompt in enumerate(neg_prompts):
+                    logger.info(f"  Prompt: {prompt}    Score: {similarities[len(pos_prompts)+i]:.4f}")
+                logger.info(f"  Positive mean: {pos_score:.4f}, Negative mean: {neg_score:.4f}, Final: {nihai_skor:.4f}")
+                final_scores[cat] = float(nihai_skor)
             
-            # Her kategori için benzerlik skorunu hesapla
-            raw_scores = {}
-            confidences = {}  # CLIP güven skorları
-            
-            for category, text_features in self.category_text_features.items():
-                # Görüntü-metin benzerliğini hesapla
-                similarity = torch.cosine_similarity(image_features, text_features.unsqueeze(0))
-                similarity_score = similarity.item()
-                
-                # logit scale ile sıcaklık ayarı (daha net skorlar için)
-                temperature = 2.0 
-                scaled_score = torch.sigmoid(similarity * temperature).item()
-
-                raw_scores[category] = scaled_score
-                
-                # Güven skorunu hesapla - benzerlik değerinin mutlak değeri bir tür güven göstergesidir
-                confidences[category] = abs(similarity_score)
-                
-                logger.info(f"Kategori '{category}' için CLIP Prompt\'ları: {self.category_texts[category]}")
-                logger.info(f"CLIP skorları - {category}: {scaled_score:.4f}, benzerlik: {similarity_score:.4f}")
-            
-            # YOLO ile tespit edilen nesneleri kullanarak içerik bağlamını zenginleştir
-            object_labels = [obj['label'].lower() for obj in detected_objects]
-            person_count = object_labels.count('person')
-            
-            # Nesne tespitine dayalı bağlamsal ayarlamalar
-            self._apply_contextual_adjustments(raw_scores, object_labels, person_count)
-            
-            # Percentile-bazlı normalizasyon yap
-            adjusted_scores = raw_scores # Artık percentile normalizasyon olmadığı için ayarlanmış skorlar doğrudan bunlar olacak.
-            
-            # Finalize confidence scores - log ile güven skorlarını göster
-            for category, confidence in confidences.items():
-                logger.info(f"CLIP güven skoru: {confidence:.4f} (category={category})")
-            
-            # Kategorilere göre skorları döndür
-            violence_score = adjusted_scores['violence']
-            adult_content_score = adjusted_scores['adult_content']
-            harassment_score = adjusted_scores['harassment']
-            weapon_score = adjusted_scores['weapon']
-            drug_score = adjusted_scores['drug']
-            safe_score = adjusted_scores['safe']
-            
-            # NumPy türlerini Python türlerine dönüştür
+            # Tespit edilen nesneleri Python tiplerine dönüştür
             safe_objects = convert_numpy_types_to_python(detected_objects)
             
-            # Tüm değerleri Python standart türlerine dönüştürerek döndür
-            return (float(violence_score), float(adult_content_score), float(harassment_score), 
-                   float(weapon_score), float(drug_score), float(safe_score), safe_objects)
+            # Bağlamsal ayarlamaları uygula - tespit edilen nesnelere ve kişi sayısına göre skorları düzenle
+            person_count = len([obj for obj in safe_objects if obj['label'] == 'person'])
+            object_labels = [obj['label'] for obj in safe_objects]
+            final_scores = self._apply_contextual_adjustments(final_scores, object_labels, person_count)
+            
+            # Düzenlenen skorları döndür
+            return (*[final_scores[cat] for cat in categories], safe_objects)
         except Exception as e:
             logger.error(f"CLIP görüntü analizi hatası: {str(e)}")
-            # Hata durumunda, hatayı logladıktan sonra yeniden fırlat.
-            # Bu, üst katmanların (örn: analysis_service) hatayı yakalayıp
-            # analizi uygun şekilde "başarısız" olarak işaretlemesini sağlar.
             raise
     
     def _apply_contextual_adjustments(self, scores, object_labels, person_count):
@@ -432,6 +396,8 @@ class ContentAnalyzer:
             original_drug_score = scores['drug']
             scores['drug'] *= yolo_miss_reduction_factor
             logger.info(f"CLIP 'drug' skoru yüksek ({original_drug_score:.2f}) ama YOLO spesifik onayı yok, skor {scores['drug']:.2f}'ye düşürüldü.")
+
+        return scores
 
 # Bu fonksiyonu analysis_service.py tarafından import edilebilmesi için ekliyoruz.
 def get_content_analyzer():
