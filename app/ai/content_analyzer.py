@@ -6,7 +6,8 @@ from flask import current_app
 import tensorflow as tf
 from ultralytics import YOLO
 import torch
-import clip  # CLIP modelini import ediyoruz
+import clip
+import open_clip
 from PIL import Image  # CLIP için PIL gerekiyor
 import shutil
 import time
@@ -50,6 +51,11 @@ class ContentAnalyzer:
             
             # CLIP modelini yükle - daha büyük ve daha doğru olan versiyonu seçiyoruz
             self.clip_model, self.clip_preprocess = self._load_clip_model()
+
+            # Tokenizer'ı yükle (OpenCLIP için)
+            logger.info("OpenCLIP tokenizer (ViT-H-14-378-quickgelu) yükleniyor...")
+            self.tokenizer = open_clip.get_tokenizer('ViT-H-14-378-quickgelu')
+            logger.info("OpenCLIP tokenizer başarıyla yüklendi.")
             
             # Kategori tanımlayıcıları - Pozitif ve zıt (negatif) promptlar
             self.category_prompts = {
@@ -129,7 +135,7 @@ class ContentAnalyzer:
             # Kategori text tokenları önceden hesapla (tek prompt)
             self.category_text_features = {}
             for category, prompts in self.category_prompts.items():
-                text_input = clip.tokenize(prompts["positive"][0]).to("cuda" if torch.cuda.is_available() else "cpu")
+                text_input = self.tokenizer(prompts["positive"][0]).to("cuda" if torch.cuda.is_available() else "cpu")
                 with torch.no_grad():
                     text_feature = self.clip_model.encode_text(text_input)
                     text_feature = text_feature / text_feature.norm(dim=-1, keepdim=True)
@@ -149,13 +155,16 @@ class ContentAnalyzer:
             logger.info("CLIP modeli önbellekten kullanılıyor")
             return _models_cache[cache_key]
         try:
-            logger.info("CLIP modeli yükleniyor (ViT-L/14@336px)")
+            logger.info("CLIP modeli yükleniyor (ViT-H-14-378-quickgelu, pretrained: dfn5b)")
             device = "cuda" if torch.cuda.is_available() else "cpu"
-            model, preprocess = clip.load("ViT-L/14@336px", device=device)
-            logger.info("ViT-L/14@336px CLIP modeli başarıyla yüklendi")
-            logger.info(f"CLIP modeli başarıyla yüklendi, çalışma ortamı: {device}")
-            _models_cache[cache_key] = (model, preprocess)
-            return model, preprocess
+            model, _, preprocess_val = open_clip.create_model_and_transforms(
+                model_name="ViT-H-14-378-quickgelu",
+                pretrained="dfn5b",
+                device=device
+            )
+            _models_cache[cache_key] = (model, preprocess_val)
+            logger.info(f"ViT-H-14-378-quickgelu CLIP modeli (pretrained: dfn5b) {device} üzerinde başarıyla yüklendi ve önbelleğe alındı.")
+            return model, preprocess_val
         except Exception as e:
             logger.error(f"CLIP modeli yüklenemedi: {str(e)}")
             raise
@@ -250,22 +259,31 @@ class ContentAnalyzer:
                 pos_prompts = [f"Is there {p} in this frame?" for p in self.category_prompts[cat]["positive"]]
                 neg_prompts = [f"Is there {p} in this frame?" for p in self.category_prompts[cat]["negative"]]
                 all_prompts = pos_prompts + neg_prompts
-                text_inputs = clip.tokenize(all_prompts).to("cuda" if torch.cuda.is_available() else "cpu")
+                text_inputs = self.tokenizer(all_prompts).to("cuda" if torch.cuda.is_available() else "cpu")
                 with torch.no_grad():
                     text_features = self.clip_model.encode_text(text_inputs)
                     text_features = text_features / text_features.norm(dim=-1, keepdim=True)
                     similarities = (image_features @ text_features.T).squeeze(0).cpu().numpy()  # len = len(all_prompts)
+                
                 pos_score = float(np.mean(similarities[:len(pos_prompts)]))
                 neg_score = float(np.mean(similarities[len(pos_prompts):]))
                 fark = pos_score - neg_score
-                nihai_skor = (fark + 1) / 2  # 0-1 aralığına çek
+
+                # --- START: MODIFIED SCORE CALCULATION ---
+                SQUASH_FACTOR = 2.5 
+                squashed_fark = math.tanh(fark * SQUASH_FACTOR)
+                nihai_skor = (squashed_fark + 1) / 2  # Normalize to 0-1 range
+                
                 # Detaylı log
                 logger.info(f"[CLIP_PROMPT_LOG] Category: {cat}")
                 for i, prompt in enumerate(pos_prompts):
                     logger.info(f"  Prompt: {prompt}    Score: {similarities[i]:.4f}")
                 for i, prompt in enumerate(neg_prompts):
                     logger.info(f"  Prompt: {prompt}    Score: {similarities[len(pos_prompts)+i]:.4f}")
-                logger.info(f"  Positive mean: {pos_score:.4f}, Negative mean: {neg_score:.4f}, Final: {nihai_skor:.4f}")
+                logger.info(f"  Positive mean: {pos_score:.4f}, Negative mean: {neg_score:.4f}")
+                logger.info(f"  Original Fark: {fark:.4f}, Squashed Fark (tanh(fark*{SQUASH_FACTOR})): {squashed_fark:.4f}, Final Score: {nihai_skor:.4f}")
+                # --- END: MODIFIED SCORE CALCULATION ---
+                
                 final_scores[cat] = float(nihai_skor)
             
             # Tespit edilen nesneleri Python tiplerine dönüştür

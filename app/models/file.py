@@ -22,7 +22,8 @@ class File(db.Model):
     analyses = db.relationship('Analysis', 
                               foreign_keys='Analysis.file_id', 
                               lazy='dynamic',
-                              primaryjoin="func.cast(File.id, String) == Analysis.file_id")
+                              primaryjoin="func.cast(File.id, String) == Analysis.file_id",
+                              back_populates="file")
     
     # Latest analysis tek bir analiz erişimi için kullanılabilir
     # Çakışmayı önlemek için analysis ilişkisi kaldırıldı

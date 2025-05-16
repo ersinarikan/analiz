@@ -84,7 +84,7 @@ def create_app(config_name=None):
     
     # Servisler
     from app.services.analysis_service import AnalysisService
-    analysis_service = AnalysisService(app)
+    analysis_service = AnalysisService()
     
     # SocketIO başlatma
     socketio.init_app(app, cors_allowed_origins="*")

@@ -112,27 +112,54 @@ Dosya servis sınıfı, dosya işleme ve depolama işlemlerini yönetir.
 
 ## Kurulum ve Çalıştırma
 
-1. Gerekli bağımlılıkları yükleyin:
-```bash
-pip install -r requirements.txt
-```
+1.  **Sanal Ortam Oluşturma (Önerilir):**
+    ```bash
+    python -m venv venv
+    # Windows
+    .\venv\Scripts\activate
+    # macOS/Linux
+    source venv/bin/activate
+    ```
 
-2. Veritabanını hazırlayın:
-```bash
-flask db init
-flask db migrate
-flask db upgrade
-```
+2.  **Gerekli Bağımlılıkları Yükleyin:**
+    ```bash
+    pip install -r requirements.txt
+    ```
 
-3. Yapay zeka modellerinin ön eğitimli dosyalarının doğru konumda olduğundan emin olun:
-```bash
-python -m app.scripts.download_models
-```
+3.  **Yapay Zeka Modellerini İndirin:**
+    Proje için gerekli olan önceden eğitilmiş yapay zeka modellerini indirmek için aşağıdaki script'leri çalıştırın:
+    ```bash
+    python download_insightface_model.py
+    # Not: Eğer ek model indirme script'leriniz varsa (örn: download_yolo_model.py, download_kaggle_dataset.py)
+    # onları da burada listeyebilirsiniz veya kullanıcıya ilgili modellere göre çalıştırması gerektiğini belirtebilirsiniz.
+    ```
+    Modellerin genellikle `storage/models` klasörü veya alt klasörlerine doğru şekilde indiğinden emin olun. Her modelin beklenen konumu script içinde belirtilmiş olabilir.
 
-4. Uygulamayı başlatın:
-```bash
-flask run
-```
+4.  **Yapılandırma Dosyasını Hazırlayın (Gerekirse):**
+    Proje kök dizininde `.env.example` dosyası bulunmaktadır. Bu dosyayı kopyalayarak `.env` adında yeni bir dosya oluşturun ve kendi yerel ayarlarınıza göre (örneğin, veritabanı yolu, API anahtarları, gizli anahtarlar vb.) düzenleyebilirsiniz. Uygulama, `.env` dosyası bulunamazsa `config.py` dosyasındaki varsayılan geliştirme ayarlarını kullanacaktır.
+
+5.  **Uygulamayı Başlatın:**
+    ```bash
+    python app.py
+    ```
+    Uygulama varsayılan olarak `http://0.0.0.0:5000` adresinde çalışmaya başlayacaktır. 
+    **Not:** Mevcut `initialize_app` fonksiyonu, geliştirme modunda her uygulama başlangıcında veritabanını (`wsanaliz_dev.db`) silip yeniden oluşturmaktadır. Kalıcı veri tutmak istiyorsanız bu davranışı `app/__init__.py` içerisinden düzenlemeniz gerekebilir.
+
+## Kullanılan Ana Teknolojiler ve Kütüphaneler
+
+*   **Backend:** Python, Flask, Flask-SQLAlchemy, Flask-Migrate (Veritabanı şema yönetimi için), Flask-SocketIO (Gerçek zamanlı iletişim için), Flask-CORS.
+*   **Frontend:** HTML5, CSS3, JavaScript (ES6+), Bootstrap 5, Chart.js (Grafik gösterimleri için).
+*   **Yapay Zeka & Görüntü İşleme:**
+    *   TensorFlow / Keras (Model eğitimi ve kullanımı)
+    *   ONNX / ONNXRuntime (Farklı framework'lerde eğitilmiş modelleri çalıştırmak için)
+    *   OpenCV (Temel görüntü işleme görevleri)
+    *   Dlib (Yüz tespiti ve landmark tespiti gibi görevler için)
+    *   InsightFace (Gelişmiş yüz analizi ve tanıma modelleri)
+    *   YOLO (Gerçek zamanlı nesne tespiti için)
+    *   Scikit-learn (Makine öğrenmesi görevleri ve metrikler için)
+    *   NumPy, Pandas (Veri manipülasyonu ve analizi)
+*   **Veritabanı:** SQLite (Geliştirme için varsayılan).
+*   **Diğer:** Requests (HTTP istekleri için), Pillow (Görüntü işleme).
 
 ## Geliştirme Rehberi
 

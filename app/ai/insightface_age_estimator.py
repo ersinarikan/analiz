@@ -6,10 +6,11 @@ import torch
 import re
 import logging
 from config import Config
-import clip  # CLIP'i import ediyoruz
+# import clip  # REMOVING as open_clip will be used for tokenization too
 from PIL import Image  # PIL kütüphanesini ekliyoruz
 import math
 from flask import current_app # current_app import edildi
+import open_clip # ADDED IMPORT
 
 # Logger oluştur
 logger = logging.getLogger(__name__)
@@ -99,14 +100,23 @@ class InsightFaceAgeEstimator:
             
         # CLIP modelini yükle
         try:
-            logger.info("CLIP modeli yükleniyor (yaş tahmin güven skoru için)")
+            logger.info("CLIP modeli yükleniyor (yaş tahmin güven skoru için ViT-H-14-378-quickgelu, pretrained: dfn5b)")
             device = "cuda" if torch.cuda.is_available() else "cpu"
-            # ViT-L/14@336px modelini yükle
-            logger.info("ViT-L/14@336px CLIP modeli yükleniyor - büyük ve güvenilir model")
-            self.clip_model, self.clip_preprocess = clip.load("ViT-L/14@336px", device=device)
-            logger.info(f"CLIP modeli ({device} üzerinde) başarıyla yüklendi.")
+            model, _, preprocess_val = open_clip.create_model_and_transforms(
+                model_name="ViT-H-14-378-quickgelu",
+                pretrained="dfn5b",
+                device=device
+            )
+            self.clip_model = model
+            self.clip_preprocess = preprocess_val
+            logger.info(f"CLIP modeli (yaş için ViT-H-14-378-quickgelu, pretrained: dfn5b) {device} üzerinde başarıyla yüklendi.")
             self.clip_device = device
-            logger.info(f"CLIP modeli başarıyla yüklendi, çalışma ortamı: {device}")
+
+            # Tokenizer'ı yükle (OpenCLIP için)
+            logger.info("OpenCLIP tokenizer (ViT-H-14-378-quickgelu) yaş tahmini için yükleniyor...")
+            self.tokenizer = open_clip.get_tokenizer('ViT-H-14-378-quickgelu')
+            logger.info("OpenCLIP tokenizer (yaş tahmini) başarıyla yüklendi.")
+
         except Exception as e:
             logger.error(f"CLIP modeli yüklenemedi: {str(e)}")
             logger.warning("CLIP modeli olmadan güven skoru 0.5 olarak sabitlenecek")
@@ -239,7 +249,8 @@ class InsightFaceAgeEstimator:
                 image_features = self.clip_model.encode_image(preprocessed_image)
                 image_features /= image_features.norm(dim=-1, keepdim=True)
                 
-                text_inputs = clip.tokenize(prompts).to(self.clip_device)
+                # text_inputs = clip.tokenize(prompts).to(self.clip_device)
+                text_inputs = self.tokenizer(prompts).to(self.clip_device)
                 text_features = self.clip_model.encode_text(text_inputs)
                 text_features /= text_features.norm(dim=-1, keepdim=True)
                 

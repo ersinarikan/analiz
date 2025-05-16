@@ -1,7 +1,6 @@
 import os
 import time
 from datetime import datetime
-import threading
 import logging
 import numpy as np
 import traceback
@@ -10,21 +9,15 @@ from app import db
 # Import the real analyzers
 from app.ai.content_analyzer import ContentAnalyzer, get_content_analyzer
 from app.ai.insightface_age_estimator import InsightFaceAgeEstimator, get_age_estimator
-from app.models.analysis import Analysis, ContentDetection, AgeEstimation, FaceTracking
+from app.models.analysis import Analysis, ContentDetection, AgeEstimation
 from app.models.file import File
-from app.utils.video_utils import extract_frames
 from app.utils.image_utils import load_image
 from app.routes.settings_routes import FACTORY_DEFAULTS
 import json
 import uuid
-from app.models.content import Content, ContentType, AnalysisResult, ContentCategory
-from app.services.file_service import get_file_info, create_thumbnail
-from app.services.db_service import save_to_db, query_db
-from app.services.model_service import load_model, run_image_analysis, run_video_analysis
-from app.utils.content_utils import detect_content_type
+# from app.services.file_service import get_file_info, create_thumbnail # TAMAMEN KALDIRILDI
 from app.json_encoder import json_dumps_numpy, NumPyJSONEncoder
 from deep_sort_realtime.deepsort_tracker import DeepSort
-import clip
 import torch
 from PIL import Image
 import cv2
@@ -32,38 +25,6 @@ from app.utils.person_tracker import PersonTrackerManager
 from app.utils.face_utils import extract_face_features
 
 logger = logging.getLogger(__name__)
-
-clip_device = "cuda" if torch.cuda.is_available() else "cpu"
-clip_model, clip_preprocess = clip.load("ViT-B/32", device=clip_device)
-
-# NumPy değerlerini Python standart türlerine dönüştürmek için yardımcı fonksiyon
-def ensure_serializable(obj):
-    """NumPy türleri dahil tüm verileri JSON serileştirilebilir hale getirir."""
-    if obj is None:
-        return None
-    elif isinstance(obj, (str, bool, int, float)):
-        return obj  # zaten Python tipi
-    elif isinstance(obj, np.ndarray):
-        return ensure_serializable(obj.tolist())
-    elif isinstance(obj, (np.integer, np.int8, np.int16, np.int32, np.int64)):
-        return int(obj)
-    elif isinstance(obj, (np.floating, np.float16, np.float32, np.float64)):
-        return float(obj)
-    elif isinstance(obj, np.bool_):
-        return bool(obj)
-    elif hasattr(obj, 'dtype') and hasattr(obj, 'item'):
-        # Genel NumPy skaler tipi için item() metodunu kullan
-        return obj.item()
-    elif isinstance(obj, (list, tuple)):
-        return [ensure_serializable(x) for x in obj]
-    elif isinstance(obj, dict):
-        return {str(k): ensure_serializable(v) for k, v in obj.items()}
-    try:
-        # Son çare: metin temsiline dönüştür
-        return str(obj)
-    except:
-        logger.error(f"Serileştirilemeyen veri tipi: {type(obj)}")
-        return None
 
 # Mock analizör sınıflarını kaldırıyoruz, gerçek analizörleri kullanacağız
 
@@ -73,56 +34,6 @@ class AnalysisService:
     Bu sınıf, farklı kategorilerde (şiddet, taciz, yetişkin içeriği, vb.) 
     içerik analizi gerçekleştirmek için gerekli tüm metotları içerir.
     """
-    
-    def __init__(self, app=None):
-        """
-        Servis sınıfını başlatır ve gerekli modelleri yükler.
-        
-        Args:
-            app: Flask uygulama nesnesi (opsiyonel)
-        """
-        self.models = {}
-        
-        if app:
-            self.init_app(app)
-    
-    def init_app(self, app):
-        """
-        Flask uygulamasına servis sınıfını entegre eder ve gerekli modelleri yükler.
-        Flask contextinde çalışarak modellerin doğru şekilde yüklenmesini sağlar.
-        
-        Args:
-            app: Flask uygulama nesnesi
-        """
-        # Analiz modellerini yükle
-        with app.app_context():
-            self._load_models()
-    
-    def _load_models(self):
-        """
-        Gerekli analiz modellerini yükler. Her kategori için ayrı model kullanılır.
-        Şiddet, taciz, yetişkin içeriği, silah ve madde kullanımı için
-        ayrı modeller yüklenir ve hatalar loglama sistemi ile kaydedilir.
-        """
-        try:
-            # Şiddet içeriği için model
-            self.models['violence'] = load_model('violence_detection')
-            
-            # Taciz, hakaret içeriği için model
-            self.models['harassment'] = load_model('harassment_detection')
-            
-            # Yetişkin içeriği için model
-            self.models['adult'] = load_model('adult_content_detection')
-            
-            # Silah kullanımı için model
-            self.models['weapon'] = load_model('weapon_detection')
-            
-            # Madde kullanımı için model
-            self.models['substance'] = load_model('substance_detection')
-            
-            current_app.logger.info("Analiz modelleri başarıyla yüklendi")
-        except Exception as e:
-            current_app.logger.error(f"Model yükleme hatası: {str(e)}")
     
     def start_analysis(self, file_id, frames_per_second=None, include_age_analysis=False):
         """
@@ -185,157 +96,6 @@ class AnalysisService:
             logger.error(f"Analiz başlatma hatası: {str(e)}")
             db.session.rollback()
             return None
-    
-    def _process_analysis_legacy(self, analysis_id):
-        """
-        [LEGACY/UNUSED] Bu metod artık kullanılmıyor, queue_service tarafından yönetiliyor.
-        Eski analiz işlemini gerçekleştirirdi (Celery task yerine doğrudan çalışır)
-        
-        Args:
-            analysis_id: Analiz edilecek analizin ID'si
-        """
-        import traceback
-        import time
-        from flask import current_app
-        
-        start_time = time.time()
-        logger.info(f"[LEGACY] Analiz işlemi başlatılıyor: #{analysis_id}")
-        
-        # Flask uygulama bağlamını al
-        from app import create_app
-        app = create_app()
-        
-        # Thread içinde app_context kullanarak veritabanı işlemlerini yap
-        with app.app_context():
-            try:
-                from app import db
-                from app.models.analysis import Analysis
-                
-                # Analiz nesnesini al
-                analysis = Analysis.query.get(analysis_id)
-                if not analysis:
-                    logger.error(f"Thread içinde analiz bulunamadı: {analysis_id}")
-                    return
-                
-                # Dosya bilgilerini logla
-                try:
-                    file = analysis.file
-                    if not file:
-                        # File ilişkisi bulunamadı, manuel olarak dosya bilgisini al
-                        file = File.query.get(analysis.file_id)
-                        if not file:
-                            logger.error(f"Dosya bulunamadı: {analysis.file_id} (Analiz #{analysis_id})")
-                            raise ValueError(f"Analiz için dosya bulunamadı: #{analysis_id}")
-                    
-                    logger.info(f"Analiz #{analysis_id} başlıyor - Dosya: {file.original_filename}, Tip: {file.file_type}, "
-                               f"Boyut: {file.file_size/1024/1024:.2f} MB")
-                except Exception as file_error:
-                    logger.error(f"Dosya bilgisi hatası: {str(file_error)}")
-                    # WebSocket üzerinden hata bildirimi gönder
-                    try:
-                        from app import socketio
-                        socketio.emit('analysis_failed', {
-                            'analysis_id': analysis_id,
-                            'file_id': analysis.file_id,
-                            'error': f"Dosya bilgisi alınamadı: {str(file_error)}"
-                        })
-                    except Exception:
-                        pass
-                    
-                    # Analizi başarısız olarak işaretle
-                    try:
-                        analysis.status = 'failed'
-                        analysis.status_message = f"Dosya bilgisi alınamadı: {str(file_error)}"
-                        db.session.commit()
-                    except Exception:
-                        db.session.rollback()
-                    
-                    return
-                
-                # Analizi başlat
-                try:
-                    analysis.status = 'processing'
-                    analysis.progress = 10
-                    analysis.status_message = 'Analiz başlatıldı, dosya hazırlanıyor...'
-                    db.session.commit()
-                    logger.info(f"Analiz #{analysis_id} işleniyor - Durum: processing, İlerleme: %10")
-                    
-                    # Frontend'e analiz başlangıç bilgisini socket ile gönder
-                    try:
-                        from app import socketio
-                        socketio.emit('analysis_started', {
-                            'analysis_id': analysis_id,
-                            'file_id': analysis.file_id,
-                            'file_name': file.original_filename,
-                            'file_type': file.file_type
-                        })
-                    except Exception as socket_err:
-                        logger.warning(f"Socket.io analiz başlangıç bildirimi hatası: {str(socket_err)}")
-                    
-                except Exception as commit_error:
-                    logger.error(f"Analiz başlatma hatası: {str(commit_error)}")
-                    db.session.rollback()
-                    return
-                
-                # Analizi gerçekleştir
-                try:
-                    success, message = analyze_file(analysis_id)
-                    
-                    # Analiz tamamlandı, geçen süreyi hesapla
-                    elapsed_time = time.time() - start_time
-                    logger.info(f"Analiz #{analysis_id} tamamlandı - Sonuç: {'Başarılı' if success else 'Başarısız'}, "
-                               f"Süre: {elapsed_time:.2f} saniye, Mesaj: {message}")
-                    
-                    # WebSocket üzerinden bildirim gönder (tamamlandı/başarısız)
-                    from app import socketio
-                    if success:
-                        socketio.emit('analysis_completed', {
-                            'analysis_id': analysis_id,
-                            'file_id': analysis.file_id,
-                            'elapsed_time': elapsed_time,
-                            'message': message
-                        })
-                    else:
-                        socketio.emit('analysis_failed', {
-                            'analysis_id': analysis_id,
-                            'file_id': analysis.file_id,
-                            'elapsed_time': elapsed_time,
-                            'error': message
-                        })
-                except Exception as analysis_error:
-                    elapsed_time = time.time() - start_time
-                    error_message = f"Analiz işleme hatası: {str(analysis_error)}"
-                    logger.error(f"{error_message}\n{traceback.format_exc()}")
-                    logger.error(f"Analiz #{analysis_id} başarısız oldu - Süre: {elapsed_time:.2f} saniye")
-                    
-                    # Analizi başarısız olarak işaretle
-                    try:
-                        analysis = Analysis.query.get(analysis_id)
-                        if analysis:
-                            analysis.status = 'failed'
-                            analysis.status_message = error_message[:250]  # 250 karakter sınırı
-                            db.session.commit()
-                            logger.info(f"Analiz #{analysis_id} 'failed' olarak işaretlendi")
-                    except Exception as update_error:
-                        logger.error(f"Başarısız analizi işaretlerken hata: {str(update_error)}")
-                        db.session.rollback()
-                    
-                    # WebSocket üzerinden hata bildirimi gönder
-                    try:
-                        from app import socketio
-                        socketio.emit('analysis_failed', {
-                            'analysis_id': analysis_id,
-                            'file_id': analysis.file_id if analysis else None,
-                            'elapsed_time': elapsed_time,
-                            'error': error_message
-                        })
-                    except Exception as ws_error:
-                        logger.error(f"WebSocket hata bildirimi hatası: {str(ws_error)}")
-                        
-            except Exception as e:
-                elapsed_time = time.time() - start_time
-                logger.critical(f"_process_analysis kritik hatası: {str(e)}\n{traceback.format_exc()}")
-                logger.critical(f"Analiz #{analysis_id} kritik hata - Süre: {elapsed_time:.2f} saniye")
     
     def cancel_analysis(self, analysis_id):
         """
@@ -401,165 +161,6 @@ class AnalysisService:
         except Exception as e:
             logger.error(f"Analiz tekrar deneme hatası: {str(e)}")
             db.session.rollback()
-            return None
-    
-    def start_analysis_original(self, file_path, original_filename, user_id=None):
-        """
-        Verilen dosya için analiz işlemini başlatır ve sonuçları veritabanına kaydeder.
-        Bu metot analiz sürecinin giriş noktasıdır ve tüm analiz işlemini koordine eder.
-        
-        Args:
-            file_path: Analiz edilecek dosyanın tam yolu
-            original_filename: Orijinal dosya adı
-            user_id: İçeriği yükleyen kullanıcı ID'si (opsiyonel)
-            
-        Returns:
-            dict: Analiz sonuçlarını içeren veri yapısı
-            
-        Raises:
-            Exception: Dosya analizi sırasında oluşan hatalar
-        """
-        try:
-            # Dosya bilgilerini al
-            file_info = get_file_info(file_path)
-            if not file_info:
-                raise Exception("Dosya bilgileri alınamadı")
-            
-            # Dosya türünü belirle
-            content_type = detect_content_type(file_info['mime_type'])
-            
-            # Analiz işlemini gerçekleştir
-            analysis_results = self._analyze_file(file_path, content_type, file_info['mime_type'])
-            
-            # Küçük resim oluştur
-            thumbnail_data = create_thumbnail(file_path, file_info['mime_type'])
-            
-            # Benzersiz içerik ID'si oluştur
-            content_id = str(uuid.uuid4())
-            
-            # Sonuçları modele dönüştür
-            content = Content(
-                id=content_id,
-                filename=original_filename,
-                file_path=file_path,
-                file_size=file_info['size'],
-                mime_type=file_info['mime_type'],
-                content_type=content_type,
-                user_id=user_id,
-                upload_date=datetime.now(),
-                thumbnail=thumbnail_data
-            )
-            
-            # Analiz sonuçlarını ekle
-            for category, result in analysis_results.items():
-                content.add_analysis_result(
-                    category=category,
-                    score=result['score'],
-                    details=result.get('details', None)
-                )
-            
-            # Veritabanına kaydet
-            save_to_db(content)
-            
-            return {
-                'content_id': content_id,
-                'analysis_results': analysis_results,
-                'content_type': content_type.value
-            }
-            
-        except Exception as e:
-            current_app.logger.error(f"İçerik analiz hatası: {str(e)}")
-            raise
-    
-    def _analyze_file(self, file_path, content_type, mime_type):
-        """
-        Dosya türüne göre uygun analiz yöntemini çağırır.
-        Resim ve video dosyaları için farklı analiz yöntemleri kullanılır.
-        
-        Args:
-            file_path: Analiz edilecek dosyanın tam yolu
-            content_type: İçerik türü (IMAGE, VIDEO, vb.)
-            mime_type: Dosyanın MIME tipi
-            
-        Returns:
-            dict: Kategorilere göre analiz sonuçları
-        """
-        if content_type == ContentType.IMAGE:
-            return self._analyze_content(file_path, run_image_analysis)
-        elif content_type == ContentType.VIDEO:
-            return self._analyze_content(file_path, run_video_analysis)
-        else:
-            raise ValueError(f"Desteklenmeyen içerik türü: {content_type}")
-    
-    def _analyze_content(self, file_path, analysis_function):
-        """
-        Belirtilen analiz fonksiyonunu kullanarak içeriği tüm kategoriler için analiz eder.
-        Her analiz kategorisi için ayrı model çalıştırılır ve sonuçlar birleştirilir.
-        
-        Args:
-            file_path: Analiz edilecek dosyanın tam yolu
-            analysis_function: Kullanılacak analiz fonksiyonu
-            
-        Returns:
-            dict: Kategorilere göre analiz sonuçları
-        """
-        results = {}
-        
-        # Her kategori için analiz gerçekleştir
-        for category, model in self.models.items():
-            try:
-                category_result = analysis_function(model, file_path)
-                results[category] = category_result
-            except Exception as e:
-                current_app.logger.error(f"{category} analizi sırasında hata: {str(e)}")
-                # Hata durumunda varsayılan sonuçlar
-                results[category] = {
-                    'score': 0.0,
-                    'details': {"error": str(e)}
-                }
-        
-        return results
-    
-    def get_analysis_result(self, content_id):
-        """
-        Belirli bir içerik ID'si için analiz sonuçlarını veritabanından getirir.
-        Bu metot, önceden yapılmış analizlerin sonuçlarını görüntülemek için kullanılır.
-        
-        Args:
-            content_id: İçerik benzersiz tanımlayıcısı
-            
-        Returns:
-            dict: İçerik ve analiz sonuçlarını içeren veri yapısı veya None
-        """
-        try:
-            # Veritabanından içeriği sorgula
-            content = query_db(Content, id=content_id)
-            
-            if not content:
-                return None
-            
-            # Yanıt formatını oluştur
-            response = {
-                'content_id': content.id,
-                'filename': content.filename,
-                'file_size': content.file_size,
-                'mime_type': content.mime_type,
-                'content_type': content.content_type.value,
-                'upload_date': content.upload_date.isoformat(),
-                'analysis_results': {}
-            }
-            
-            # Analiz sonuçlarını ekle
-            for result in content.analysis_results:
-                response['analysis_results'][result.category] = {
-                    'score': result.score,
-                    'details': result.details
-                }
-            
-            return response
-            
-        except Exception as e:
-            current_app.logger.error(f"Analiz sonucu getirme hatası: {str(e)}")
             return None
 
 def analyze_file(analysis_id):
@@ -907,8 +508,9 @@ def analyze_video(analysis):
         detected_faces_count = 0
         
         # Tüm kareleri işle
-        person_best_frames = {}
+        # person_best_frames = {} # REMOVED
         track_genders = {}
+        processed_persons_with_data = set() # Keep this to know which persons to process later
         
         # Video'yu baştan sonra kadar işle
         for i, frame_idx in enumerate(frame_indices):
@@ -1097,88 +699,36 @@ def analyze_video(analysis):
                                 
                                 age = float(estimated_age)
 
-                                    # Takipteki kişi için en iyi kareyi kaydet
-                                if track_id_str not in person_best_frames or confidence > person_best_frames[track_id_str]['confidence']:
-                                    old_conf = person_best_frames.get(track_id_str, {}).get('confidence', -1)
-                                    person_best_frames[track_id_str] = {
-                                       'confidence': confidence,
-                                       'frame_path': frame_path, 
-                                       'timestamp': timestamp,
-                                       'bbox': (x1, y1, w, h),
-                                       'age': age
-                                    }
-                                    logger.info(f"[SVC_LOG][VID] person_best_frames güncellendi (Güvenilir takip). Kişi: {track_id_str}, Yeni Güven: {confidence:.4f} (Eski: {old_conf:.4f}), Kare: {i}")
-                                else:
-                                    logger.info(f"[SVC_LOG][VID] person_best_frames güncellenmedi (Güvenilir takip, Güven Düşük). Kişi: {track_id_str}, Mevcut Güven: {person_best_frames[track_id_str]['confidence']:.4f} >= Yeni Güven: {confidence:.4f}, Kare: {i}")
-
-                                    # AgeEstimation kaydını oluştur veya güncelle
-                                    try:
-                                        age_est = AgeEstimation.query.filter_by(analysis_id=analysis.id, person_id=track_id_str).first()
-                                        if not age_est:
-                                            age_est = AgeEstimation(
-                                                analysis_id=analysis.id,
-                                                person_id=track_id_str,
-                                                frame_path=frame_path,
-                                                estimated_age=age,
-                                                confidence_score=confidence
-                                            )
-                                            logger.info(f"[SVC_LOG][VID] Yeni AgeEstimation kaydı (Güvenilir takip): {track_id_str}, Kare: {i}")
-                                        else:
-                                            if confidence > age_est.confidence_score:
-                                                age_est.frame_path = frame_path
-                                                age_est.estimated_age = age
-                                                age_est.confidence_score = confidence
-                                                logger.info(f"[SVC_LOG][VID] AgeEstimation güncellendi (Güvenilir takip, daha iyi güven): {track_id_str}, Yeni Güven: {confidence:.4f}, Kare: {i}")
-                                            else:
-                                                 logger.info(f"[SVC_LOG][VID] AgeEstimation güncellenmedi (Güvenilir takip, güven düşük): {track_id_str}, Kare: {i}")
-                                        db.session.add(age_est)
-                                        
-                                        # Overlay oluştur
-                                        out_dir = os.path.join(current_app.config['PROCESSED_FOLDER'], f"frames_{analysis.id}", "overlays")
-                                        os.makedirs(out_dir, exist_ok=True)
-                                        # Overlay dosya adında track.track_id (sayısal) kullanalım ki çok uzun olmasın.
-                                        overlay_file_name_prefix = f"person_{track.track_id}" 
-                                        out_name = f"{overlay_file_name_prefix}_{os.path.basename(frame_path)}"
-                                        out_path = os.path.join(out_dir, out_name)
-                                        
-                                        try:
-                                            image_with_overlay = image.copy()
-                                            x2_o, y2_o = x1 + w, y1 + h
-                                            x1_o, y1_o = max(0, x1), max(0, y1)
-                                            x2_o, y2_o = min(image.shape[1], x2_o), min(image.shape[0], y2_o)
-                                            
-                                            cv2.rectangle(image_with_overlay, (x1_o, y1_o), (x2_o, y2_o), (0, 255, 0), 2)
-                                            text = f"ID: {track.track_id}  YAS: {int(age)}" # Overlay'de kısa ID
-                                            text_size = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.7, 2)[0]
-                                            text_y = y1_o - 10 if y1_o > 20 else y1_o + h + 25
-                                            text_bg_x1 = x1_o
-                                            text_bg_y1 = text_y - text_size[1] - 5
-                                            text_bg_x2, text_bg_y2 = x1_o + text_size[0] + 10, text_y + 5
-                                            
-                                            # Arka plan çiz
-                                            cv2.rectangle(image_with_overlay, (text_bg_x1, text_bg_y1), (text_bg_x2, text_bg_y2), (0, 0, 0), -1)
-                                            cv2.putText(image_with_overlay, text, (x1_o + 5, text_y), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-                                            
-                                            # Güvenilirlik skorunu ekle
-                                            reliability_score = person_tracker_manager.get_reliability_score(str(track.track_id))
-                                            reliability_text = f"G: {reliability_score:.2f}"
-                                            cv2.putText(image_with_overlay, reliability_text, 
-                                                         (x1_o + 5, text_bg_y2 + 20), 
-                                                         cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
-                                            
-                                            if cv2.imwrite(out_path, image_with_overlay):
-                                                rel_path = os.path.relpath(out_path, current_app.config['STORAGE_FOLDER']).replace('\\', '/')
-                                                age_est.processed_image_path = rel_path
-                                                db.session.add(age_est)
-                                            else:
-                                                logger.error(f"Overlay kaydedilemedi: {out_path}")
-                                                
-                                        except Exception as overlay_err:
-                                            logger.error(f"Overlay oluşturma hatası (person_id={track_id_str}): {str(overlay_err)}")
-                                            
-                                    except Exception as db_err:
-                                        logger.error(f"[SVC_LOG][VID] DB hatası (track_id={track_id_str}, kare={i}): {str(db_err)}")
-
+                                # AgeEstimation record creation/update logic:
+                                try:
+                                    age_est = AgeEstimation.query.filter_by(analysis_id=analysis.id, person_id=track_id_str).first()
+                                    db_bbox_to_store = [x1, y1, w, h]
+                                    if not age_est:
+                                        age_est = AgeEstimation(
+                                            analysis_id=analysis.id,
+                                            person_id=track_id_str,
+                                            frame_path=frame_path,
+                                            estimated_age=age,
+                                            confidence_score=confidence,
+                                            frame_number=frame_idx, 
+                                            face_bounding_box=json.dumps(db_bbox_to_store)
+                                        )
+                                        logger.info(f"[SVC_LOG][VID] Yeni AgeEstimation: {track_id_str}, Kare: {frame_idx}, BBox: {db_bbox_to_store}")
+                                    else:
+                                        if confidence > age_est.confidence_score:
+                                            age_est.frame_path = frame_path
+                                            age_est.estimated_age = age
+                                            age_est.confidence_score = confidence
+                                            age_est.frame_number = frame_idx
+                                            age_est.face_bounding_box = json.dumps(db_bbox_to_store)
+                                            logger.info(f"[SVC_LOG][VID] AgeEstimation Güncelleme: {track_id_str}, Yeni Güven: {confidence:.4f}, Kare: {frame_idx}")
+                                    db.session.add(age_est)
+                                    processed_persons_with_data.add(track_id_str)
+                                    
+                                except Exception as db_err:
+                                    logger.error(f"[SVC_LOG][VID] DB hatası (track_id={track_id_str}, kare={i}): {str(db_err)}")
+                                    continue
+                                
                         except Exception as track_err:
                             logger.error(f"DeepSORT takip hatası: {str(track_err)}")
                             continue
@@ -1234,91 +784,221 @@ def analyze_video(analysis):
         db.session.commit()
         
         # Analiz tamamlandı, istatistikleri logla
-        unique_persons = len(person_best_frames) if person_best_frames else 0
+        unique_persons_query = db.session.query(AgeEstimation.person_id).filter(AgeEstimation.analysis_id == analysis.id).distinct().count()
         logger.info(f"Video analizi tamamlandı: Analiz #{analysis.id}, Dosya: {file.original_filename}")
-        logger.info(f"  - Toplam {len(frame_paths)} kare analiz edildi")
-        logger.info(f"  - {detected_faces_count} yüz tespiti, {unique_persons} benzersiz kişi")
+        logger.info(f"  - Toplam {len(frame_paths)} kare analiz edildi ({total_frames_to_process} hedeflenmişti)")
+        logger.info(f"  - {detected_faces_count} yüz tespiti, {unique_persons_query} benzersiz kişi")
         logger.info(f"  - {high_risk_frames_count} yüksek riskli kare tespit edildi")
         
-        # Döngü bittikten sonra, her kişi için en iyi kareyi işleyip kaydet (önce kopyala, sonra overlay)
-        overlay_dir = os.path.join(current_app.config['PROCESSED_FOLDER'], f"frames_{analysis.id}", "overlays")
-        os.makedirs(overlay_dir, exist_ok=True)
-        for person_id, info in person_best_frames.items():
-            frame_path = info['frame_path']
-            x1, y1, w, h = info['bbox']
-            age = info['age']
-            confidence = info['confidence']
-            try:
-                # Orijinal kareyi oku
-                src_path = frame_path  # path birleştirme yok, doğrudan kullan
-                logger.info(f"Overlay için kare okunuyor: {src_path}, exists={os.path.exists(src_path)}")
-                image = cv2.imread(src_path)
-                if image is None:
-                    logger.error(f"Overlay için kare okunamadı (person_id={person_id}): {src_path}")
-                    continue
-                out_name = f"{person_id}.jpg"
-                out_path = os.path.join(overlay_dir, out_name)
-                # Önce orijinal kareyi kopyala
-                cv2.imwrite(out_path, image)
-                logger.info(f"Overlay dosyası kaydedildi - path={out_path}, exists={os.path.exists(out_path)}")
-                # Sonra overlay işlemi yap
-                try:
-                    x2, y2 = x1 + w, y1 + h
-                    image_with_overlay = image.copy()
-                    cv2.rectangle(image_with_overlay, (x1, y1), (x2, y2), (0, 255, 0), 2)
-                    text = f"ID: {person_id.split('_')[-1]}  YAS: {int(age)}"
-                    text_y = y1 - 10 if y1 > 20 else y1 + h + 25
-                    cv2.putText(image_with_overlay, text, (x1, text_y), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-                    cv2.imwrite(out_path, image_with_overlay)
-                    logger.info(f"Overlay oluşturuluyor - path={out_path}, exists={os.path.exists(out_path)}")
-                    rel_path = os.path.relpath(out_path, current_app.config['STORAGE_FOLDER']).replace('\\', '/')
-                    logger.info(f"Overlay DB path - rel_path={rel_path}")
-                    # AgeEstimation kaydını güncelle (en yüksek confidence'lı olanı bul)
-                    best_est = AgeEstimation.query.filter_by(analysis_id=analysis.id, person_id=person_id).order_by(AgeEstimation._confidence_score.desc()).first()
-                    if best_est:
-                        logger.info(f"Overlay güncelleme: person_id={person_id}, rel_path={rel_path}, DB'deki eski path={best_est.processed_image_path}")
-                        best_est.processed_image_path = rel_path
-                        db.session.add(best_est)
-                        db.session.commit()
-                        logger.info(f"Overlay DB'ye yazıldı - person_id={person_id}, rel_path={rel_path}, DB'deki yeni path={best_est.processed_image_path}")
-                        # DB'den tekrar oku ve logla
-                        kontrol_est = AgeEstimation.query.filter_by(id=best_est.id).first()
-                        logger.info(f"DB'den tekrar okundu: id={best_est.id}, processed_image_path={kontrol_est.processed_image_path}")
-                    else:
-                        logger.info(f"Overlay yeni kayıt: person_id={person_id}, rel_path={rel_path}")
-                        new_est = AgeEstimation(
-                            analysis_id=analysis.id,
-                            person_id=person_id,
-                            frame_path=frame_path,
-                            estimated_age=age,
-                            confidence_score=confidence,
-                        )
-                        new_est.set_face_location(x1, y1, w, h)
-                        new_est.processed_image_path = rel_path
-                        db.session.add(new_est)
-                        db.session.commit()
-                        logger.info(f"Overlay yeni kayıt DB'ye yazıldı - person_id={person_id}, rel_path={rel_path}, DB'deki path={new_est.processed_image_path}")
-                        # DB'den tekrar oku ve logla
-                        kontrol_est = AgeEstimation.query.filter_by(id=new_est.id).first()
-                        logger.info(f"DB'den tekrar okundu: id={new_est.id}, processed_image_path={kontrol_est.processed_image_path}")
-                except Exception as overlay_err:
-                    logger.warning(f"Overlay oluşturulamadı (person_id={person_id}, kare={src_path}): {str(overlay_err)}")
-                    continue
-            except Exception as copy_err:
-                logger.error(f"Kare kopyalama/overlay işlemi hatası (person_id={person_id}): {str(copy_err)}")
-                continue
-        db.session.commit()
-        
-        if not person_best_frames:
-            logger.warning(f"Analiz sonunda hiç geçerli yüz (yaş/confidence) bulunamadı, overlay klasörü ve dosyası oluşmayacak: {overlay_dir}")
-        
-        logger.info(f"[SVC_LOG][VID] Video analizi tamamlandı. person_best_frames final durumu: {json.dumps({k: v['confidence'] for k,v in person_best_frames.items()})})")
-        
-        return True, "Video analizi tamamlandı"
+        # BEGIN REPLACEMENT OF OLD OVERLAY LOGIC
+        # Old block iterating person_best_frames is removed.
 
-    except Exception as e:
-        logger.error(f"Video analizi başarısız oldu: Analiz #{analysis.id}, Hata: {str(e)}")
-        db.session.rollback()
+        # NEW OVERLAY GENERATION LOGIC
+        if analysis.include_age_analysis and processed_persons_with_data:
+            logger.info(f"Analiz #{analysis.id} için final overlayler oluşturuluyor.")
+            # Correct base directory for storing overlays locally, mirroring S3 structure if applicable
+            base_overlay_dir = os.path.join(current_app.config['PROCESSED_FOLDER'], str(analysis.id), 'overlays')
+            # Path part for DB: 'overlays/<analysis_id>'. Used for S3 key prefix and local relative path for url_for.
+            db_overlays_path_prefix = os.path.join('overlays', str(analysis.id))
+
+            os.makedirs(base_overlay_dir, exist_ok=True)
+
+            for person_id_str in processed_persons_with_data:
+                try:
+                    best_est = db.session.query(AgeEstimation).filter_by(
+                        analysis_id=analysis.id,
+                        person_id=person_id_str
+                    ).order_by(AgeEstimation.confidence_score.desc(), AgeEstimation.id.desc()).first()
+
+                    if not best_est:
+                        logger.warning(f"Kişi {person_id_str} için final AgeEstimation kaydı bulunamadı, overlay atlanıyor.")
+                        continue
+
+                    if not best_est.frame_path or not os.path.exists(best_est.frame_path):
+                        logger.error(f"Overlay için kaynak kare {best_est.frame_path} bulunamadı/geçersiz (Kişi: {person_id_str})")
+                        continue
+                    
+                    image_source_for_overlay = cv2.imread(best_est.frame_path)
+                    if image_source_for_overlay is None:
+                        logger.error(f"Overlay için kare okunamadı (Kişi: {person_id_str}): {best_est.frame_path}")
+                        continue
+
+                    age_to_display = int(round(best_est.estimated_age))
+                    bbox_json_str = best_est.face_bounding_box
+                    if not bbox_json_str:
+                        logger.warning(f"Kişi {person_id_str} için BBox yok, overlay atlanıyor (Kayıt ID: {best_est.id}).")
+                        continue
+                    
+                    try:
+                        x1_bbox, y1_bbox, w_bbox, h_bbox = json.loads(bbox_json_str)
+                    except (TypeError, ValueError) as json_parse_err:
+                        logger.error(f"Kişi {person_id_str} BBox parse edilemedi ({bbox_json_str}): {json_parse_err}")
+                        continue
+
+                    image_with_overlay = image_source_for_overlay.copy()
+                    x2_bbox, y2_bbox = x1_bbox + w_bbox, y1_bbox + h_bbox
+                    
+                    img_h_shape, img_w_shape = image_with_overlay.shape[:2]
+                    draw_x1, draw_y1 = max(0, x1_bbox), max(0, y1_bbox)
+                    draw_x2, draw_y2 = min(img_w_shape - 1, x2_bbox), min(img_h_shape - 1, y2_bbox)
+
+                    cv2.rectangle(image_with_overlay, (draw_x1, draw_y1), (draw_x2, draw_y2), (0, 255, 0), 2)
+                    
+                    # Use the numerical part of person_id for shorter display ID on overlay
+                    display_person_short_id = person_id_str.split('_')[-1] 
+                    text_on_overlay = f"ID: {display_person_short_id} YAS: {age_to_display}"
+                    
+                    (text_w, text_h), _ = cv2.getTextSize(text_on_overlay, cv2.FONT_HERSHEY_SIMPLEX, 0.7, 2)
+                    text_y_draw_pos = draw_y1 - 10 if draw_y1 > (text_h + 10) else draw_y2 + text_h + 10
+                    
+                    # Text background rectangle for better readability
+                    cv2.rectangle(image_with_overlay, (draw_x1, text_y_draw_pos - text_h -5), (draw_x1 + text_w + 5, text_y_draw_pos+5), (0,0,0), -1)
+                    cv2.putText(image_with_overlay, text_on_overlay, (draw_x1 + 2, text_y_draw_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+
+                    final_overlay_filename = f"person_{display_person_short_id}_vid{analysis.id}_f{best_est.frame_number}.jpg"
+                    local_full_overlay_storage_path = os.path.join(base_overlay_dir, final_overlay_filename)
+                    
+                    cv2.imwrite(local_full_overlay_storage_path, image_with_overlay)
+                    db_path_for_local = os.path.join(db_overlays_path_prefix, final_overlay_filename).replace('\\', '/')
+                    best_est.processed_image_path = db_path_for_local
+                    logger.info(f"Overlay locale kaydedildi: {local_full_overlay_storage_path}, DB yolu: {db_path_for_local} (Kişi: {person_id_str})")
+                    
+                    db.session.add(best_est)
+
+                except Exception as final_overlay_err:
+                    logger.error(f"Kişi {person_id_str} için final overlay hatası: {final_overlay_err}", exc_info=True)
+            
+            try:
+                db.session.commit() 
+                logger.info(f"Analiz #{analysis.id} için final overlay path güncellemeleri tamamlandı.")
+            except Exception as e_commit_final_overlays:
+                db.session.rollback()
+                logger.error(f"Final overlay path commit hatası: {e_commit_final_overlays}")
+        # END NEW OVERLAY GENERATION LOGIC
+        
+        # Genel skorları hesapla (içerik analizi için)
+        try:
+            # Tüm içerik tespitlerini veritabanından al
+            detections = ContentDetection.query.filter_by(analysis_id=analysis.id).all()
+            
+            if not detections:
+                logger.warning(f"ContentDetection kaydı bulunamadı: Analiz #{analysis.id}")
+                analysis.status_message = "Analiz tamamlandı ancak içerik skoru hesaplanacak kare bulunamadı."
+                db.session.commit()
+                return
+            
+            logger.info(f"Calculate_overall_scores: Analiz #{analysis.id} için {len(detections)} ContentDetection kaydı bulundu")
+            
+            categories = ['violence', 'adult_content', 'harassment', 'weapon', 'drug', 'safe']
+            category_scores_sum = {cat: 0 for cat in categories}
+            category_counts = {cat: 0 for cat in categories} # Her kategoride skoru olan kare sayısı
+            
+            category_specific_highest_risks = {
+                cat: {'score': -1, 'frame_path': None, 'timestamp': None, 'detection_id': None} for cat in categories
+            }
+
+            for detection in detections:
+                detection_scores = {
+                    'violence': detection.violence_score,
+                    'adult_content': detection.adult_content_score,
+                    'harassment': detection.harassment_score,
+                    'weapon': detection.weapon_score,
+                    'drug': detection.drug_score,
+                    'safe': detection.safe_score
+                }
+                
+                for category in categories:
+                    score = detection_scores.get(category)
+                    if score is not None:
+                        category_scores_sum[category] += score
+                        category_counts[category] += 1
+                        
+                        if score > category_specific_highest_risks[category]['score']:
+                            category_specific_highest_risks[category]['score'] = score
+                            category_specific_highest_risks[category]['frame_path'] = detection.frame_path
+                            category_specific_highest_risks[category]['timestamp'] = detection.frame_timestamp
+                            category_specific_highest_risks[category]['detection_id'] = detection.id
+
+            # Genel skorları basit aritmetik ortalama alarak hesapla
+            avg_scores = {}
+            avg_scores['violence'] = category_scores_sum['violence'] / category_counts['violence'] if category_counts['violence'] > 0 else 0
+            avg_scores['adult_content'] = category_scores_sum['adult_content'] / category_counts['adult_content'] if category_counts['adult_content'] > 0 else 0
+            avg_scores['harassment'] = category_scores_sum['harassment'] / category_counts['harassment'] if category_counts['harassment'] > 0 else 0
+            avg_scores['weapon'] = category_scores_sum['weapon'] / category_counts['weapon'] if category_counts['weapon'] > 0 else 0
+            avg_scores['drug'] = category_scores_sum['drug'] / category_counts['drug'] if category_counts['drug'] > 0 else 0
+            avg_scores['safe'] = category_scores_sum['safe'] / category_counts['safe'] if category_counts['safe'] > 0 else 0
+            
+            logger.info(f"Analiz #{analysis.id} - Ham Ortalama Skorlar: {json.dumps({k: f'{v:.4f}' for k, v in avg_scores.items()})}")
+
+            # --- YENİ: Güç Dönüşümü ile Skorları Ayrıştırma ---
+            power_value = 1.5  # Bu değer ayarlanabilir (örneğin 1.5, 2, 2.5). Değer arttıkça ayrışma artar.
+            
+            enhanced_scores = {}
+            for category in categories:
+                enhanced_scores[category] = avg_scores[category] ** power_value
+            
+            logger.info(f"Analiz #{analysis.id} - Güç Dönüşümü Sonrası Skorlar (p={power_value}): {json.dumps({k: f'{v:.4f}' for k, v in enhanced_scores.items()})}")
+
+            # Genel skorları güncelle (geliştirilmiş skorlarla)
+            analysis.overall_violence_score = enhanced_scores['violence']
+            analysis.overall_adult_content_score = enhanced_scores['adult_content']
+            analysis.overall_harassment_score = enhanced_scores['harassment']
+            analysis.overall_weapon_score = enhanced_scores['weapon']
+            analysis.overall_drug_score = enhanced_scores['drug']
+            analysis.overall_safe_score = enhanced_scores['safe']
+            
+            logger.info(f"Analiz #{analysis.id} - Geliştirilmiş Ortalama Skorlar: Violence={analysis.overall_violence_score:.4f}, Adult={analysis.overall_adult_content_score:.4f}, Harassment={analysis.overall_harassment_score:.4f}, Weapon={analysis.overall_weapon_score:.4f}, Drug={analysis.overall_drug_score:.4f}, Safe={analysis.overall_safe_score:.4f}")
+
+            # Kategori bazlı en yüksek risk bilgilerini JSON olarak kaydetmek için (Analysis modelinde alan olmalı)
+            # Şimdilik loglayalım ve dinamik attribute olarak ekleyelim. DB'ye yazmak için model değişikliği gerekebilir.
+            analysis.category_specific_highest_risks_data = json.dumps(category_specific_highest_risks, cls=NumPyJSONEncoder) # NumPyJSONEncoder eklendi
+            logger.info(f"Analiz #{analysis.id} - Kategori Bazlı En Yüksek Riskler: {analysis.category_specific_highest_risks_data}")
+
+            # Mevcut en yüksek risk alanlarını (safe hariç genel en yüksek) yine de dolduralım, ama bu yeni mantığa göre olacak.
+            # Tüm kategoriler (safe hariç) arasında en yüksek olanı bulalım.
+            overall_highest_risk_score = -1
+            overall_highest_risk_category = None
+            overall_highest_risk_frame_path = None
+            overall_highest_risk_timestamp = None
+
+            for cat in categories:
+                if cat == 'safe': # 'safe' kategorisini genel en yüksek risk için dahil etme
+                    continue
+                if category_specific_highest_risks[cat]['score'] > overall_highest_risk_score:
+                    overall_highest_risk_score = category_specific_highest_risks[cat]['score']
+                    overall_highest_risk_category = cat
+                    overall_highest_risk_frame_path = category_specific_highest_risks[cat]['frame_path']
+                    overall_highest_risk_timestamp = category_specific_highest_risks[cat]['timestamp']
+            
+            if overall_highest_risk_category:
+                analysis.highest_risk_frame = overall_highest_risk_frame_path
+                analysis.highest_risk_frame_timestamp = overall_highest_risk_timestamp
+                analysis.highest_risk_score = overall_highest_risk_score
+                analysis.highest_risk_category = overall_highest_risk_category
+                logger.info(f"Analiz #{analysis.id} - Genel En Yüksek Risk ('safe' hariç): {overall_highest_risk_category} skoru {overall_highest_risk_score:.4f}, kare: {overall_highest_risk_frame_path}")
+            else:
+                # Eğer safe dışında hiçbir kategoride risk bulunamazsa (çok nadir olmalı)
+                analysis.highest_risk_score = category_specific_highest_risks['safe']['score']
+                analysis.highest_risk_category = 'safe'
+                analysis.highest_risk_frame = category_specific_highest_risks['safe']['frame_path']
+                analysis.highest_risk_frame_timestamp = category_specific_highest_risks['safe']['timestamp']
+                logger.info(f"Analiz #{analysis.id} - 'safe' dışında risk bulunamadı. En yüksek 'safe' skoru: {analysis.highest_risk_score:.4f}")
+
+            db.session.commit()
+            
+        except Exception as e:
+            current_app.logger.error(f"Genel skor hesaplama hatası: {str(e)}")
+            logger.error(f"Hata detayı: {traceback.format_exc()}")
+            db.session.rollback()
+
+        logger.info(f"Video analizi başarıyla tamamlandı: Analiz #{analysis.id}")
+        return True, "Video analizi başarıyla tamamlandı"
+
+    except Exception as e: # analyze_video için ana try bloğunun (satır 809'daki) except kısmı
+        error_message = f"Video analizi sırasında genel hata: Analiz #{analysis.id}, Hata: {str(e)}"
+        logger.error(error_message)
+        logger.error(traceback.format_exc())
+        db.session.rollback() 
         return False, f"Video analizi hatası: {str(e)}"
 
 
@@ -1374,18 +1054,38 @@ def calculate_overall_scores(analysis):
                         category_specific_highest_risks[category]['detection_id'] = detection.id
 
         # Genel skorları basit aritmetik ortalama alarak hesapla
-        analysis.overall_violence_score = category_scores_sum['violence'] / category_counts['violence'] if category_counts['violence'] > 0 else 0
-        analysis.overall_adult_content_score = category_scores_sum['adult_content'] / category_counts['adult_content'] if category_counts['adult_content'] > 0 else 0
-        analysis.overall_harassment_score = category_scores_sum['harassment'] / category_counts['harassment'] if category_counts['harassment'] > 0 else 0
-        analysis.overall_weapon_score = category_scores_sum['weapon'] / category_counts['weapon'] if category_counts['weapon'] > 0 else 0
-        analysis.overall_drug_score = category_scores_sum['drug'] / category_counts['drug'] if category_counts['drug'] > 0 else 0
-        analysis.overall_safe_score = category_scores_sum['safe'] / category_counts['safe'] if category_counts['safe'] > 0 else 0
-        
-        logger.info(f"Analiz #{analysis.id} - Ortalama Skorlar: Violence={analysis.overall_violence_score:.4f}, Adult={analysis.overall_adult_content_score:.4f}, Harassment={analysis.overall_harassment_score:.4f}, Weapon={analysis.overall_weapon_score:.4f}, Drug={analysis.overall_drug_score:.4f}, Safe={analysis.overall_safe_score:.4f}")
+        avg_scores = {}
+        avg_scores['violence'] = category_scores_sum['violence'] / category_counts['violence'] if category_counts['violence'] > 0 else 0
+        avg_scores['adult_content'] = category_scores_sum['adult_content'] / category_counts['adult_content'] if category_counts['adult_content'] > 0 else 0
+        avg_scores['harassment'] = category_scores_sum['harassment'] / category_counts['harassment'] if category_counts['harassment'] > 0 else 0
+        avg_scores['weapon'] = category_scores_sum['weapon'] / category_counts['weapon'] if category_counts['weapon'] > 0 else 0
+        avg_scores['drug'] = category_scores_sum['drug'] / category_counts['drug'] if category_counts['drug'] > 0 else 0
+        avg_scores['safe'] = category_scores_sum['safe'] / category_counts['safe'] if category_counts['safe'] > 0 else 0
+            
+        logger.info(f"Analiz #{analysis.id} - Ham Ortalama Skorlar: {json.dumps({k: f'{v:.4f}' for k, v in avg_scores.items()})}")
+
+        # --- YENİ: Güç Dönüşümü ile Skorları Ayrıştırma ---
+        power_value = 1.5  # Bu değer ayarlanabilir (örneğin 1.5, 2, 2.5). Değer arttıkça ayrışma artar.
+            
+        enhanced_scores = {}
+        for category in categories:
+            enhanced_scores[category] = avg_scores[category] ** power_value
+            
+        logger.info(f"Analiz #{analysis.id} - Güç Dönüşümü Sonrası Skorlar (p={power_value}): {json.dumps({k: f'{v:.4f}' for k, v in enhanced_scores.items()})}")
+
+        # Genel skorları güncelle (geliştirilmiş skorlarla)
+        analysis.overall_violence_score = enhanced_scores['violence']
+        analysis.overall_adult_content_score = enhanced_scores['adult_content']
+        analysis.overall_harassment_score = enhanced_scores['harassment']
+        analysis.overall_weapon_score = enhanced_scores['weapon']
+        analysis.overall_drug_score = enhanced_scores['drug']
+        analysis.overall_safe_score = enhanced_scores['safe']
+            
+        logger.info(f"Analiz #{analysis.id} - Geliştirilmiş Ortalama Skorlar: Violence={analysis.overall_violence_score:.4f}, Adult={analysis.overall_adult_content_score:.4f}, Harassment={analysis.overall_harassment_score:.4f}, Weapon={analysis.overall_weapon_score:.4f}, Drug={analysis.overall_drug_score:.4f}, Safe={analysis.overall_safe_score:.4f}")
 
         # Kategori bazlı en yüksek risk bilgilerini JSON olarak kaydetmek için (Analysis modelinde alan olmalı)
         # Şimdilik loglayalım ve dinamik attribute olarak ekleyelim. DB'ye yazmak için model değişikliği gerekebilir.
-        analysis.category_specific_highest_risks_data = json.dumps(category_specific_highest_risks, cls=NumPyJSONEncoder) # NumPyJSONEncoder eklendi
+        analysis.category_specific_highest_risks_data = json.dumps(category_specific_highest_risks, cls=NumPyJSONEncoder)
         logger.info(f"Analiz #{analysis.id} - Kategori Bazlı En Yüksek Riskler: {analysis.category_specific_highest_risks_data}")
 
         # Mevcut en yüksek risk alanlarını (safe hariç genel en yüksek) yine de dolduralım, ama bu yeni mantığa göre olacak.
@@ -1396,7 +1096,7 @@ def calculate_overall_scores(analysis):
         overall_highest_risk_timestamp = None
 
         for cat in categories:
-            if cat == 'safe': # 'safe' kategorisini genel en yüksek risk için dahil etme
+            if cat == 'safe': 
                 continue
             if category_specific_highest_risks[cat]['score'] > overall_highest_risk_score:
                 overall_highest_risk_score = category_specific_highest_risks[cat]['score']
@@ -1411,7 +1111,6 @@ def calculate_overall_scores(analysis):
             analysis.highest_risk_category = overall_highest_risk_category
             logger.info(f"Analiz #{analysis.id} - Genel En Yüksek Risk ('safe' hariç): {overall_highest_risk_category} skoru {overall_highest_risk_score:.4f}, kare: {overall_highest_risk_frame_path}")
         else:
-            # Eğer safe dışında hiçbir kategoride risk bulunamazsa (çok nadir olmalı)
             analysis.highest_risk_score = category_specific_highest_risks['safe']['score']
             analysis.highest_risk_category = 'safe'
             analysis.highest_risk_frame = category_specific_highest_risks['safe']['frame_path']
@@ -1424,7 +1123,6 @@ def calculate_overall_scores(analysis):
         current_app.logger.error(f"Genel skor hesaplama hatası: {str(e)}")
         logger.error(f"Hata detayı: {traceback.format_exc()}")
         db.session.rollback()
-
 
 def get_analysis_results(analysis_id):
     """
@@ -1443,7 +1141,6 @@ def get_analysis_results(analysis_id):
     if not analysis:
         return {'error': 'Analiz bulunamadı'}
     
-    # Analiz henüz tamamlanmamış ise durumu bilgisini döndür
     if analysis.status != 'completed':
         return {
             'status': analysis.status,
@@ -1451,14 +1148,11 @@ def get_analysis_results(analysis_id):
             'message': 'Analiz henüz tamamlanmadı'
         }
     
-    # Ana analiz sonuçları
     result = analysis.to_dict()
     
-    # İçerik tespitlerini sonuçlara ekle
     content_detections = ContentDetection.query.filter_by(analysis_id=analysis_id).all()
     result['content_detections'] = [cd.to_dict() for cd in content_detections]
     
-    # Eğer yaş analizi yapıldıysa, yaş tahminlerini sonuçlara ekle
     if analysis.include_age_analysis:
         age_estimations = AgeEstimation.query.filter_by(analysis_id=analysis_id).all()
         logger.info(f"[SVC_LOG][RESULTS] get_analysis_results: DB'den {len(age_estimations)} AgeEstimation kaydı çekildi.")
@@ -1478,6 +1172,7 @@ def get_analysis_results(analysis_id):
         result['age_estimations'] = best_estimations
         logger.info(f"[SVC_LOG][RESULTS] get_analysis_results: API yanıtına {len(best_estimations)} en iyi tahmin eklendi.")
     return result 
+
 # Model yükleme için yardımcı fonksiyonlar
 def get_content_analyzer():
     """İçerik analizi için ContentAnalyzer nesnesi döndürür"""

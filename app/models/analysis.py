@@ -59,7 +59,8 @@ class Analysis(db.Model):
     # Bunun yerine, tek bir file ilişkisi kullanacağız
     file = db.relationship('File', 
                           foreign_keys=[file_id],
-                          primaryjoin="func.cast(File.id, String) == Analysis.file_id")
+                          primaryjoin="func.cast(File.id, String) == Analysis.file_id",
+                          back_populates="analyses")
     content_detections = db.relationship('ContentDetection', backref='analysis', lazy=True, cascade="all, delete-orphan")
     age_estimations = db.relationship('AgeEstimation', backref='analysis', lazy=True, cascade="all, delete-orphan")
     

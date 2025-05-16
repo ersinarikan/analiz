@@ -55,4 +55,5 @@ gdown
 requests
 
 # Yeni eklenen kod bloğu
-deep_sort_realtime 
+deep_sort_realtime
+open-clip-torch==2.32.0 
