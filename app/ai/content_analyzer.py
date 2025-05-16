@@ -118,18 +118,6 @@ class ContentAnalyzer:
                         "sobriety",
                         "purity"
                     ]
-                },
-                "safe": {
-                    "positive": [
-                        "safe",
-                        "security",
-                        "secure environment"
-                    ],
-                    "negative": [
-                        "dangerous",
-                        "risk",
-                        "harm"
-                    ]
                 }
             }
             # Kategori text tokenları önceden hesapla (tek prompt)
@@ -270,7 +258,7 @@ class ContentAnalyzer:
                 fark = pos_score - neg_score
 
                 # --- START: MODIFIED SCORE CALCULATION ---
-                SQUASH_FACTOR = 2.5 
+                SQUASH_FACTOR = 3.5 
                 squashed_fark = math.tanh(fark * SQUASH_FACTOR)
                 nihai_skor = (squashed_fark + 1) / 2  # Normalize to 0-1 range
                 
@@ -286,16 +274,30 @@ class ContentAnalyzer:
                 
                 final_scores[cat] = float(nihai_skor)
             
+            # "safe" skorunu diğer risklerin ortalamasından türet
+            risk_categories_for_safe_calculation = ['violence', 'adult_content', 'harassment', 'weapon', 'drug']
+            sum_of_risk_scores = sum(final_scores.get(rc, 0) for rc in risk_categories_for_safe_calculation)
+            average_risk_score = sum_of_risk_scores / len(risk_categories_for_safe_calculation) if risk_categories_for_safe_calculation else 0
+            final_scores['safe'] = max(0.0, 1.0 - average_risk_score) # Skorun negatif olmamasını sağla
+            logger.info(f"[SAFE_SCORE_CALC] Average risk: {average_risk_score:.4f}, Calculated safe score: {final_scores['safe']:.4f}")
+
             # Tespit edilen nesneleri Python tiplerine dönüştür
             safe_objects = convert_numpy_types_to_python(detected_objects)
             
             # Bağlamsal ayarlamaları uygula - tespit edilen nesnelere ve kişi sayısına göre skorları düzenle
             person_count = len([obj for obj in safe_objects if obj['label'] == 'person'])
             object_labels = [obj['label'] for obj in safe_objects]
+            
+            # _apply_contextual_adjustments çağrılmadan önce tüm kategorilerin (safe dahil) final_scores içinde olduğundan emin olalım.
+            # 'categories' listesi artık self.category_prompts.keys() ile aynı (safe hariç)
+            # Ancak _apply_contextual_adjustments 'safe' dahil tüm kategorileri bekliyor olabilir.
+            # Dönüş değerinde de tüm kategoriler bekleniyor.
+            all_category_keys_for_return = list(self.category_prompts.keys()) + ['safe'] # safe'i manuel ekle
+
             final_scores = self._apply_contextual_adjustments(final_scores, object_labels, person_count)
             
             # Düzenlenen skorları döndür
-            return (*[final_scores[cat] for cat in categories], safe_objects)
+            return (*[final_scores[cat] for cat in all_category_keys_for_return], safe_objects)
         except Exception as e:
             logger.error(f"CLIP görüntü analizi hatası: {str(e)}")
             raise

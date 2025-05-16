@@ -926,18 +926,27 @@ def analyze_video(analysis):
             avg_scores['harassment'] = category_scores_sum['harassment'] / category_counts['harassment'] if category_counts['harassment'] > 0 else 0
             avg_scores['weapon'] = category_scores_sum['weapon'] / category_counts['weapon'] if category_counts['weapon'] > 0 else 0
             avg_scores['drug'] = category_scores_sum['drug'] / category_counts['drug'] if category_counts['drug'] > 0 else 0
-            avg_scores['safe'] = category_scores_sum['safe'] / category_counts['safe'] if category_counts['safe'] > 0 else 0
+            # avg_scores['safe'] = category_scores_sum['safe'] / category_counts['safe'] if category_counts['safe'] > 0 else 0 # Eski safe hesaplaması
             
-            logger.info(f"Analiz #{analysis.id} - Ham Ortalama Skorlar: {json.dumps({k: f'{v:.4f}' for k, v in avg_scores.items()})}")
+            logger.info(f"Analiz #{analysis.id} - Ham Ortalama Skorlar (safe hariç): {json.dumps({k: f'{v:.4f}' for k, v in avg_scores.items() if k != 'safe'})}")
 
             # --- YENİ: Güç Dönüşümü ile Skorları Ayrıştırma ---
             power_value = 1.5  # Bu değer ayarlanabilir (örneğin 1.5, 2, 2.5). Değer arttıkça ayrışma artar.
             
             enhanced_scores = {}
-            for category in categories:
-                enhanced_scores[category] = avg_scores[category] ** power_value
+            risk_categories_for_safe_calc = ['violence', 'adult_content', 'harassment', 'weapon', 'drug']
+
+            for category in risk_categories_for_safe_calc: # Sadece risk kategorileri için güç dönüşümü
+                avg_score_cat = avg_scores.get(category, 0) # .get() ile güvenli erişim
+                enhanced_scores[category] = avg_score_cat ** power_value
+            
+            # Şimdi "safe" skorunu diğerlerinin geliştirilmiş ortalamasından türet
+            sum_of_enhanced_risk_scores = sum(enhanced_scores.get(rc, 0) for rc in risk_categories_for_safe_calc)
+            average_enhanced_risk_score = sum_of_enhanced_risk_scores / len(risk_categories_for_safe_calc) if risk_categories_for_safe_calc else 0
+            enhanced_scores['safe'] = max(0.0, 1.0 - average_enhanced_risk_score) # Skorun negatif olmamasını sağla
             
             logger.info(f"Analiz #{analysis.id} - Güç Dönüşümü Sonrası Skorlar (p={power_value}): {json.dumps({k: f'{v:.4f}' for k, v in enhanced_scores.items()})}")
+            logger.info(f"[SAFE_OVERALL_CALC] Average ENHANCED risk for overall: {average_enhanced_risk_score:.4f}, Calculated overall safe score: {enhanced_scores['safe']:.4f}")
 
             # Genel skorları güncelle (geliştirilmiş skorlarla)
             analysis.overall_violence_score = enhanced_scores['violence']
@@ -1060,18 +1069,27 @@ def calculate_overall_scores(analysis):
         avg_scores['harassment'] = category_scores_sum['harassment'] / category_counts['harassment'] if category_counts['harassment'] > 0 else 0
         avg_scores['weapon'] = category_scores_sum['weapon'] / category_counts['weapon'] if category_counts['weapon'] > 0 else 0
         avg_scores['drug'] = category_scores_sum['drug'] / category_counts['drug'] if category_counts['drug'] > 0 else 0
-        avg_scores['safe'] = category_scores_sum['safe'] / category_counts['safe'] if category_counts['safe'] > 0 else 0
+        # avg_scores['safe'] = category_scores_sum['safe'] / category_counts['safe'] if category_counts['safe'] > 0 else 0 # Eski safe hesaplaması
             
-        logger.info(f"Analiz #{analysis.id} - Ham Ortalama Skorlar: {json.dumps({k: f'{v:.4f}' for k, v in avg_scores.items()})}")
+        logger.info(f"Analiz #{analysis.id} - Ham Ortalama Skorlar (safe hariç): {json.dumps({k: f'{v:.4f}' for k, v in avg_scores.items() if k != 'safe'})}")
 
         # --- YENİ: Güç Dönüşümü ile Skorları Ayrıştırma ---
         power_value = 1.5  # Bu değer ayarlanabilir (örneğin 1.5, 2, 2.5). Değer arttıkça ayrışma artar.
             
         enhanced_scores = {}
-        for category in categories:
-            enhanced_scores[category] = avg_scores[category] ** power_value
+        risk_categories_for_safe_calc = ['violence', 'adult_content', 'harassment', 'weapon', 'drug']
+
+        for category in risk_categories_for_safe_calc: # Sadece risk kategorileri için güç dönüşümü
+            avg_score_cat = avg_scores.get(category, 0) # .get() ile güvenli erişim
+            enhanced_scores[category] = avg_score_cat ** power_value
+        
+        # Şimdi "safe" skorunu diğerlerinin geliştirilmiş ortalamasından türet
+        sum_of_enhanced_risk_scores = sum(enhanced_scores.get(rc, 0) for rc in risk_categories_for_safe_calc)
+        average_enhanced_risk_score = sum_of_enhanced_risk_scores / len(risk_categories_for_safe_calc) if risk_categories_for_safe_calc else 0
+        enhanced_scores['safe'] = max(0.0, 1.0 - average_enhanced_risk_score) # Skorun negatif olmamasını sağla
             
         logger.info(f"Analiz #{analysis.id} - Güç Dönüşümü Sonrası Skorlar (p={power_value}): {json.dumps({k: f'{v:.4f}' for k, v in enhanced_scores.items()})}")
+        logger.info(f"[SAFE_OVERALL_CALC] Average ENHANCED risk for overall: {average_enhanced_risk_score:.4f}, Calculated overall safe score: {enhanced_scores['safe']:.4f}")
 
         # Genel skorları güncelle (geliştirilmiş skorlarla)
         analysis.overall_violence_score = enhanced_scores['violence']

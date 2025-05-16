@@ -1422,25 +1422,25 @@ function displayAnalysisResults(fileId, results) {
             
             if (category === 'safe') {
                 // Güvenli kategori için farklı risk yorumlaması
-                if (score >= 70) {
+                if (score >= 60) { // Değişiklik: 70 -> 60
                     riskLevel = 'Yüksek Güven';
                     riskClass = 'risk-level-low'; // Yeşil renk
-                } else if (score >= 30) {
+                } else if (score >= 40) { // Değişiklik: 30 -> 40
                     riskLevel = 'Orta Güven';
                     riskClass = 'risk-level-medium'; // Sarı renk
-                } else {
+                } else { // Değişiklik: Alt sınır 30'dan 40'a çekildi, burası < 40 oldu
                     riskLevel = 'Düşük Güven';
                     riskClass = 'risk-level-high'; // Kırmızı renk
                 }
             } else {
                 // Diğer kategoriler için normal risk yorumlaması
-                if (score >= 70) {
+                if (score >= 60) { // Değişiklik: 70 -> 60
                     riskLevel = 'Yüksek Risk';
                     riskClass = 'risk-level-high';
-                } else if (score >= 30) {
+                } else if (score >= 40) { // Değişiklik: 30 -> 40
                     riskLevel = 'Orta Risk';
                     riskClass = 'risk-level-medium';
-                } else {
+                } else { // Değişiklik: Alt sınır 30'dan 40'a çekildi, burası < 40 oldu
                     riskLevel = 'Düşük Risk';
                     riskClass = 'risk-level-low';
                 }
