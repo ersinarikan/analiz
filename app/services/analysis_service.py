@@ -711,7 +711,7 @@ def analyze_video(analysis):
                                             estimated_age=age,
                                             confidence_score=confidence,
                                             frame_number=frame_idx, 
-                                            face_bounding_box=json.dumps(db_bbox_to_store)
+                                            _face_location=json.dumps(db_bbox_to_store)
                                         )
                                         logger.info(f"[SVC_LOG][VID] Yeni AgeEstimation: {track_id_str}, Kare: {frame_idx}, BBox: {db_bbox_to_store}")
                                     else:
@@ -720,7 +720,7 @@ def analyze_video(analysis):
                                             age_est.estimated_age = age
                                             age_est.confidence_score = confidence
                                             age_est.frame_number = frame_idx
-                                            age_est.face_bounding_box = json.dumps(db_bbox_to_store)
+                                            age_est._face_location = json.dumps(db_bbox_to_store)
                                             logger.info(f"[SVC_LOG][VID] AgeEstimation Güncelleme: {track_id_str}, Yeni Güven: {confidence:.4f}, Kare: {frame_idx}")
                                     db.session.add(age_est)
                                     processed_persons_with_data.add(track_id_str)
@@ -783,6 +783,8 @@ def analyze_video(analysis):
         # Tüm değişiklikleri veritabanına kaydet
         db.session.commit()
         
+        logger.info(f"Video analizi DB commit sonrası. Analiz ID: {analysis.id}, Include Age: {analysis.include_age_analysis}, Processed Persons Count: {len(processed_persons_with_data) if processed_persons_with_data else 'None'}")
+
         # Analiz tamamlandı, istatistikleri logla
         unique_persons_query = db.session.query(AgeEstimation.person_id).filter(AgeEstimation.analysis_id == analysis.id).distinct().count()
         logger.info(f"Video analizi tamamlandı: Analiz #{analysis.id}, Dosya: {file.original_filename}")
@@ -790,32 +792,34 @@ def analyze_video(analysis):
         logger.info(f"  - {detected_faces_count} yüz tespiti, {unique_persons_query} benzersiz kişi")
         logger.info(f"  - {high_risk_frames_count} yüksek riskli kare tespit edildi")
         
-        # BEGIN REPLACEMENT OF OLD OVERLAY LOGIC
-        # Old block iterating person_best_frames is removed.
-
         # NEW OVERLAY GENERATION LOGIC
         if analysis.include_age_analysis and processed_persons_with_data:
-            logger.info(f"Analiz #{analysis.id} için final overlayler oluşturuluyor.")
-            # Correct base directory for storing overlays locally, mirroring S3 structure if applicable
-            base_overlay_dir = os.path.join(current_app.config['PROCESSED_FOLDER'], str(analysis.id), 'overlays')
-            # Path part for DB: 'overlays/<analysis_id>'. Used for S3 key prefix and local relative path for url_for.
-            db_overlays_path_prefix = os.path.join('overlays', str(analysis.id))
+            logger.info(f"Analiz #{analysis.id} için final overlayler oluşturuluyor. İşlenecek kişi sayısı: {len(processed_persons_with_data)}")
+            # Correct base directory for storing overlays locally, consistent with image analysis structure
+            base_overlay_dir = os.path.join(current_app.config['PROCESSED_FOLDER'], f"frames_{analysis.id}", 'overlays')
+            # db_overlays_path_prefix is no longer needed for DB path calculation in this new approach
+            # db_overlays_path_prefix = os.path.join('overlays', str(analysis.id)) # OLD LINE
 
             os.makedirs(base_overlay_dir, exist_ok=True)
 
             for person_id_str in processed_persons_with_data:
+                logger.info(f"Overlay oluşturma döngüsü: Kişi ID {person_id_str} işleniyor.")
                 try:
                     best_est = db.session.query(AgeEstimation).filter_by(
                         analysis_id=analysis.id,
                         person_id=person_id_str
-                    ).order_by(AgeEstimation.confidence_score.desc(), AgeEstimation.id.desc()).first()
+                    ).order_by(AgeEstimation._confidence_score.desc(), AgeEstimation.id.desc()).first()
+                    
+                    logger.info(f"Kişi {person_id_str} için best_est sorgulandı. Sonuç: {'Bulundu' if best_est else 'Bulunamadı'}")
 
                     if not best_est:
-                        logger.warning(f"Kişi {person_id_str} için final AgeEstimation kaydı bulunamadı, overlay atlanıyor.")
+                        logger.warning(f"Kişi {person_id_str} için final AgeEstimation kaydı bulunamadı (best_est None), overlay atlanıyor.")
                         continue
+                    
+                    logger.info(f"Kişi {person_id_str} için best_est.frame_path: {best_est.frame_path}, best_est.estimated_age: {best_est.estimated_age}, best_est.confidence_score: {best_est.confidence_score}")
 
                     if not best_est.frame_path or not os.path.exists(best_est.frame_path):
-                        logger.error(f"Overlay için kaynak kare {best_est.frame_path} bulunamadı/geçersiz (Kişi: {person_id_str})")
+                        logger.error(f"Overlay için kaynak kare {best_est.frame_path} bulunamadı/geçersiz (Kişi: {person_id_str}). Disk kontrolü: {'Var' if best_est.frame_path and os.path.exists(best_est.frame_path) else 'Yok veya Path Hatalı'}")
                         continue
                     
                     image_source_for_overlay = cv2.imread(best_est.frame_path)
@@ -824,7 +828,7 @@ def analyze_video(analysis):
                         continue
 
                     age_to_display = int(round(best_est.estimated_age))
-                    bbox_json_str = best_est.face_bounding_box
+                    bbox_json_str = best_est._face_location
                     if not bbox_json_str:
                         logger.warning(f"Kişi {person_id_str} için BBox yok, overlay atlanıyor (Kayıt ID: {best_est.id}).")
                         continue
@@ -859,9 +863,11 @@ def analyze_video(analysis):
                     local_full_overlay_storage_path = os.path.join(base_overlay_dir, final_overlay_filename)
                     
                     cv2.imwrite(local_full_overlay_storage_path, image_with_overlay)
-                    db_path_for_local = os.path.join(db_overlays_path_prefix, final_overlay_filename).replace('\\', '/')
-                    best_est.processed_image_path = db_path_for_local
-                    logger.info(f"Overlay locale kaydedildi: {local_full_overlay_storage_path}, DB yolu: {db_path_for_local} (Kişi: {person_id_str})")
+                    # Calculate DB path relative to STORAGE_FOLDER, consistent with image analysis
+                    # db_path_for_local = os.path.join(db_overlays_path_prefix, final_overlay_filename).replace('\\', '/') # OLD LINE
+                    db_path_for_storage = os.path.relpath(local_full_overlay_storage_path, current_app.config['STORAGE_FOLDER']).replace('\\\\', '/')
+                    best_est.processed_image_path = db_path_for_storage
+                    logger.info(f"Overlay locale kaydedildi: {local_full_overlay_storage_path}, DB yolu: {db_path_for_storage} (Kişi: {person_id_str})")
                     
                     db.session.add(best_est)
 

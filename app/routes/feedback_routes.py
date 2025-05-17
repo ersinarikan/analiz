@@ -18,6 +18,8 @@ def submit_feedback():
     Post Body:
         {
             "content_id": "uuid",
+            "analysis_id": "uuid",
+            "frame_path": "string",
             "rating": 1-5,
             "comment": "string",
             "category_feedback": {
@@ -39,23 +41,23 @@ def submit_feedback():
     try:
         data = request.json
         
-        if not data or 'content_id' not in data:
-            return jsonify({'error': 'Geçersiz istek formatı'}), 400
+        if not data or 'content_id' not in data or 'analysis_id' not in data:
+            return jsonify({'error': 'Geçersiz istek formatı. content_id ve analysis_id gereklidir.'}), 400
         
-        # Geri bildirim oluştur
         feedback = Feedback(
             content_id=data['content_id'],
+            analysis_id=data['analysis_id'],
+            frame_path=data.get('frame_path'),
             rating=data.get('rating'),
             comment=data.get('comment'),
             category_feedback=data.get('category_feedback', {}),
             category_correct_values=data.get('category_correct_values', {})
         )
         
-        # Veritabanına kaydet
         db.session.add(feedback)
         db.session.commit()
         
-        logger.info(f"Geri bildirim kaydedildi, ID: {feedback.id}, içerik ID: {data['content_id']}")
+        logger.info(f"İçerik geri bildirimi kaydedildi, ID: {feedback.id}, içerik ID: {data['content_id']}, analiz ID: {data['analysis_id']}")
         
         return jsonify({
             'success': True, 
@@ -64,6 +66,7 @@ def submit_feedback():
         }), 201
     
     except Exception as e:
+        db.session.rollback()
         logger.error(f"Geri bildirim kaydedilirken hata: {str(e)}")
         return jsonify({'error': f'Geri bildirim kaydedilemedi: {str(e)}'}), 500
 
@@ -80,40 +83,47 @@ def submit_age_feedback():
             "person_id": "uuid", 
             "corrected_age": int,
             "is_age_range_correct": bool,
-            "analysis_id": "uuid" (opsiyonel)
+            "analysis_id": "uuid",
+            "frame_path": "string"
         }
     """
     try:
         data = request.json
         
-        if not data or 'person_id' not in data or 'corrected_age' not in data:
-            return jsonify({'error': 'Geçersiz istek formatı'}), 400
+        # Gerekli alanları kontrol et
+        required_fields = ['person_id', 'corrected_age', 'analysis_id', 'frame_path']
+        for field in required_fields:
+            if field not in data or data[field] is None:
+                return jsonify({'error': f'Geçersiz istek formatı. {field} alanı gereklidir ve boş olamaz.'}), 400
         
         person_id = data['person_id']
         corrected_age = data['corrected_age']
         is_age_range_correct = data.get('is_age_range_correct', False)
-        analysis_id = data.get('analysis_id')
+        analysis_id = data['analysis_id']
+        frame_path = data['frame_path']
         
-        # Kişi ID'si geçerli mi kontrol et
-        face = FaceTracking.query.filter_by(person_id=person_id).first()
+        face = FaceTracking.query.filter_by(person_id=person_id, analysis_id=analysis_id).first()
         
         if not face:
-            return jsonify({'error': f'Belirtilen person_id bulunamadı: {person_id}'}), 404
-        
-        # Yaş geri bildirimi oluştur
+            # Alternatif olarak sadece person_id ile de kontrol edilebilir eğer analysis_id her zaman face ile gelmiyorsa
+            # Ancak hem person_id hem analysis_id daha spesifik bir yüzü hedefler.
+            logger.warning(f"Belirtilen person_id ({person_id}) ve analysis_id ({analysis_id}) ile eşleşen FaceTracking kaydı bulunamadı.")
+            # return jsonify({'error': f'Belirtilen person_id ({person_id}) ve analysis_id ({analysis_id}) ile yüz takibi kaydı bulunamadı.'}), 404
+            # Şimdilik kayda devam et, bu durum loglanmış oldu.
+
         feedback = Feedback(
             person_id=person_id,
-            analysis_id=analysis_id or face.analysis_id,
+            analysis_id=analysis_id,
             corrected_age=corrected_age,
             is_age_range_correct=is_age_range_correct,
-            feedback_type='age'
+            feedback_type='age',
+            frame_path=frame_path
         )
         
-        # Veritabanına kaydet
         db.session.add(feedback)
         db.session.commit()
         
-        logger.info(f"Yaş geri bildirimi kaydedildi, ID: {feedback.id}, kişi ID: {person_id}, düzeltilmiş yaş: {corrected_age}")
+        logger.info(f"Yaş geri bildirimi kaydedildi, ID: {feedback.id}, kişi ID: {person_id}, analiz ID: {analysis_id}, düzeltilmiş yaş: {corrected_age}")
         
         return jsonify({
             'success': True, 
@@ -122,6 +132,7 @@ def submit_age_feedback():
         }), 201
     
     except Exception as e:
+        db.session.rollback()
         logger.error(f"Yaş geri bildirimi kaydedilirken hata: {str(e)}")
         return jsonify({'error': f'Yaş geri bildirimi kaydedilemedi: {str(e)}'}), 500
 

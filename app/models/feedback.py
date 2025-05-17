@@ -10,6 +10,7 @@ class Feedback(db.Model):
     
     id = db.Column(db.Integer, primary_key=True)
     created_at = db.Column(db.DateTime, default=datetime.now)
+    frame_path = db.Column(db.String(1024), nullable=True)
     
     # İçerik ile ilgili alanlar (İçerik analizi geri bildirimleri için)
     content_id = db.Column(db.String(36), nullable=True)  # İçerik için UUID

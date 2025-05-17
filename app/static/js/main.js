@@ -1337,6 +1337,31 @@ function displayAnalysisResults(fileId, results) {
         contentIdInput.value = results.content_id || '';
     }
     
+    // Analysis ID ve Frame Path'i geri bildirim formuna ekle (İÇERİK GERİ BİLDİRİMİ İÇİN)
+    const feedbackForm = resultCard.querySelector(`#feedback-${uniqueSuffix} form`); // Geri bildirim formunu bul
+    if (feedbackForm) {
+        // Önce mevcut gizli inputları temizle (varsa)
+        let existingAnalysisIdInput = feedbackForm.querySelector('input[name="analysis_id"]');
+        if (existingAnalysisIdInput) existingAnalysisIdInput.remove();
+        let existingFramePathInput = feedbackForm.querySelector('input[name="frame_path"]');
+        if (existingFramePathInput) existingFramePathInput.remove();
+
+        const analysisIdInput = document.createElement('input');
+        analysisIdInput.type = 'hidden';
+        analysisIdInput.name = 'analysis_id';
+        analysisIdInput.value = results.analysis_id || ''; // results objesinden analysis_id'yi al
+        feedbackForm.appendChild(analysisIdInput);
+
+        const framePathInput = document.createElement('input');
+        framePathInput.type = 'hidden';
+        framePathInput.name = 'frame_path';
+        // Öncelik: en yüksek riskli kare, sonra genel frame_path (varsa)
+        framePathInput.value = (results.highest_risk && results.highest_risk.frame) ? results.highest_risk.frame : (results.frame_path || ''); 
+        feedbackForm.appendChild(framePathInput);
+        
+        console.log('Feedback formuna eklendi: analysis_id=', analysisIdInput.value, ', frame_path=', framePathInput.value);
+    }
+    
     // Detaylar sekmesini al
     const detailsTab = resultCard.querySelector(`#details-${uniqueSuffix}`);
     
@@ -2015,11 +2040,20 @@ function submitFeedback(event) {
     event.preventDefault();
     
     const form = event.target;
+    const resultCard = form.closest('.result-card'); // Get the parent result card
     const contentId = form.querySelector('.content-id').value;
+    const analysisIdForContent = form.querySelector('input[name="analysis_id"]').value;
+    const framePathForContent = form.querySelector('input[name="frame_path"]').value;
     
-    // Form verilerini topla
-    const feedbackData = {
+    const mainSubmitButton = form.querySelector('button[type="submit"]');
+    mainSubmitButton.disabled = true;
+    mainSubmitButton.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i> Gönderiliyor...';
+
+    // 1. Collect and Send Content Feedback
+    const contentFeedbackData = {
         content_id: contentId,
+        analysis_id: analysisIdForContent,
+        frame_path: framePathForContent,
         rating: parseInt(form.querySelector('.general-rating').value),
         comment: form.querySelector('.feedback-comment').value,
         category_feedback: {
@@ -2029,7 +2063,6 @@ function submitFeedback(event) {
             weapon: form.querySelector('.weapon-feedback').value,
             drug: form.querySelector('.drug-feedback').value
         },
-        // Kategori için doğru değer geri bildirimleri
         category_correct_values: {
             violence: form.querySelector('.violence-correct-value') ? parseFloat(form.querySelector('.violence-correct-value').value) : null,
             adult_content: form.querySelector('.adult-content-correct-value') ? parseFloat(form.querySelector('.adult-content-correct-value').value) : null,
@@ -2039,42 +2072,153 @@ function submitFeedback(event) {
         }
     };
     
-    // Geri bildirimi gönder
     fetch('/api/feedback/submit', {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json'
         },
-        body: JSON.stringify(feedbackData)
+        body: JSON.stringify(contentFeedbackData)
     })
     .then(response => {
         if (!response.ok) {
-            throw new Error(`HTTP error! Status: ${response.status}`);
+            // Try to parse error from backend
+            return response.json().then(err => { throw new Error(err.error || `İçerik geri bildirimi HTTP hatası! Durum: ${response.status}`) });
         }
         return response.json();
     })
     .then(data => {
-        console.log('Geri bildirim başarıyla gönderildi:', data);
-        showToast('Başarılı', 'Geri bildiriminiz için teşekkürler. Model eğitiminde kullanılacaktır.', 'success');
+        console.log('İçerik geri bildirimi başarıyla gönderildi:', data);
+        showToast('Başarılı', 'İçerik geri bildiriminiz kaydedildi.', 'success');
+
+        // 2. Collect and Send Age Feedback
+        const allAgeFeedbacks = [];
+        if (resultCard) { // Ensure resultCard is found
+            const ageInputFields = resultCard.querySelectorAll('.age-feedback-container .corrected-age');
+            ageInputFields.forEach(input => {
+                const correctedAgeValue = input.value.trim();
+                if (correctedAgeValue !== "") { // Only process if a value is entered
+                    const correctedAge = parseInt(correctedAgeValue);
+                    const personId = input.dataset.personId;
+                    const analysisIdForAge = input.dataset.analysisId; // Should be same as analysisIdForContent
+                    const framePathForAge = input.dataset.framePath;
+
+                    if (isNaN(correctedAge) || correctedAge <= 0 || correctedAge > 100) {
+                        showToast('Uyarı', `Kişi ${personId} için geçersiz yaş değeri: ${correctedAgeValue}. Lütfen 1-100 arası bir değer girin.`, 'warning');
+                        // Optionally, re-enable the main button and return if strict validation is needed here
+                        // mainSubmitButton.disabled = false;
+                        // mainSubmitButton.innerHTML = 'Gönder';
+                        // throw new Error("Invalid age input"); 
+                        return; // Skip this invalid age feedback
+                    }
+                    
+                    if (!personId || !analysisIdForAge || !framePathForAge) {
+                        console.error('Yaş geri bildirimi için eksik data attribute: ', {personId, analysisIdForAge, framePathForAge});
+                        showToast('Hata', `Kişi ${personId} için yaş geri bildirimi gönderilemedi (eksik bilgi).`, 'danger');
+                        return; // Skip this age feedback
+                    }
+
+                    allAgeFeedbacks.push({
+                        person_id: personId,
+                        corrected_age: correctedAge,
+                        is_age_range_correct: false, // This field seems to be gone from the simplified UI
+                        analysis_id: analysisIdForAge,
+                        frame_path: framePathForAge
+                    });
+                }
+            });
+        } else {
+            console.warn("submitFeedback: .result-card bulunamadı, yaş geri bildirimleri toplanamadı.");
+        }
         
-        // Geri bildirim butonunu pasif yap
-        const submitBtn = form.querySelector('button[type="submit"]');
-        submitBtn.disabled = true;
-        submitBtn.innerHTML = '<i class="fas fa-check me-1"></i> Gönderildi';
+
+        if (allAgeFeedbacks.length > 0) {
+            const ageFeedbackPromises = allAgeFeedbacks.map(ageFeedback => {
+                return fetch('/api/feedback/age', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(ageFeedback)
+                })
+                .then(response => {
+                    if (!response.ok) {
+                        return response.json().then(err => { throw new Error(err.error || `Yaş geri bildirimi (${ageFeedback.person_id}) HTTP Hatası! Durum: ${response.status}`) });
+                    }
+                    return response.json();
+                })
+                .then(ageData => {
+                    console.log(`Yaş geri bildirimi (${ageFeedback.person_id}) başarıyla gönderildi:`, ageData);
+                });
+            });
+
+            return Promise.allSettled(ageFeedbackPromises)
+                .then(results => {
+                    let allSuccessful = true;
+                    results.forEach(result => {
+                        if (result.status === 'rejected') {
+                            allSuccessful = false;
+                            console.error('Bir yaş geri bildirimi gönderme hatası:', result.reason);
+                            showToast('Hata', `Bir yaş geri bildirimi gönderilemedi: ${result.reason.message}`, 'danger');
+                        }
+                    });
+                    if (allSuccessful && allAgeFeedbacks.length > 0) {
+                        showToast('Başarılı', 'Tüm yaş geri bildirimleri kaydedildi.', 'success');
+                    }
+                    return allSuccessful; // Propagate success status
+                });
+        }
+        return true; // Content feedback was successful, no age feedback to send
+    })
+    .then((allFeedbacksSuccessful) => {
+        if (allFeedbacksSuccessful) { // Check if content and all age feedbacks were processed successfully
+            mainSubmitButton.innerHTML = '<i class="fas fa-check me-1"></i> Gönderildi';
+            // Keep it disabled
+        } else {
+             mainSubmitButton.disabled = false; // Re-enable if there were issues
+             mainSubmitButton.innerHTML = 'Tekrar Dene';
+        }
     })
     .catch(error => {
-        console.error('Geri bildirim gönderme hatası:', error);
-        showToast('Hata', `Geri bildirim gönderilirken hata oluştu: ${error.message}`, 'danger');
+        console.error('Geri bildirim gönderme sırasında genel hata:', error);
+        showToast('Hata', `Geri bildirim gönderilirken genel bir hata oluştu: ${error.message}`, 'danger');
+        mainSubmitButton.disabled = false;
+        mainSubmitButton.innerHTML = 'Tekrar Dene';
     });
 }
 
 // Yaş geri bildirimi gönder
-function submitAgeFeedback(personId, ageInput) {
-    const correctedAge = parseInt(ageInput.value);
-    const ageRangeCorrect = document.querySelector(`#ageRange-${personId}`).checked;
+// submitAgeFeedback fonksiyonunu güncelliyoruz: buttonElement parametresi alacak
+function submitAgeFeedback(personId, buttonElement) {
+    // This function is no longer called by individual buttons.
+    // Its logic has been integrated into the main submitFeedback function.
+    // It can be removed or kept for other purposes if any.
+    // For now, let's comment it out to avoid confusion.
+    /*
+    const correctedAgeInput = buttonElement.previousElementSibling; // input[type=number]
+    const correctedAge = parseInt(correctedAgeInput.value);
+    
+    // analysis_id ve frame_path'i butonun data attribute'larından al
+    const analysisId = buttonElement.dataset.analysisId;
+    const framePath = buttonElement.dataset.framePath;
+
+    // is_age_range_correct için bir checkbox varsa onun değerini al
+    // Not: HTML template'inde bu ID ile bir checkbox görünmüyordu,
+    // Eğer farklı bir ID veya class kullanılıyorsa burası güncellenmeli.
+    // Şimdilik, böyle bir checkbox olmadığını varsayarak veya opsiyonel bırakarak devam edelim.
+    let isAgeRangeCorrect = false; 
+    const ageRangeCheckbox = document.querySelector(`#ageRange-${personId}`); // Bu ID'yi kontrol edin
+    if (ageRangeCheckbox) {
+        isAgeRangeCorrect = ageRangeCheckbox.checked;
+    }
     
     if (isNaN(correctedAge) || correctedAge <= 0 || correctedAge > 100) {
         showToast('Uyarı', 'Lütfen geçerli bir yaş değeri girin (1-100).', 'warning');
+        return;
+    }
+    
+    if (!analysisId || !framePath) {
+        showToast('Hata', 'Analiz ID veya Kare Yolu bilgisi eksik. Lütfen sayfayı yenileyin.', 'danger');
+        console.error('submitAgeFeedback: analysisId veya framePath eksik.', buttonElement.dataset);
         return;
     }
     
@@ -2087,12 +2231,14 @@ function submitAgeFeedback(personId, ageInput) {
         body: JSON.stringify({
             person_id: personId,
             corrected_age: correctedAge,
-            age_range_correct: ageRangeCorrect
+            is_age_range_correct: isAgeRangeCorrect,
+            analysis_id: analysisId, // EKLENDİ
+            frame_path: framePath    // EKLENDİ
         })
     })
     .then(response => {
         if (!response.ok) {
-            throw new Error(`HTTP error! Status: ${response.status}`);
+            return response.json().then(err => { throw new Error(err.error || `HTTP error! Status: ${response.status}`) });
         }
         return response.json();
     })
@@ -2100,25 +2246,21 @@ function submitAgeFeedback(personId, ageInput) {
         console.log('Yaş geri bildirimi başarıyla gönderildi:', data);
         showToast('Başarılı', 'Yaş geri bildirimi kaydedildi. Model eğitiminde kullanılacaktır.', 'success');
         
-        // Geri bildirim butonunu pasif yap ve metni değiştir
-        const button = document.querySelector(`button[onclick*="submitAgeFeedback('${personId}"]`);
-        if (button) {
-            button.disabled = true;
-            button.innerHTML = '<i class="fas fa-check"></i>';
-            button.classList.remove('btn-primary');
-            button.classList.add('btn-success');
-        }
+        buttonElement.disabled = true;
+        buttonElement.innerHTML = '<i class="fas fa-check"></i> Gönderildi';
+        buttonElement.classList.remove('btn-primary');
+        buttonElement.classList.add('btn-success');
         
-        // Input'u readonly yap
-        const input = document.getElementById(`realAge-${personId}`);
-        if (input) {
-            input.readOnly = true;
+        if (correctedAgeInput) {
+            correctedAgeInput.readOnly = true;
         }
     })
     .catch(error => {
         console.error('Yaş geri bildirimi gönderme hatası:', error);
         showToast('Hata', `Yaş geri bildirimi gönderilirken hata oluştu: ${error.message}`, 'danger');
     });
+    */
+    console.warn("submitAgeFeedback fonksiyonu artık doğrudan kullanılmamalıdır. Ana submitFeedback fonksiyonuna entegre edildi.");
 }
 
 // Geliştirilmiş yaş tahmini display için yardımcı fonksiyon
@@ -3323,91 +3465,93 @@ function displayAgeEstimations(results) {
 }
 
 // Yaş geri bildirimi görüntüleme fonksiyonu - Sadeleştirilmiş versiyon
-function displayAgeFeedback(feedbackTab, results) {
+// displayAgeFeedback fonksiyonunu güncelliyoruz: results objesinden analysis_id alacak
+function displayAgeFeedback(feedbackTab, results) { // results objesi analysis_id ve frame_path içermeli
     if (!feedbackTab || !results.age_estimations || !results.age_estimations.length) {
+        // Eğer yaş tahmini yoksa mesaj göster ve geri bildirim alanını temizle/gizle
+        const ageFeedbackContainer = feedbackTab.querySelector('.age-feedback-container');
+        if (ageFeedbackContainer) {
+            ageFeedbackContainer.innerHTML = '<div class="alert alert-secondary">Bu analiz için yaş tahmini geri bildirim alanı bulunmamaktadır.</div>';
+        }
         return;
     }
 
     const ageFeedbackContainer = feedbackTab.querySelector('.age-feedback-container');
     if (!ageFeedbackContainer) {
+        console.error("'.age-feedback-container' bulunamadı.");
+        return;
+    }
+    ageFeedbackContainer.innerHTML = ''; // Mevcut içeriği temizle
+
+    const analysisId = results.analysis_id; 
+    if (!analysisId) {
+        console.error("displayAgeFeedback: results objesinde analysis_id bulunamadı!", results);
+        ageFeedbackContainer.innerHTML = '<div class="alert alert-danger">Analiz ID alınamadığı için yaş geri bildirimleri gösterilemiyor.</div>';
         return;
     }
 
-    // Benzersiz yüzleri bul
-    const faces = {};
+    const ageFeedbackTemplate = document.getElementById('ageFeedbackTemplate');
+    if (!ageFeedbackTemplate) {
+        console.error("'ageFeedbackTemplate' bulunamadı.");
+        return;
+    }
+    
+    const facesMap = new Map();
     results.age_estimations.forEach(item => {
-        const faceId = item.person_id || item.face_id || 'unknown';
+        const personId = item.person_id || `unknown-${Date.now()}-${Math.random()}`; 
         const confidence = item.confidence_score || item.confidence || 0;
-        if (!faces[faceId] || confidence > faces[faceId].confidence) {
-            faces[faceId] = {
-                age: item.estimated_age || 'Bilinmiyor',
+        if (!facesMap.has(personId) || confidence > facesMap.get(personId).confidence) {
+            facesMap.set(personId, {
+                age: item.estimated_age !== undefined && item.estimated_age !== null ? Math.round(item.estimated_age) : 'Bilinmiyor',
                 confidence: confidence,
-                processed_image_path: item.processed_image_path || null
-            };
+                frame_path: item.frame_path || null, // Use item.frame_path for the original frame
+                face_image_src: item.face_image_path || item.processed_image_path || '/static/img/placeholder-face.png' 
+            });
         }
     });
-    
-    // Her yüz için geri bildirim kartı oluştur
-    Object.entries(faces).forEach(([faceId, face], index) => {
-        const feedbackCard = document.createElement('div');
-        feedbackCard.className = 'card mb-3';
-        let frameUrl = '';
+
+
+    facesMap.forEach((face, personId) => {
+        const templateClone = ageFeedbackTemplate.content.cloneNode(true);
+        const feedbackItem = templateClone.querySelector('.age-feedback-item');
         
-        // 18 yaş altı kontrolü
-        const isUnderAge = face.age < 18;
-        if (isUnderAge) {
-            feedbackCard.classList.add('border-danger');
-            feedbackCard.classList.add('bg-danger-subtle');
+        const faceImageElement = feedbackItem.querySelector('.face-image');
+        if (faceImageElement) {
+            // Ensure the src path is correct, prepending / if it's not absolute
+            let imgSrc = face.face_image_src;
+            if (imgSrc && !imgSrc.startsWith('/') && !imgSrc.startsWith('http')) {
+                imgSrc = '/' + imgSrc;
+            }
+            faceImageElement.src = imgSrc;
+            faceImageElement.alt = `Yüz ${personId}`;
         }
         
-        // Sadece processed_image_path varsa görsel göster
-        if (face.processed_image_path) {
-            frameUrl = `/${face.processed_image_path}`;
-            console.log("Geri bildirim tabı - İşlenmiş görsel kullanılıyor:", frameUrl);
-            feedbackCard.innerHTML = `
-                <div class="card-body">
-                    <div class="row align-items-center">
-                        <div class="col-md-4">
-                            <div class="position-relative" style="height: 200px; overflow: hidden;">
-                                <img src="${frameUrl}" alt="Yüz ${index + 1}"
-                                    style="width: 100%; height: 100%; object-fit: contain;"
-                                    onerror="this.onerror=null;this.src='/static/img/image-not-found.svg';">
-                                <span class="position-absolute top-0 end-0 m-2 badge bg-info">Yüz #${index + 1}</span>
-                                ${isUnderAge ? '<span class="position-absolute top-0 start-0 m-2 badge bg-danger"><i class="fas fa-exclamation-triangle me-1"></i> 18 yaş altı</span>' : ''}
-                            </div>
-                        </div>
-                        <div class="col-md-8">
-                            <div class="d-flex align-items-center mb-2">
-                                <h6 class="mb-0 me-2">Tahmin Edilen Yaş:</h6>
-                                <span class="badge bg-primary fs-5">${Math.round(face.age)}</span>
-                            </div>
-                            <div class="mb-3">
-                                <div class="d-flex justify-content-between align-items-center mb-1">
-                                    <small class="text-muted">Güvenilirlik:</small>
-                                    <span class="badge ${face.confidence > 0.7 ? 'bg-success' : 
-                                        face.confidence > 0.4 ? 'bg-warning' : 'bg-danger'}">
-                                        ${(face.confidence * 100).toFixed(0)}%
-                                    </span>
-                                </div>
-                                <div class="progress" style="height: 6px;">
-                                    <div class="progress-bar ${face.confidence > 0.7 ? 'bg-success' : 
-                                        face.confidence > 0.4 ? 'bg-warning' : 'bg-danger'}"
-                                        style="width: ${face.confidence * 100}%"></div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            `;
-        } else {
-            console.log("Geri bildirim tabı - İşlenmiş görsel bulunamadı");
-            feedbackCard.innerHTML = `
-                <div class="card-body">
-                    <div class="alert alert-warning">İşlenmiş (overlay'li) görsel bulunamadı.</div>
-                </div>
-            `;
+        const personIdElement = feedbackItem.querySelector('.person-id');
+        if (personIdElement) {
+            personIdElement.textContent = personId;
         }
-        ageFeedbackContainer.appendChild(feedbackCard);
+        
+        const estimatedAgeElement = feedbackItem.querySelector('.estimated-age');
+        if (estimatedAgeElement) {
+            estimatedAgeElement.textContent = face.age;
+        }
+        
+        const correctedAgeInput = feedbackItem.querySelector('.corrected-age');
+        if (correctedAgeInput) {
+            // Set data attributes on the input field
+            correctedAgeInput.dataset.personId = personId;
+            correctedAgeInput.dataset.analysisId = analysisId; // analysis_id from the main results
+            correctedAgeInput.dataset.framePath = face.frame_path || ''; // original frame_path for this specific face
+            // correctedAgeInput.value = face.age; // Optionally prefill with estimated age
+        }
+        
+        // Remove individual submit button if it exists in the template
+        const individualSubmitButton = feedbackItem.querySelector('.age-feedback-submit');
+        if (individualSubmitButton) {
+            individualSubmitButton.remove();
+        }
+        
+        ageFeedbackContainer.appendChild(feedbackItem);
     });
 }
 

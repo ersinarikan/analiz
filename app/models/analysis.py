@@ -248,6 +248,7 @@ class AgeEstimation(db.Model):
     person_id = db.Column(db.String(36), nullable=False)  # Kişi için benzersiz ID
     frame_path = db.Column(db.String(255), nullable=True)
     frame_timestamp = db.Column(db.Float, nullable=True)  # Karenin video içindeki zaman damgası (saniye)
+    frame_number = db.Column(db.Integer, nullable=True) # YENİ EKLENEN ALAN: Kare indeksi (video için)
     
     # Yüz konumu 
     _face_location = db.Column(db.String(100))  # JSON olarak saklanır: [x, y, width, height]
@@ -350,6 +351,7 @@ class AgeEstimation(db.Model):
             'person_id': self.person_id,
             'frame_path': self.frame_path,
             'frame_timestamp': self.frame_timestamp,
+            'frame_number': self.frame_number,
             'face_location': self.get_face_location(),
             'estimated_age': self.estimated_age,
             'confidence_score': self.confidence_score,
