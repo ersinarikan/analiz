@@ -137,72 +137,102 @@ class ContentAnalyzer:
             raise
     
     def _load_clip_model(self):
-        """CLIP modelini yükler, önbellek kontrolü yapar"""
+        """CLIP modelini yükler, önbellek kontrolü yapar ve merkezi yoldan yükler."""
         cache_key = "clip_model"
         if cache_key in _models_cache:
             logger.info("CLIP modeli önbellekten kullanılıyor")
             return _models_cache[cache_key]
+        
         try:
-            logger.info("CLIP modeli yükleniyor (ViT-H-14-378-quickgelu, pretrained: dfn5b)")
-            device = "cuda" if torch.cuda.is_available() else "cpu"
+            device = "cuda" if torch.cuda.is_available() and current_app.config.get('USE_GPU', True) else "cpu"
+            
+            # Merkezi model yolunu ve model dosya adını al
+            active_clip_model_path = current_app.config['OPENCLIP_MODEL_ACTIVE_PATH']
+            # Varsayılan olarak base_model'deki .bin dosyasını kullanacağız.
+            # Fine-tuning sonrası bu active_model klasörü güncellenecek.
+            # Eğer active_model boşsa veya .bin dosyası yoksa, base_model'e fallback yapabiliriz.
+            # Şimdilik active_model içinde open_clip_pytorch_model.bin olduğunu varsayıyoruz.
+            
+            # OpenCLIP için model adı ve ön eğitimli ağırlıkların yolu
+            # model_name hala gerekli çünkü config ve tokenizer dosyaları bununla eşleşebilir.
+            clip_model_name_from_config = current_app.config['OPENCLIP_MODEL_NAME'].split('_')[0] # örn: ViT-H-14-378-quickgelu
+            
+            # Kontrol: active_model klasörü var mı ve içinde .bin dosyası var mı?
+            # Eğer yoksa, base_model'den yüklemeyi deneyebilir veya hata verebilir.
+            # Şimdilik, active_model içinde olduğunu varsayarak devam edelim.
+            # Gerçek model dosyasının adı standart olmayabilir, bu yüzden onu da config'e eklemek iyi olabilir.
+            # Şimdilik 'open_clip_pytorch_model.bin' olduğunu varsayıyoruz.
+            pretrained_weights_path = os.path.join(active_clip_model_path, 'open_clip_pytorch_model.bin')
+
+            if not os.path.exists(pretrained_weights_path):
+                logger.error(f"CLIP model ağırlık dosyası bulunamadı: {pretrained_weights_path}")
+                # Fallback: base_model'i dene
+                base_clip_model_path = current_app.config['OPENCLIP_MODEL_BASE_PATH']
+                pretrained_weights_path = os.path.join(base_clip_model_path, 'open_clip_pytorch_model.bin')
+                if not os.path.exists(pretrained_weights_path):
+                    logger.error(f"Fallback CLIP model ağırlık dosyası da bulunamadı: {pretrained_weights_path}")
+                    raise FileNotFoundError(f"CLIP model ağırlık dosyası ne aktif ne de base path'te bulunamadı: {pretrained_weights_path}")
+                logger.info(f"Aktif CLIP modeli bulunamadı, base modelden yüklenecek: {pretrained_weights_path}")
+
+            logger.info(f"CLIP modeli yükleniyor (Model: {clip_model_name_from_config}, Ağırlıklar: {pretrained_weights_path})")
+            
             model, _, preprocess_val = open_clip.create_model_and_transforms(
-                model_name="ViT-H-14-378-quickgelu",
-                pretrained="dfn5b",
-                device=device
+                model_name=clip_model_name_from_config, # örn: "ViT-H-14-378-quickgelu"
+                pretrained=pretrained_weights_path,     # örn: ".../active_model/open_clip_pytorch_model.bin"
+                device=device,
+                jit=False # JIT ile sorunlar yaşanabiliyor, False olarak ayarlayalım
             )
             _models_cache[cache_key] = (model, preprocess_val)
-            logger.info(f"ViT-H-14-378-quickgelu CLIP modeli (pretrained: dfn5b) {device} üzerinde başarıyla yüklendi ve önbelleğe alındı.")
+            logger.info(f"{clip_model_name_from_config} CLIP modeli (Ağırlıklar: {pretrained_weights_path}) {device} üzerinde başarıyla yüklendi ve önbelleğe alındı.")
             return model, preprocess_val
+            
         except Exception as e:
-            logger.error(f"CLIP modeli yüklenemedi: {str(e)}")
+            logger.error(f"CLIP modeli yüklenemedi: {str(e)}", exc_info=True)
             raise
     
     def _load_yolo_model(self, model_folder):
-        """YOLOv8 modelini yükler, cache kontrolü yapar"""
+        """YOLOv8 modelini merkezi aktif yoldan yükler, cache kontrolü yapar"""
         cache_key = "yolov8"
         
-        # Önbellekte varsa direkt döndür
         if cache_key in _models_cache:
             logger.info(f"YOLOv8 modeli önbellekten kullanılıyor")
             return _models_cache[cache_key]
             
-        # Model klasörünü oluştur
-        yolo_model_path = os.path.join(model_folder, 'detection', 'yolov8x.pt')
-        if not os.path.exists(os.path.dirname(yolo_model_path)):
-            os.makedirs(os.path.dirname(yolo_model_path), exist_ok=True)
+        active_yolo_model_base_path = current_app.config['YOLO_MODEL_ACTIVE_PATH']
+        # YOLO model adı config'den alınabilir veya sabit olabilir.
+        # Örn: YOLO_MODEL_NAME = 'yolov8x'
+        yolo_model_filename = current_app.config.get('YOLO_MODEL_NAME', 'yolov8x') + '.pt' #örn: yolov8x.pt
+        yolo_model_full_path = os.path.join(active_yolo_model_base_path, yolo_model_filename)
+
+        if not os.path.exists(yolo_model_full_path):
+            logger.warning(f"Aktif YOLO modeli bulunamadı: {yolo_model_full_path}. Base model denenecek.")
+            base_yolo_path = current_app.config['YOLO_MODEL_BASE_PATH']
+            yolo_model_full_path = os.path.join(base_yolo_path, yolo_model_filename)
+            if not os.path.exists(yolo_model_full_path):
+                logger.error(f"YOLO modeli ne aktif ne de base path'te bulunamadı: {yolo_model_full_path}")
+                # Acil durum: Online'dan indirmeyi dene (eski davranış)
+                try:
+                    logger.info(f"YOLO modeli yerel olarak bulunamadı. {yolo_model_filename} online'dan indirilmeye çalışılıyor...")
+                    model = YOLO(yolo_model_filename) # yolov8x.pt veya yolov8n.pt
+                    # İndirilen modeli base_path'e kaydetmeyi düşünebiliriz.
+                    # shutil.copy(yolo_model_filename, os.path.join(current_app.config['YOLO_MODEL_BASE_PATH'], yolo_model_filename))
+                    logger.info(f"{yolo_model_filename} modeli online kaynaktan fallback olarak yüklendi.")
+                    _models_cache[cache_key] = model
+                    return model
+                except Exception as fallback_err:
+                    logger.error(f"Fallback {yolo_model_filename} modeli de online kaynaktan yüklenemedi: {fallback_err}", exc_info=True)
+                    raise FileNotFoundError(f"YOLO modeli bulunamadı: {yolo_model_full_path} ve online'dan da indirilemedi.")
+            logger.info(f"Aktif YOLO modeli bulunamadı, base modelden yüklenecek: {yolo_model_full_path}")
         
         try:
-            # Model zaten var mı kontrolü
-            if os.path.exists(yolo_model_path):
-                logger.info(f"Mevcut YOLOv8x modeli yükleniyor: {yolo_model_path}")
-                model = YOLO(yolo_model_path)
-            else:
-                # Model yoksa indir ve kaydet
-                logger.info(f"YOLOv8x modeli indiriliyor: {yolo_model_path}")
-                model = YOLO('yolov8x.pt')
-                
-                # İndirilen modeli kopyala
-                if os.path.exists('yolov8x.pt'):
-                    shutil.copy('yolov8x.pt', yolo_model_path)
-                    logger.info(f"YOLOv8x modeli başarıyla kopyalandı: {yolo_model_path}")
-            
-            logger.info(f"YOLOv8x modeli başarıyla yüklendi")
-            
-            # Modeli önbelleğe ekle
+            logger.info(f"YOLOv8 modeli yükleniyor: {yolo_model_full_path}")
+            model = YOLO(yolo_model_full_path)
+            logger.info(f"YOLOv8 modeli ({yolo_model_full_path}) başarıyla yüklendi")
             _models_cache[cache_key] = model
             return model
         except Exception as yolo_err:
-            logger.error(f"YOLOv8x modeli yüklenemedi: {str(yolo_err)}")
-            # Yeniden indirilmeye çalışılır
-            try:
-                logger.info("YOLOv8x yüklenemedi, fallback olarak YOLOv8n deneniyor...")
-                model = YOLO('yolov8n.pt')
-                logger.info(f"YOLOv8n modeli online kaynaktan fallback olarak yüklendi")
-                _models_cache[cache_key] = model
-                return model
-            except Exception as e:
-                logger.error(f"Fallback YOLOv8n modeli de online kaynaktan yüklenemedi: {str(e)}")
-                raise
+            logger.error(f"YOLOv8 modeli yüklenemedi ({yolo_model_full_path}): {str(yolo_err)}", exc_info=True)
+            raise
     
     def analyze_image(self, image_path):
         """

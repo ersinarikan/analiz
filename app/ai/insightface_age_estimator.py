@@ -52,16 +52,32 @@ def find_latest_age_model(model_path):
 class InsightFaceAgeEstimator:
     def __init__(self, det_size=(640, 640)):
         # Model dosya yolunu ayarla
-        # Config.MODELS_FOLDER yerine current_app.config['MODELS_FOLDER'] kullanmak daha tutarlı olabilir
-        # Ancak Config importu zaten yapılmış ve bu şekilde kullanılıyor, şimdilik dokunmuyoruz.
-        model_path = os.path.join(Config.MODELS_FOLDER, 'age', 'buffalo_l')
-        logger.info(f"InsightFaceAgeEstimator başlatılıyor. Model dizini: {model_path}")
+        # active_insightface_path = os.path.join(Config.MODELS_FOLDER, 'age', 'buffalo_l') # Eski yol
+        active_insightface_path = current_app.config['INSIGHTFACE_AGE_MODEL_ACTIVE_PATH']
+        base_insightface_path = current_app.config['INSIGHTFACE_AGE_MODEL_BASE_PATH']
+
+        # Insightface modelini yüklemek için kullanılacak asıl yol
+        # Önce active_model'i kontrol et, eğer boşsa veya gerekli dosyalar yoksa base_model'i kullan.
+        # insightface.app.FaceAnalysis, root parametresinde model dosyalarını (örn: detection.onnx, genderage.onnx) bekler.
+        insightface_root_to_load = active_insightface_path
+        # Basit bir kontrol: active_model altında bir şeyler var mı?
+        # Daha iyi bir kontrol, belirli .onnx dosyalarının varlığını kontrol etmek olabilir.
+        # detection.onnx yerine buffalo_l modelinin kullandığı det_10g.onnx dosyasını kontrol edelim.
+        if not os.path.exists(os.path.join(active_insightface_path, 'det_10g.onnx')):
+            logger.warning(f"Aktif InsightFace modeli ({active_insightface_path}) tam değil veya bulunamadı (det_10g.onnx eksik). Base model ({base_insightface_path}) denenecek.")
+            insightface_root_to_load = base_insightface_path
+            if not os.path.exists(os.path.join(insightface_root_to_load, 'det_10g.onnx')):
+                 logger.error(f"Base InsightFace modeli de ({insightface_root_to_load}) yüklenemiyor. 'det_10g.onnx' bulunamadı.")
+                 raise FileNotFoundError(f"InsightFace 'det_10g.onnx' dosyası ne aktif ne de base path'te bulunamadı.")
+
+        logger.info(f"InsightFaceAgeEstimator başlatılıyor. Model için kullanılacak root: {insightface_root_to_load}")
         
-        # Model dosyalarının varlığını kontrol et
-        if not os.path.exists(model_path):
-            logger.error(f"Model dosyaları bulunamadı: {model_path}")
-            raise FileNotFoundError(f"Model dosyaları bulunamadı: {model_path}")
-        
+        # Log the contents of the directory that will be passed to FaceAnalysis
+        if os.path.exists(insightface_root_to_load):
+            logger.info(f"'{insightface_root_to_load}' klasörünün içeriği: {os.listdir(insightface_root_to_load)}")
+        else:
+            logger.warning(f"'{insightface_root_to_load}' klasörü bulunamadı.")
+
         # FACE_DETECTION_CONFIDENCE değerini config'den oku
         # FACTORY_DEFAULTS'taki değer 0.5, kodda kullanılan 0.2 idi.
         # Config'den gelen değer öncelikli olacak.
@@ -71,8 +87,8 @@ class InsightFaceAgeEstimator:
         # Modeli yerel dosyadan yükle
         try:
             self.model = insightface.app.FaceAnalysis(
-                name='buffalo_l',
-                root=model_path,
+                name='buffalo_l', # Bu isim, root içindeki alt klasörlerle eşleşebilir veya sadece genel bir addır.
+                root=insightface_root_to_load, # Güncellenmiş yol
                 providers=['CPUExecutionProvider'],
                 det_thresh=face_detection_thresh # Dinamik olarak okunan değeri kullan
             )
@@ -84,11 +100,18 @@ class InsightFaceAgeEstimator:
         
         # Kendi yaş modelini yüklemeye çalış
         try:
-            age_model_path = find_latest_age_model(model_path)
-            if age_model_path is not None:
-                logger.info(f"Özel yaş tahmin modeli yükleniyor: {age_model_path}")
+            # Özel yaş modeli artık INSIGHTFACE_AGE_MODEL_ACTIVE_PATH içindeki custom_age_head.pth gibi bir dosyadan yüklenecek
+            # veya versiyonlama ile versions klasöründen seçilecek.
+            # Şimdilik find_latest_age_model fonksiyonunu ve CustomAgeHead yüklemesini basitleştirelim
+            # ve doğrudan active_model klasöründe 'custom_age_head.pth' arayalım.
+            custom_age_head_path = os.path.join(insightface_root_to_load, 'custom_age_head.pth') 
+            # find_latest_age_model fonksiyonunu daha sonra versiyonlama ile entegre edeceğiz.
+            # age_model_path = find_latest_age_model(insightface_root_to_load) 
+            
+            if os.path.exists(custom_age_head_path):
+                logger.info(f"Özel yaş tahmin başlığı yükleniyor: {custom_age_head_path}")
                 self.age_model = CustomAgeHead()
-                self.age_model.load_state_dict(torch.load(age_model_path, map_location='cpu'))
+                self.age_model.load_state_dict(torch.load(custom_age_head_path, map_location='cpu'))
                 self.age_model.eval()
                 logger.info("Özel yaş tahmin modeli başarıyla yüklendi")
             else:
@@ -100,17 +123,36 @@ class InsightFaceAgeEstimator:
             
         # CLIP modelini yükle
         try:
-            logger.info("CLIP modeli yükleniyor (yaş tahmin güven skoru için ViT-H-14-378-quickgelu, pretrained: dfn5b)")
-            device = "cuda" if torch.cuda.is_available() else "cpu"
+            # logger.info("CLIP modeli yükleniyor (yaş tahmin güven skoru için ViT-H-14-378-quickgelu, pretrained: dfn5b)")
+            # device = "cuda" if torch.cuda.is_available() else "cpu"
+            device = "cuda" if torch.cuda.is_available() and current_app.config.get('USE_GPU', True) else "cpu"
+            self.clip_device = device # clip_device'ı burada ayarla
+
+            active_clip_model_path = current_app.config['OPENCLIP_MODEL_ACTIVE_PATH']
+            clip_model_name_from_config = current_app.config['OPENCLIP_MODEL_NAME'].split('_')[0] # örn: ViT-H-14-378-quickgelu
+            pretrained_weights_path = os.path.join(active_clip_model_path, 'open_clip_pytorch_model.bin')
+
+            if not os.path.exists(pretrained_weights_path):
+                logger.error(f"CLIP model ağırlık dosyası (yaş için) bulunamadı: {pretrained_weights_path}")
+                base_clip_model_path = current_app.config['OPENCLIP_MODEL_BASE_PATH']
+                pretrained_weights_path = os.path.join(base_clip_model_path, 'open_clip_pytorch_model.bin')
+                if not os.path.exists(pretrained_weights_path):
+                    logger.error(f"Fallback CLIP model ağırlık dosyası (yaş için) da bulunamadı: {pretrained_weights_path}")
+                    raise FileNotFoundError(f"CLIP model ağırlık dosyası (yaş için) ne aktif ne de base path'te bulunamadı: {pretrained_weights_path}")
+                logger.info(f"Aktif CLIP modeli (yaş için) bulunamadı, base modelden yüklenecek: {pretrained_weights_path}")
+            
+            logger.info(f"CLIP modeli (yaş için) yükleniyor (Model: {clip_model_name_from_config}, Ağırlıklar: {pretrained_weights_path})")
+
             model, _, preprocess_val = open_clip.create_model_and_transforms(
-                model_name="ViT-H-14-378-quickgelu",
-                pretrained="dfn5b",
-                device=device
+                model_name=clip_model_name_from_config, #"ViT-H-14-378-quickgelu",
+                pretrained=pretrained_weights_path, #"dfn5b",
+                device=self.clip_device,
+                jit=False
             )
             self.clip_model = model
             self.clip_preprocess = preprocess_val
-            logger.info(f"CLIP modeli (yaş için ViT-H-14-378-quickgelu, pretrained: dfn5b) {device} üzerinde başarıyla yüklendi.")
-            self.clip_device = device
+            logger.info(f"CLIP modeli (yaş için {clip_model_name_from_config}, Ağırlıklar: {pretrained_weights_path}) {self.clip_device} üzerinde başarıyla yüklendi.")
+            # self.clip_device = device # Zaten yukarıda ayarlandı
 
             # Tokenizer'ı yükle (OpenCLIP için)
             logger.info("OpenCLIP tokenizer (ViT-H-14-378-quickgelu) yaş tahmini için yükleniyor...")
