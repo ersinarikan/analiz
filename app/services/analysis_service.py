@@ -225,16 +225,22 @@ def analyze_image(analysis):
         tuple: (başarı durumu, mesaj)
     """
     file = analysis.file
-    
+    logger.info(f"[SVC_LOG][ANALYZE_IMAGE] Resim analizi BAŞLADI. Analiz ID: {analysis.id}, Dosya: {file.original_filename}") # YENİ LOG
+
     try:
         # Resmi yükle
         image = load_image(file.file_path)
         if image is None:
+            logger.error(f"[SVC_LOG][ANALYZE_IMAGE] Resim YÜKLENEMEDİ. Analiz ID: {analysis.id}, Dosya Yolu: {file.file_path}") # YENİ LOG
             return False, "Resim yüklenemedi"
+        
+        logger.info(f"[SVC_LOG][ANALYZE_IMAGE] Resim başarıyla yüklendi. Analiz ID: {analysis.id}") # YENİ LOG
         
         # İçerik analizi yap
         content_analyzer = ContentAnalyzer()
+        logger.info(f"[SVC_LOG][ANALYZE_IMAGE] ContentAnalyzer çağrılmadan önce. Analiz ID: {analysis.id}") # YENİ LOG
         violence_score, adult_content_score, harassment_score, weapon_score, drug_score, safe_score, detected_objects = content_analyzer.analyze_image(file.file_path)
+        logger.info(f"[SVC_LOG][ANALYZE_IMAGE] ContentAnalyzer çağrıldı. Analiz ID: {analysis.id}. Adult Score: {adult_content_score}") # YENİ LOG
         
         # Analiz sonuçlarını veritabanına kaydet
         detection = ContentDetection(
@@ -251,12 +257,13 @@ def analyze_image(analysis):
         detection.weapon_score = float(weapon_score)
         detection.drug_score = float(drug_score)
         detection.safe_score = float(safe_score)
+        logger.info(f"[SVC_LOG][ANALYZE_IMAGE] ContentDetection skorları atandı. Analiz ID: {analysis.id}. Adult Score: {detection.adult_content_score}") # YENİ LOG
         
         # JSON uyumlu nesneyi kaydet
         try:
             detection.set_detected_objects(detected_objects)
         except Exception as e:
-            logger.error(f"set_detected_objects hatası: {str(e)}")
+            logger.error(f"[SVC_LOG][ANALYZE_IMAGE] set_detected_objects hatası: {str(e)}. Analiz ID: {analysis.id}") # YENİ LOG
             logger.error(f"Hata izi: {traceback.format_exc()}")
             detection._detected_objects = "[]"  # Boş liste olarak ayarla
         
@@ -307,23 +314,32 @@ def analyze_image(analysis):
                             person_id=person_id
                         ).first()
                         
+                        # Convert absolute file.file_path to relative path for storage
+                        relative_frame_path = file.file_path # Default to original if relpath fails, though it shouldn't
+                        if os.path.isabs(file.file_path):
+                            try:
+                                relative_frame_path = os.path.relpath(file.file_path, current_app.config['STORAGE_FOLDER']).replace('\\', '/')
+                            except ValueError as ve:
+                                logger.error(f"Error creating relative path for {file.file_path} relative to {current_app.config['STORAGE_FOLDER']}: {ve}. Falling back to original path.")
+                        else:
+                            # Ensure consistent path separators even if already relative
+                            relative_frame_path = file.file_path.replace('\\', '/')
+
                         if not age_est:
                             age_est = AgeEstimation(
                                 analysis_id=analysis.id,
                                 person_id=person_id,
-                                frame_path=file.file_path,
+                                frame_path=relative_frame_path, # Use relative path
                                 estimated_age=age,
                                 confidence_score=confidence
                             )
                             logger.info(f"[SVC_LOG] Yeni AgeEstimation kaydı oluşturuldu: {person_id}")
                         else:
                             if confidence > age_est.confidence_score:
-                                age_est.frame_path = file.file_path
+                                age_est.frame_path = relative_frame_path # Use relative path
                                 age_est.estimated_age = age
                                 age_est.confidence_score = confidence
                                 logger.info(f"[SVC_LOG] AgeEstimation kaydı güncellendi (daha iyi güven): {person_id}, Yeni Güven: {confidence:.4f}")
-                            else:
-                                logger.info(f"[SVC_LOG] AgeEstimation kaydı güncellenmedi (güven düşük): {person_id}, Mevcut Güven: {age_est.confidence_score:.4f}")
                         
                         db.session.add(age_est)
                         
@@ -392,11 +408,14 @@ def analyze_image(analysis):
         # Değişiklikleri veritabanına kaydet
         db.session.commit()
         analysis.update_progress(100)  # İlerleme durumunu %100 olarak güncelle
+        logger.info(f"[SVC_LOG][ANALYZE_IMAGE] Resim analizi BAŞARIYLA TAMAMLANDI. Analiz ID: {analysis.id}") # YENİ LOG
         
         return True, "Resim analizi tamamlandı"
     
     except Exception as e:
         db.session.rollback()  # Hata durumunda değişiklikleri geri al
+        logger.error(f"[SVC_LOG][ANALYZE_IMAGE] Resim analizi HATASI: {str(e)}. Analiz ID: {analysis.id}") # YENİ LOG
+        logger.error(f"Detaylı Hata İzi (analyze_image): {traceback.format_exc()}") # YENİ LOG
         return False, f"Resim analizi hatası: {str(e)}"
 
 
@@ -795,11 +814,7 @@ def analyze_video(analysis):
         # NEW OVERLAY GENERATION LOGIC
         if analysis.include_age_analysis and processed_persons_with_data:
             logger.info(f"Analiz #{analysis.id} için final overlayler oluşturuluyor. İşlenecek kişi sayısı: {len(processed_persons_with_data)}")
-            # Correct base directory for storing overlays locally, consistent with image analysis structure
             base_overlay_dir = os.path.join(current_app.config['PROCESSED_FOLDER'], f"frames_{analysis.id}", 'overlays')
-            # db_overlays_path_prefix is no longer needed for DB path calculation in this new approach
-            # db_overlays_path_prefix = os.path.join('overlays', str(analysis.id)) # OLD LINE
-
             os.makedirs(base_overlay_dir, exist_ok=True)
 
             for person_id_str in processed_persons_with_data:
@@ -810,21 +825,23 @@ def analyze_video(analysis):
                         person_id=person_id_str
                     ).order_by(AgeEstimation._confidence_score.desc(), AgeEstimation.id.desc()).first()
                     
-                    logger.info(f"Kişi {person_id_str} için best_est sorgulandı. Sonuç: {'Bulundu' if best_est else 'Bulunamadı'}")
+                    logger.info(f"Kişi {person_id_str} için best_est sorgulandı. Sonuç: {{'Bulundu' if best_est else 'Bulunamadı'}}")
 
                     if not best_est:
                         logger.warning(f"Kişi {person_id_str} için final AgeEstimation kaydı bulunamadı (best_est None), overlay atlanıyor.")
                         continue
                     
-                    logger.info(f"Kişi {person_id_str} için best_est.frame_path: {best_est.frame_path}, best_est.estimated_age: {best_est.estimated_age}, best_est.confidence_score: {best_est.confidence_score}")
+                    # Kaynak kare yolunu best_est.frame_path'ten al (bu geçici tam yol olabilir)
+                    source_frame_for_overlay_path = best_est.frame_path
+                    logger.info(f"Kişi {person_id_str} için kaynak kare yolu (best_est.frame_path): {source_frame_for_overlay_path}, best_est.estimated_age: {best_est.estimated_age}, best_est.confidence_score: {best_est.confidence_score}")
 
-                    if not best_est.frame_path or not os.path.exists(best_est.frame_path):
-                        logger.error(f"Overlay için kaynak kare {best_est.frame_path} bulunamadı/geçersiz (Kişi: {person_id_str}). Disk kontrolü: {'Var' if best_est.frame_path and os.path.exists(best_est.frame_path) else 'Yok veya Path Hatalı'}")
+                    if not source_frame_for_overlay_path or not os.path.exists(source_frame_for_overlay_path):
+                        logger.error(f"Overlay için kaynak kare {source_frame_for_overlay_path} bulunamadı/geçersiz (Kişi: {person_id_str}). Disk kontrolü: {{'Var' if source_frame_for_overlay_path and os.path.exists(source_frame_for_overlay_path) else 'Yok veya Path Hatalı'}}")
                         continue
                     
-                    image_source_for_overlay = cv2.imread(best_est.frame_path)
+                    image_source_for_overlay = cv2.imread(source_frame_for_overlay_path)
                     if image_source_for_overlay is None:
-                        logger.error(f"Overlay için kare okunamadı (Kişi: {person_id_str}): {best_est.frame_path}")
+                        logger.error(f"Overlay için kare okunamadı (Kişi: {person_id_str}): {source_frame_for_overlay_path}")
                         continue
 
                     age_to_display = int(round(best_est.estimated_age))
@@ -838,48 +855,61 @@ def analyze_video(analysis):
                     except (TypeError, ValueError) as json_parse_err:
                         logger.error(f"Kişi {person_id_str} BBox parse edilemedi ({bbox_json_str}): {json_parse_err}")
                         continue
-
+                    
+                    # Overlay çizimi (yaş ve kutu)
                     image_with_overlay = image_source_for_overlay.copy()
-                    x2_bbox, y2_bbox = x1_bbox + w_bbox, y1_bbox + h_bbox
+                    label = f"Yas: {age_to_display}"
+                    cv2.rectangle(image_with_overlay, (x1_bbox, y1_bbox), (x1_bbox + w_bbox, y1_bbox + h_bbox), (0, 255, 0), 2)
+                    cv2.putText(image_with_overlay, label, (x1_bbox, y1_bbox - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
                     
-                    img_h_shape, img_w_shape = image_with_overlay.shape[:2]
-                    draw_x1, draw_y1 = max(0, x1_bbox), max(0, y1_bbox)
-                    draw_x2, draw_y2 = min(img_w_shape - 1, x2_bbox), min(img_h_shape - 1, y2_bbox)
+                    # Benzersiz ve anlamlı bir dosya adı oluştur (orijinal kare adını içerebilir)
+                    original_frame_basename = os.path.basename(source_frame_for_overlay_path) # ör: frame_000123.jpg
+                    overlay_filename = f"{person_id_str}_overlay_{original_frame_basename}"
+                    final_overlay_path_on_disk = os.path.join(base_overlay_dir, overlay_filename)
+                    
+                    # Overlay'li resmi diske kaydet
+                    save_success = cv2.imwrite(final_overlay_path_on_disk, image_with_overlay)
+                    if not save_success:
+                        logger.error(f"Overlay dosyası diske kaydedilemedi: {final_overlay_path_on_disk}")
+                        continue
+                    
+                    logger.info(f"Overlay başarıyla diske kaydedildi: {final_overlay_path_on_disk}")
 
-                    cv2.rectangle(image_with_overlay, (draw_x1, draw_y1), (draw_x2, draw_y2), (0, 255, 0), 2)
-                    
-                    # Use the numerical part of person_id for shorter display ID on overlay
-                    display_person_short_id = person_id_str.split('_')[-1] 
-                    text_on_overlay = f"ID: {display_person_short_id} YAS: {age_to_display}"
-                    
-                    (text_w, text_h), _ = cv2.getTextSize(text_on_overlay, cv2.FONT_HERSHEY_SIMPLEX, 0.7, 2)
-                    text_y_draw_pos = draw_y1 - 10 if draw_y1 > (text_h + 10) else draw_y2 + text_h + 10
-                    
-                    # Text background rectangle for better readability
-                    cv2.rectangle(image_with_overlay, (draw_x1, text_y_draw_pos - text_h -5), (draw_x1 + text_w + 5, text_y_draw_pos+5), (0,0,0), -1)
-                    cv2.putText(image_with_overlay, text_on_overlay, (draw_x1 + 2, text_y_draw_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+                    # GÖRECELİ YOLU OLUŞTUR VE VERİTABANINA KAYDET
+                    #STORAGE_FOLDER (örn: /.../WSANALIZ/storage) PROCESSED_FOLDER (örn: /.../WSANALIZ/storage/processed)
+                    # base_overlay_dir (örn: /.../WSANALIZ/storage/processed/frames_ANALYSISID/overlays)
+                    # final_overlay_path_on_disk (örn: /.../WSANALIZ/storage/processed/frames_ANALYSISID/overlays/FILENAME.jpg)
+                    # Hedef: processed/frames_ANALYSISID/overlays/FILENAME.jpg
+                    try:
+                        relative_overlay_path_for_db = os.path.relpath(final_overlay_path_on_disk, current_app.config['STORAGE_FOLDER']).replace('\\', '/')
+                    except ValueError as ve:
+                        logger.error(f"Göreli yol oluşturulurken hata (final_overlay_path_on_disk='{final_overlay_path_on_disk}', STORAGE_FOLDER='{current_app.config['STORAGE_FOLDER']}'): {ve}")
+                        # Fallback to a simpler relative path construction if relpath fails due to different drives on Windows etc.
+                        # This assumes PROCESSED_FOLDER is a subfolder of STORAGE_FOLDER or correctly configured.
+                        path_parts = final_overlay_path_on_disk.split(os.sep)
+                        try:
+                            storage_index = path_parts.index('storage')
+                            relative_overlay_path_for_db = os.path.join(*path_parts[storage_index+1:]).replace('\\', '/')
+                            logger.info(f"Fallback göreceli yol oluşturuldu: {relative_overlay_path_for_db}")
+                        except ValueError:
+                            logger.error(f"'storage' fallback göreceli yol için path içinde bulunamadı: {final_overlay_path_on_disk}")
+                            relative_overlay_path_for_db = os.path.join('processed', f"frames_{analysis.id}", 'overlays', overlay_filename).replace('\\', '/') # Son çare
+                            logger.warning(f"Son çare göreceli yol kullanıldı: {relative_overlay_path_for_db}")
 
-                    final_overlay_filename = f"person_{display_person_short_id}_vid{analysis.id}_f{best_est.frame_number}.jpg"
-                    local_full_overlay_storage_path = os.path.join(base_overlay_dir, final_overlay_filename)
+                    if best_est:
+                        best_est.processed_image_path = relative_overlay_path_for_db
+                        logger.info(f"Kişi {person_id_str} için AgeEstimation.processed_image_path güncellendi: {relative_overlay_path_for_db}")
                     
-                    cv2.imwrite(local_full_overlay_storage_path, image_with_overlay)
-                    # Calculate DB path relative to STORAGE_FOLDER, consistent with image analysis
-                    # db_path_for_local = os.path.join(db_overlays_path_prefix, final_overlay_filename).replace('\\', '/') # OLD LINE
-                    db_path_for_storage = os.path.relpath(local_full_overlay_storage_path, current_app.config['STORAGE_FOLDER']).replace('\\\\', '/')
-                    best_est.processed_image_path = db_path_for_storage
-                    logger.info(f"Overlay locale kaydedildi: {local_full_overlay_storage_path}, DB yolu: {db_path_for_storage} (Kişi: {person_id_str})")
-                    
-                    db.session.add(best_est)
-
-                except Exception as final_overlay_err:
-                    logger.error(f"Kişi {person_id_str} için final overlay hatası: {final_overlay_err}", exc_info=True)
+                except Exception as e:
+                    logger.error(f"Kişi {person_id_str} için overlay oluşturma/kaydetme hatası: {str(e)} - Traceback: {traceback.format_exc()}")
+                    continue
             
             try:
-                db.session.commit() 
-                logger.info(f"Analiz #{analysis.id} için final overlay path güncellemeleri tamamlandı.")
-            except Exception as e_commit_final_overlays:
+                db.session.commit()
+                logger.info(f"Analiz #{analysis.id} için tüm AgeEstimation.processed_image_path güncellemeleri commit edildi.")
+            except Exception as commit_err:
+                logger.error(f"AgeEstimation.processed_image_path güncellemeleri commit edilirken hata: {str(commit_err)}")
                 db.session.rollback()
-                logger.error(f"Final overlay path commit hatası: {e_commit_final_overlays}")
         # END NEW OVERLAY GENERATION LOGIC
         
         # Genel skorları hesapla (içerik analizi için)
@@ -1151,17 +1181,18 @@ def calculate_overall_scores(analysis):
 def get_analysis_results(analysis_id):
     """
     Bir analizin tüm sonuçlarını getirir.
-    Bu fonksiyon, analiz sonuçlarını kapsamlı bir şekilde raporlamak için 
+    Bu fonksiyon, analiz sonuçlarını kapsamlı bir şekilde raporlamak için
     kullanılır ve tüm tespit ve tahminleri içerir.
-    
+
     Args:
         analysis_id: Sonuçları getirilecek analizin ID'si
-        
+
     Returns:
         dict: Analiz sonuçlarını içeren sözlük
     """
+    logger.info(f"[SVC_LOG][ENTRY] get_analysis_results fonksiyonu çağrıldı. analysis_id: {analysis_id}") # YENİ GİRİŞ LOGU
     analysis = Analysis.query.get(analysis_id)
-    
+
     if not analysis:
         return {'error': 'Analiz bulunamadı'}
     
@@ -1195,7 +1226,27 @@ def get_analysis_results(analysis_id):
             best_estimations.append(best_estimation)
         result['age_estimations'] = best_estimations
         logger.info(f"[SVC_LOG][RESULTS] get_analysis_results: API yanıtına {len(best_estimations)} en iyi tahmin eklendi.")
-    return result 
+
+    # ---- YENİ LOGLAR ----
+    logger.info(f"[SVC_LOG][DEBUG] get_analysis_results - json.dumps öncesi.")
+    if 'category_specific_highest_risks_data' in result:
+        logger.info(f"[SVC_LOG][DEBUG] result['category_specific_highest_risks_data'] var. Türü: {type(result['category_specific_highest_risks_data'])}")
+        logger.info(f"[SVC_LOG][DEBUG] result['category_specific_highest_risks_data'] içeriği: {result['category_specific_highest_risks_data']}")
+    else:
+        logger.info(f"[SVC_LOG][DEBUG] result['category_specific_highest_risks_data'] YOK.")
+    # ---- YENİ LOGLAR SONU ----
+
+    try:
+        # Orijinal log satırını try-except içine alalım
+        final_result_json = json.dumps(result, indent=2, cls=NumPyJSONEncoder)
+        logger.info(f"[SVC_LOG][RESULTS] get_analysis_results sonu - Dönecek Result: {final_result_json}")
+    except Exception as e_dumps:
+        logger.error(f"[SVC_LOG][ERROR] get_analysis_results - json.dumps sırasında HATA: {str(e_dumps)}")
+        logger.error(f"[SVC_LOG][ERROR] Hata anındaki result sözlüğü (ilk 1000 karakter): {str(result)[:1000]}") # Hata anındaki result'ı logla (çok uzunsa kırp)
+        # Hata durumunda da bir şeyler döndürmek gerekebilir, yoksa frontend askıda kalabilir.
+        # Şimdilik orijinal davranışı koruyup, sadece logluyoruz.
+        # Sorun buysa, buraya bir `return {'error': 'Sonuçlar serileştirilemedi'}` eklenebilir.
+    return result
 
 # Model yükleme için yardımcı fonksiyonlar
 def get_content_analyzer():

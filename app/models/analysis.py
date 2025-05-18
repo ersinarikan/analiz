@@ -55,6 +55,9 @@ class Analysis(db.Model):
     highest_risk_score = db.Column(db.Float)  # En yüksek risk skoru
     highest_risk_category = db.Column(db.String(20))  # En riskli kategori ('violence', 'adult_content', vb.)
     
+    # Kategori bazlı en yüksek riskli çerçeve bilgileri (JSON olarak saklanacak)
+    category_specific_highest_risks_data = db.Column(db.Text, nullable=True)
+    
     # İlişkiler - Çakışmayı önlemek için file_ref ve file ilişkilerini kaldırdık
     # Bunun yerine, tek bir file ilişkisi kullanacağız
     file = db.relationship('File', 
@@ -134,7 +137,8 @@ class Analysis(db.Model):
             'highest_risk_frame_timestamp': self.highest_risk_frame_timestamp,
             'highest_risk_score': self.highest_risk_score,
             'highest_risk_category': self.highest_risk_category,
-            'processed_image_path': self.processed_image_path
+            'processed_image_path': self.processed_image_path,
+            'category_specific_highest_risks_data': self.category_specific_highest_risks_data
         }
 
 

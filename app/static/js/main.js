@@ -1349,17 +1349,73 @@ function displayAnalysisResults(fileId, results) {
         const analysisIdInput = document.createElement('input');
         analysisIdInput.type = 'hidden';
         analysisIdInput.name = 'analysis_id';
-        analysisIdInput.value = results.analysis_id || ''; // results objesinden analysis_id'yi al
+        analysisIdInput.value = results.analysis_id || ''; 
         feedbackForm.appendChild(analysisIdInput);
 
         const framePathInput = document.createElement('input');
         framePathInput.type = 'hidden';
         framePathInput.name = 'frame_path';
-        // Öncelik: en yüksek riskli kare, sonra genel frame_path (varsa)
-        framePathInput.value = (results.highest_risk && results.highest_risk.frame) ? results.highest_risk.frame : (results.frame_path || ''); 
+        
+        // Resimler için orijinal dosya yolu, videolar için en yüksek riskli karenin yolu (eğer varsa)
+        let determinedFramePath = results.file_path; // Default to file_path (image or video itself)
+        if (results.file_type === 'video' && results.highest_risk_frame_details && results.highest_risk_frame_details.frame_path) {
+            determinedFramePath = results.highest_risk_frame_details.frame_path;
+        } else if (results.file_type === 'image' && results.processed_image_path) { 
+            // For single images, if a specific processed_image_path exists (like for age overlays), use it.
+            // However, for content feedback, the original image itself is usually the reference.
+            // We'll stick to results.file_path for images for content feedback for now, unless a more specific per-category frame is available.
+        }
+        framePathInput.value = normalizePath(determinedFramePath); 
         feedbackForm.appendChild(framePathInput);
         
         console.log('Feedback formuna eklendi: analysis_id=', analysisIdInput.value, ', frame_path=', framePathInput.value);
+        console.log('[DEBUG] Full results object received by displayAnalysisResults:', JSON.stringify(results, null, 2)); // Log the whole results object
+        console.log('[DEBUG] Raw category_specific_highest_risks_data from results:', results.category_specific_highest_risks_data);
+
+        // Parse the category-specific highest risk data
+        let categorySpecificHighestRisks = {};
+        if (results.category_specific_highest_risks_data) {
+            try {
+                categorySpecificHighestRisks = JSON.parse(results.category_specific_highest_risks_data);
+                console.log('[DEBUG] Parsed categorySpecificHighestRisks:', JSON.stringify(categorySpecificHighestRisks, null, 2));
+            } catch (e) {
+                console.error("Error parsing category_specific_highest_risks_data:", e);
+                console.log('[DEBUG] Failed to parse category_specific_highest_risks_data. Raw data was:', results.category_specific_highest_risks_data);
+            }
+        } else {
+            console.log('[DEBUG] results.category_specific_highest_risks_data is undefined, null, or empty.');
+        }
+
+        // Populate feedback form with scores and set data attributes
+        const categoriesForFeedback = ['violence', 'adult_content', 'harassment', 'weapon', 'drug'];
+
+        for (const categoryKey of categoriesForFeedback) {
+            const scoreDisplayElement = feedbackForm.querySelector(`.${categoryKey.replace('_', '-')}-model-score`);
+            const feedbackSelectElement = feedbackForm.querySelector(`.${categoryKey.replace('_', '-')}-feedback`);
+
+            let modelScoreValue = null;
+            console.log(`[DEBUG] Processing feedback score for category: ${categoryKey}`);
+            
+            if (categorySpecificHighestRisks && typeof categorySpecificHighestRisks === 'object' && categorySpecificHighestRisks.hasOwnProperty(categoryKey)) {
+                const categoryData = categorySpecificHighestRisks[categoryKey];
+                if (categoryData && categoryData.score !== undefined && categoryData.score !== null && categoryData.score !== -1) {
+                    modelScoreValue = parseFloat(categoryData.score);
+                    console.log(`[DEBUG] ${categoryKey} - Found score in categorySpecificHighestRisks: ${categoryData.score}, parsed as: ${modelScoreValue}`);
+                } else {
+                    console.log(`[DEBUG] ${categoryKey} - Score is undefined, null, or -1. Data for category:`, categoryData);
+                }
+            } else {
+                 console.log(`[DEBUG] ${categoryKey} - Key not found in categorySpecificHighestRisks or categorySpecificHighestRisks is not a valid object. categorySpecificHighestRisks:`, categorySpecificHighestRisks);
+            }
+
+            if (scoreDisplayElement) {
+                scoreDisplayElement.textContent = `Model Skoru: ${modelScoreValue !== null && !isNaN(modelScoreValue) ? (modelScoreValue * 100).toFixed(0) : 'N/A'}%`;
+            }
+            if (feedbackSelectElement) {
+                feedbackSelectElement.dataset.modelScore = modelScoreValue !== null && !isNaN(modelScoreValue) ? modelScoreValue.toFixed(4) : '';
+                console.log(`[DEBUG] Set data-model-score for ${categoryKey} (from highest specific risk): ${feedbackSelectElement.dataset.modelScore}`);
+            }
+        }
     }
     
     // Detaylar sekmesini al
@@ -2040,7 +2096,7 @@ function submitFeedback(event) {
     event.preventDefault();
     
     const form = event.target;
-    const resultCard = form.closest('.result-card'); // Get the parent result card
+    const resultCard = form.closest('.result-card');
     const contentId = form.querySelector('.content-id').value;
     const analysisIdForContent = form.querySelector('input[name="analysis_id"]').value;
     const framePathForContent = form.querySelector('input[name="frame_path"]').value;
@@ -2049,27 +2105,73 @@ function submitFeedback(event) {
     mainSubmitButton.disabled = true;
     mainSubmitButton.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i> Gönderiliyor...';
 
-    // 1. Collect and Send Content Feedback
+    const categories = ['violence', 'adult_content', 'harassment', 'weapon', 'drug'];
+    const categoryFeedback = {};
+    const categoryCorrectValues = {};
+
+    categories.forEach(category => {
+        const feedbackSelect = form.querySelector(`.${category.replace('_', '-')}-feedback`);
+        const correctValueInput = form.querySelector(`.${category.replace('_', '-')}-correct-value`);
+        
+        const feedbackValue = feedbackSelect ? feedbackSelect.value : "";
+        categoryFeedback[category] = feedbackValue;
+
+        let correctValue = null;
+        if (correctValueInput && correctValueInput.value !== "") {
+            correctValue = parseFloat(correctValueInput.value);
+            if (isNaN(correctValue) || correctValue < 0 || correctValue > 100) {
+                showToast('Uyarı', `Kategori '${category}' için geçersiz skor: ${correctValueInput.value}. Lütfen 0-100 arası bir değer girin.`, 'warning');
+                // Hatalı durumda butonu tekrar aktif et ve işlemi durdur
+                mainSubmitButton.disabled = false;
+                mainSubmitButton.innerHTML = 'Tekrar Dene';
+                // throw new Error(`Invalid score for ${category}`); // Daha katı bir hata yönetimi için
+                return; // Fonksiyondan erken çıkış yapabilir veya kategori için null gönderebilir
+            }
+        }
+
+        if (feedbackValue === 'false_positive') {
+            categoryCorrectValues[category] = 0;
+        } else if (feedbackValue === 'correct') {
+            categoryCorrectValues[category] = null; // Modelin skoru doğru kabul ediliyor, özel bir skor yok
+        } else if (feedbackValue === 'false_negative' || feedbackValue === 'score_too_low' || feedbackValue === 'score_too_high') {
+            // Kullanıcı bir skor girdiyse onu kullan, girmediyse null (veya backend'de varsayılan bir işlem)
+            categoryCorrectValues[category] = (correctValueInput && correctValueInput.value !== "") ? correctValue : null;
+        } else {
+            // Eğer feedbackValue boşsa (Değerlendirme seçin) veya beklenmeyen bir değerse
+            categoryCorrectValues[category] = null; // Ya da bu kategori için veri gönderme
+        }
+    });
+    
+    // Eğer bir kategori için geçersiz skor girildiyse ve yukarıda return ile çıkıldıysa, devam etme.
+    // Bu kontrol, forEach içindeki return'ün sadece döngünün o adımını atladığını, fonksiyonu sonlandırmadığını dikkate alır.
+    // Daha sağlam bir yapı için, forEach yerine for...of döngüsü ve erken return kullanılabilir veya bir flag tutulabilir.
+    // Şimdilik, her kategori için uyarı verip null göndermeye devam edecek şekilde bırakıyoruz, 
+    // ama en az bir hata varsa butonun aktif kalmasını sağlıyoruz.
+    let hasErrorInScores = false;
+    categories.forEach(category => {
+        const correctValueInput = form.querySelector(`.${category.replace('_', '-')}-correct-value`);
+        if (correctValueInput && correctValueInput.value !== "") {
+            const val = parseFloat(correctValueInput.value);
+            if (isNaN(val) || val < 0 || val > 100) {
+                hasErrorInScores = true;
+            }
+        }
+    });
+
+    if (hasErrorInScores) {
+        // mainSubmitButton.disabled = false; // Zaten yukarıda yapılıyor
+        // mainSubmitButton.innerHTML = 'Tekrar Dene';
+        return; // Hata varsa gönderme işlemi yapma
+    }
+
     const contentFeedbackData = {
         content_id: contentId,
         analysis_id: analysisIdForContent,
         frame_path: framePathForContent,
         rating: parseInt(form.querySelector('.general-rating').value),
         comment: form.querySelector('.feedback-comment').value,
-        category_feedback: {
-            violence: form.querySelector('.violence-feedback').value,
-            adult_content: form.querySelector('.adult-content-feedback').value,
-            harassment: form.querySelector('.harassment-feedback').value,
-            weapon: form.querySelector('.weapon-feedback').value,
-            drug: form.querySelector('.drug-feedback').value
-        },
-        category_correct_values: {
-            violence: form.querySelector('.violence-correct-value') ? parseFloat(form.querySelector('.violence-correct-value').value) : null,
-            adult_content: form.querySelector('.adult-content-correct-value') ? parseFloat(form.querySelector('.adult-content-correct-value').value) : null,
-            harassment: form.querySelector('.harassment-correct-value') ? parseFloat(form.querySelector('.harassment-correct-value').value) : null,
-            weapon: form.querySelector('.weapon-correct-value') ? parseFloat(form.querySelector('.weapon-correct-value').value) : null,
-            drug: form.querySelector('.drug-correct-value') ? parseFloat(form.querySelector('.drug-correct-value').value) : null
-        }
+        category_feedback: categoryFeedback,
+        category_correct_values: categoryCorrectValues
     };
     
     fetch('/api/feedback/submit', {
@@ -2264,31 +2366,42 @@ function submitAgeFeedback(personId, buttonElement) {
 }
 
 // Geliştirilmiş yaş tahmini display için yardımcı fonksiyon
-function createAgeFeedbackElements(faceId, estimatedAge, personId) {
-    const feedbackContainer = document.createElement('div');
-    feedbackContainer.className = 'age-feedback-container mt-2';
-    
-    feedbackContainer.innerHTML = `
-        <div class="input-group">
-            <span class="input-group-text">Doğru Yaş:</span>
-            <input type="number" class="form-control age-feedback-input" 
-                   min="1" max="100" placeholder="Gerçek yaş" 
-                   value="${estimatedAge}" data-person-id="${personId}">
-            <button class="btn btn-primary age-feedback-btn" 
-                    data-person-id="${personId}" 
-                    onclick="submitAgeFeedback('${personId}', this.previousElementSibling)">
-                Gönder
-            </button>
+function createAgeFeedbackElements(faceId, estimatedAge, personId, analysisId, framePath) { // analysisId ve framePath eklendi
+    const feedbackItem = document.createElement('div');
+    feedbackItem.className = 'age-feedback-item mb-3 p-3 border rounded';
+    // Benzersiz ID için faceId veya personId kullanılabilir
+    const uniqueIdSuffix = personId.replace(/[^a-zA-Z0-9]/g, "_"); // Sanitize personId for use in ID
+
+    const imgElement = document.createElement('img');
+    imgElement.className = 'img-thumbnail me-2 age-feedback-thumbnail'; // Yeni bir sınıf ekleyebiliriz stil için
+    imgElement.style.width = '100px'; // 80px'den 100px'e çıkarıldı
+    imgElement.style.height = '100px'; // 80px'den 100px'e çıkarıldı
+    imgElement.style.objectFit = 'cover';
+    // src ve alt, displayAgeFeedback içinde ayarlanacak
+
+    const detailsDiv = document.createElement('div');
+    detailsDiv.className = 'flex-grow-1';
+    detailsDiv.innerHTML = `
+        <div class="mb-1">
+            <strong>Kişi ID: <span class="person-id-display">${personId}</span></strong>
         </div>
-        <div class="form-check mt-1">
-            <input class="form-check-input age-accuracy-check" type="checkbox" id="accuracy-${faceId}">
-            <label class="form-check-label" for="accuracy-${faceId}">
-                Yaş aralığı doğru ama kesin yaş yanlış
-            </label>
+        <div class="mb-2">
+            Tahmini Yaş: <span class="estimated-age-display">${estimatedAge}</span>
+        </div>
+        <div class="input-group">
+            <span class="input-group-text">Gerçek Yaş:</span>
+            <input type="number" class="form-control corrected-age" 
+                   min="1" max="100" placeholder="Yaş girin" 
+            data-person-id="${personId}" 
+                   data-analysis-id="${analysisId}" 
+                   data-frame-path="${normalizePath(framePath)}">
         </div>
     `;
-    
-    return feedbackContainer;
+
+    feedbackItem.appendChild(imgElement);
+    feedbackItem.appendChild(detailsDiv);
+
+    return feedbackItem;
 }
 
 // Model metrikleri yükle
@@ -3504,14 +3617,17 @@ function displayAgeFeedback(feedbackTab, results) { // results objesi analysis_i
             facesMap.set(personId, {
                 age: item.estimated_age !== undefined && item.estimated_age !== null ? Math.round(item.estimated_age) : 'Bilinmiyor',
                 confidence: confidence,
-                frame_path: item.frame_path || null, // Use item.frame_path for the original frame
+                // frame_path için de processed_image_path'i önceliklendir, eğer yoksa item.frame_path'e fallback yap
+                frame_path: item.processed_image_path || item.frame_path || null, 
                 face_image_src: item.face_image_path || item.processed_image_path || '/static/img/placeholder-face.png' 
             });
         }
     });
 
 
+    let personCounter = 0; // Kişi sayacı eklendi
     facesMap.forEach((face, personId) => {
+        personCounter++; // Sayaç artırıldı
         const templateClone = ageFeedbackTemplate.content.cloneNode(true);
         const feedbackItem = templateClone.querySelector('.age-feedback-item');
         
@@ -3523,12 +3639,12 @@ function displayAgeFeedback(feedbackTab, results) { // results objesi analysis_i
                 imgSrc = '/' + imgSrc;
             }
             faceImageElement.src = imgSrc;
-            faceImageElement.alt = `Yüz ${personId}`;
+            faceImageElement.alt = `Kişi ${personCounter}`;
         }
         
         const personIdElement = feedbackItem.querySelector('.person-id');
         if (personIdElement) {
-            personIdElement.textContent = personId;
+            personIdElement.textContent = personCounter; // Sıralı numara atandı
         }
         
         const estimatedAgeElement = feedbackItem.querySelector('.estimated-age');

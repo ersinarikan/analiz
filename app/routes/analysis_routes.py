@@ -110,6 +110,7 @@ def get_file_analyses(file_id):
 
 @bp.route('/<analysis_id>/results', methods=['GET'])
 def get_results(analysis_id):
+    print("--- GET_RESULTS ENDPOINT CALLED ---")
     """
     Belirtilen analiz ID'si için detaylı sonuçları getirir.
     
@@ -121,6 +122,20 @@ def get_results(analysis_id):
     """
     results = get_analysis_results(analysis_id)
     
+    # YENİ LOGLAR
+    logger.info(f"[ROUTE_LOG] get_results: get_analysis_results fonksiyonundan dönen results: {type(results)}")
+    if isinstance(results, dict):
+        logger.info(f"[ROUTE_LOG] results sözlüğünün anahtarları: {list(results.keys())}")
+        # category_specific_highest_risks_data alanının varlığını ve türünü kontrol et
+        if 'category_specific_highest_risks_data' in results:
+            logger.info(f"[ROUTE_LOG] results['category_specific_highest_risks_data'] TÜRÜ: {type(results['category_specific_highest_risks_data'])}")
+            logger.info(f"[ROUTE_LOG] results['category_specific_highest_risks_data'] İÇERİĞİ (ilk 200 karakter): {str(results['category_specific_highest_risks_data'])[:200]}")
+        else:
+            logger.info("[ROUTE_LOG] results içerisinde 'category_specific_highest_risks_data' anahtarı BULUNAMADI.")
+    else:
+        logger.warning(f"[ROUTE_LOG] get_analysis_results beklenen gibi sözlük dönmedi, dönen değer (ilk 200 karakter): {str(results)[:200]}")
+    # YENİ LOGLAR SONU
+
     if 'error' in results:
         return jsonify(results), 404
         
@@ -363,7 +378,8 @@ def get_detailed_results(analysis_id):
                 'category': analysis.highest_risk_category
             },
             'content_detections': content_detections,
-            'age_estimations': age_estimations
+            'age_estimations': age_estimations,
+            'category_specific_highest_risks_data': analysis.category_specific_highest_risks_data
         }
         
         # NumPy veri tipleri ile başa çıkabilmek için özel JSON dönüştürücü kullan

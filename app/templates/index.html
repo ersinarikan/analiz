@@ -271,16 +271,21 @@
                                             <!-- Şiddet -->
                                             <div class="card mb-2">
                                                 <div class="card-body">
-                                                    <h6>Şiddet İçeriği</h6>
-                                                    <select class="form-select mb-2 violence-feedback">
-                                                        <option value="" selected>Değerlendirme seçin</option>
-                                                        <option value="correct">Doğru tespit</option>
-                                                        <option value="missed">Tespit edilememiş</option>
-                                                        <option value="false_positive">Yanlış tespit</option>
+                                                    <div class="d-flex justify-content-between align-items-center">
+                                                        <h6>Şiddet İçeriği</h6>
+                                                        <small class="text-muted model-score violence-model-score"></small>
+                                                    </div>
+                                                    <select class="form-select mb-2 violence-feedback" data-category="violence">
+                                                        <option value="" selected disabled>Değerlendirme seçin</option>
+                                                        <option value="correct">Tespit ve Skor Doğru</option>
+                                                        <option value="false_positive">Yanlış Tespit Edildi (Aslında Yoktu)</option>
+                                                        <option value="false_negative">Tespit Edilemedi (Aslında Vardı)</option>
+                                                        <option value="score_too_low">Doğru Tespit Edildi Ama Skor Çok Düşük</option>
+                                                        <option value="score_too_high">Doğru Tespit Edildi Ama Skor Çok Yüksek</option>
                                                     </select>
                                                     <div class="input-group">
-                                                        <span class="input-group-text">Doğru Skor:</span>
-                                                        <input type="number" class="form-control violence-correct-value" min="0" max="1" step="0.1" placeholder="0.0 - 1.0">
+                                                        <span class="input-group-text">Doğru Skor (0-100):</span>
+                                                        <input type="number" class="form-control violence-correct-value" min="0" max="100" step="1" placeholder="0-100">
                                                     </div>
                                                 </div>
                                             </div>
@@ -288,16 +293,21 @@
                                             <!-- Yetişkin İçeriği -->
                                             <div class="card mb-2">
                                                 <div class="card-body">
-                                                    <h6>Yetişkin İçeriği</h6>
-                                                    <select class="form-select mb-2 adult-content-feedback">
-                                                        <option value="" selected>Değerlendirme seçin</option>
-                                                        <option value="correct">Doğru tespit</option>
-                                                        <option value="missed">Tespit edilememiş</option>
-                                                        <option value="false_positive">Yanlış tespit</option>
+                                                    <div class="d-flex justify-content-between align-items-center">
+                                                        <h6>Yetişkin İçeriği</h6>
+                                                        <small class="text-muted model-score adult-content-model-score"></small>
+                                                    </div>
+                                                    <select class="form-select mb-2 adult-content-feedback" data-category="adult_content">
+                                                        <option value="" selected disabled>Değerlendirme seçin</option>
+                                                        <option value="correct">Tespit ve Skor Doğru</option>
+                                                        <option value="false_positive">Yanlış Tespit Edildi (Aslında Yoktu)</option>
+                                                        <option value="false_negative">Tespit Edilemedi (Aslında Vardı)</option>
+                                                        <option value="score_too_low">Doğru Tespit Edildi Ama Skor Çok Düşük</option>
+                                                        <option value="score_too_high">Doğru Tespit Edildi Ama Skor Çok Yüksek</option>
                                                     </select>
                                                     <div class="input-group">
-                                                        <span class="input-group-text">Doğru Skor:</span>
-                                                        <input type="number" class="form-control adult-content-correct-value" min="0" max="1" step="0.1" placeholder="0.0 - 1.0">
+                                                        <span class="input-group-text">Doğru Skor (0-100):</span>
+                                                        <input type="number" class="form-control adult-content-correct-value" min="0" max="100" step="1" placeholder="0-100">
                                                     </div>
                                                 </div>
                                             </div>
@@ -305,16 +315,21 @@
                                             <!-- Taciz -->
                                             <div class="card mb-2">
                                                 <div class="card-body">
-                                                    <h6>Taciz İçeriği</h6>
-                                                    <select class="form-select mb-2 harassment-feedback">
-                                                        <option value="" selected>Değerlendirme seçin</option>
-                                                        <option value="correct">Doğru tespit</option>
-                                                        <option value="missed">Tespit edilememiş</option>
-                                                        <option value="false_positive">Yanlış tespit</option>
+                                                    <div class="d-flex justify-content-between align-items-center">
+                                                        <h6>Taciz İçeriği</h6>
+                                                        <small class="text-muted model-score harassment-model-score"></small>
+                                                    </div>
+                                                    <select class="form-select mb-2 harassment-feedback" data-category="harassment">
+                                                        <option value="" selected disabled>Değerlendirme seçin</option>
+                                                        <option value="correct">Tespit ve Skor Doğru</option>
+                                                        <option value="false_positive">Yanlış Tespit Edildi (Aslında Yoktu)</option>
+                                                        <option value="false_negative">Tespit Edilemedi (Aslında Vardı)</option>
+                                                        <option value="score_too_low">Doğru Tespit Edildi Ama Skor Çok Düşük</option>
+                                                        <option value="score_too_high">Doğru Tespit Edildi Ama Skor Çok Yüksek</option>
                                                     </select>
                                                     <div class="input-group">
-                                                        <span class="input-group-text">Doğru Skor:</span>
-                                                        <input type="number" class="form-control harassment-correct-value" min="0" max="1" step="0.1" placeholder="0.0 - 1.0">
+                                                        <span class="input-group-text">Doğru Skor (0-100):</span>
+                                                        <input type="number" class="form-control harassment-correct-value" min="0" max="100" step="1" placeholder="0-100">
                                                     </div>
                                                 </div>
                                             </div>
@@ -322,16 +337,21 @@
                                             <!-- Silah -->
                                             <div class="card mb-2">
                                                 <div class="card-body">
-                                                    <h6>Silah İçeriği</h6>
-                                                    <select class="form-select mb-2 weapon-feedback">
-                                                        <option value="" selected>Değerlendirme seçin</option>
-                                                        <option value="correct">Doğru tespit</option>
-                                                        <option value="missed">Tespit edilememiş</option>
-                                                        <option value="false_positive">Yanlış tespit</option>
+                                                    <div class="d-flex justify-content-between align-items-center">
+                                                        <h6>Silah İçeriği</h6>
+                                                        <small class="text-muted model-score weapon-model-score"></small>
+                                                    </div>
+                                                    <select class="form-select mb-2 weapon-feedback" data-category="weapon">
+                                                        <option value="" selected disabled>Değerlendirme seçin</option>
+                                                        <option value="correct">Tespit ve Skor Doğru</option>
+                                                        <option value="false_positive">Yanlış Tespit Edildi (Aslında Yoktu)</option>
+                                                        <option value="false_negative">Tespit Edilemedi (Aslında Vardı)</option>
+                                                        <option value="score_too_low">Doğru Tespit Edildi Ama Skor Çok Düşük</option>
+                                                        <option value="score_too_high">Doğru Tespit Edildi Ama Skor Çok Yüksek</option>
                                                     </select>
                                                     <div class="input-group">
-                                                        <span class="input-group-text">Doğru Skor:</span>
-                                                        <input type="number" class="form-control weapon-correct-value" min="0" max="1" step="0.1" placeholder="0.0 - 1.0">
+                                                        <span class="input-group-text">Doğru Skor (0-100):</span>
+                                                        <input type="number" class="form-control weapon-correct-value" min="0" max="100" step="1" placeholder="0-100">
                                                     </div>
                                                 </div>
                                             </div>
@@ -339,16 +359,21 @@
                                             <!-- Madde Kullanımı -->
                                             <div class="card mb-2">
                                                 <div class="card-body">
-                                                    <h6>Madde Kullanımı</h6>
-                                                    <select class="form-select mb-2 drug-feedback">
-                                                        <option value="" selected>Değerlendirme seçin</option>
-                                                        <option value="correct">Doğru tespit</option>
-                                                        <option value="missed">Tespit edilememiş</option>
-                                                        <option value="false_positive">Yanlış tespit</option>
+                                                    <div class="d-flex justify-content-between align-items-center">
+                                                        <h6>Madde Kullanımı</h6>
+                                                        <small class="text-muted model-score drug-model-score"></small>
+                                                    </div>
+                                                    <select class="form-select mb-2 drug-feedback" data-category="drug">
+                                                        <option value="" selected disabled>Değerlendirme seçin</option>
+                                                        <option value="correct">Tespit ve Skor Doğru</option>
+                                                        <option value="false_positive">Yanlış Tespit Edildi (Aslında Yoktu)</option>
+                                                        <option value="false_negative">Tespit Edilemedi (Aslında Vardı)</option>
+                                                        <option value="score_too_low">Doğru Tespit Edildi Ama Skor Çok Düşük</option>
+                                                        <option value="score_too_high">Doğru Tespit Edildi Ama Skor Çok Yüksek</option>
                                                     </select>
                                                     <div class="input-group">
-                                                        <span class="input-group-text">Doğru Skor:</span>
-                                                        <input type="number" class="form-control drug-correct-value" min="0" max="1" step="0.1" placeholder="0.0 - 1.0">
+                                                        <span class="input-group-text">Doğru Skor (0-100):</span>
+                                                        <input type="number" class="form-control drug-correct-value" min="0" max="100" step="1" placeholder="0-100">
                                                     </div>
                                                 </div>
                                             </div>
@@ -389,7 +414,7 @@
     <template id="ageFeedbackTemplate">
         <div class="age-feedback-item mb-3 p-3 border rounded d-flex align-items-center">
             <div class="flex-shrink-0 me-3">
-                <img src="" alt="Yüz Görüntüsü" class="face-image rounded" style="width: 60px; height: 60px; object-fit: cover;">
+                <img src="" alt="Yüz Görüntüsü" class="face-image rounded" style="width: 90px; height: 90px; object-fit: cover;">
             </div>
             <div class="flex-grow-1">
                 <div class="mb-2">
