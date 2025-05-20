@@ -60,6 +60,14 @@ class Config:
     MAX_LOST_FRAMES = 30 # (5 - 300)
     EMBEDDING_DISTANCE_THRESHOLD = 0.4 # (0.1 - 0.8)
 
+    # Görüntü işleme
+    CLIP_ADULT_THRESHOLD = 0.6 # Örnek eşik değeri, ihtiyaca göre ayarlayın
+    CLIP_VIOLENCE_THRESHOLD = 0.7
+    CLIP_HARASSMENT_THRESHOLD = 0.7 # Yeni eklendi
+
+    # Yaş tahmini için CLIP güven eşiği (sözde etiketleme veri kaydı için)
+    PSEUDO_LABEL_RECORD_CLIP_THRESHOLD = 0.75 # Yeni İngilizce standart isim
+
 class DevelopmentConfig(Config):
     DEBUG = True
     SQLALCHEMY_DATABASE_URI = 'sqlite:///wsanaliz_dev.db'

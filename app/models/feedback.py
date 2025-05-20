@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from app import db
 from sqlalchemy.dialects.postgresql import JSON, UUID
-from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, Text, ForeignKey
+from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, Text, ForeignKey, LargeBinary
 
 class Feedback(db.Model):
     """İçerik analizlerine kullanıcı geri bildirimleri için model."""
@@ -10,62 +10,60 @@ class Feedback(db.Model):
     
     id = db.Column(db.Integer, primary_key=True)
     created_at = db.Column(db.DateTime, default=datetime.now)
+    
+    # Görüntü ve Yüz Bilgileri
     frame_path = db.Column(db.String(1024), nullable=True)
+    face_bbox = db.Column(db.String(255), nullable=True) # "x1,y1,x2,y2" veya JSON
+    embedding = db.Column(db.Text, nullable=True) # Artık virgül ile ayrılmış float string olarak saklanacak
+
+    # İçerik ve Analiz ID'leri
+    content_id = db.Column(db.String(36), nullable=True)
+    analysis_id = db.Column(db.String(36), nullable=True)
     
-    # İçerik ile ilgili alanlar (İçerik analizi geri bildirimleri için)
-    content_id = db.Column(db.String(36), nullable=True)  # İçerik için UUID
-    analysis_id = db.Column(db.String(36), nullable=True)  # Analiz için UUID
+    # Kişi ID'si (yaş geri bildirimi için)
+    person_id = db.Column(db.String(36), nullable=True, index=True)
     
-    # Yaş tahmini ile ilgili alanlar
-    person_id = db.Column(db.String(36), nullable=True)  # Kişi için UUID 
-    corrected_age = db.Column(db.Integer, nullable=True)  # Düzeltilmiş yaş değeri
-    is_age_range_correct = db.Column(db.Boolean, default=False)  # Yaş aralığı doğru mu?
+    # Yaş Geri Bildirimleri
+    corrected_age = db.Column(db.Integer, nullable=True) # Kullanıcının girdiği yaş
+    pseudo_label_original_age = db.Column(db.Float, nullable=True) # BuffaloL'nin sözde etiket yaşı
+    pseudo_label_clip_confidence = db.Column(db.Float, nullable=True) # BuffaloL sözde etiketinin CLIP güveni
+    is_age_range_correct = db.Column(db.Boolean, nullable=True) # default=False kaldırıldı
+
+    # Geri Bildirim Türü ve Kaynağı
+    feedback_type = db.Column(db.String(50), nullable=True, index=True) # örn: 'age', 'content', 'general'
+    feedback_source = db.Column(db.String(50), nullable=True, default='MANUAL_USER', index=True) 
+                                # örn: 'MANUAL_USER_AGE_CORRECTION', 'PSEUDO_BUFFALO_HIGH_CONF'
     
-    # Geri bildirim türü - 'content' veya 'age'
-    feedback_type = db.Column(db.String(20), default='content')
+    # Genel Derecelendirme ve Yorum
+    rating = db.Column(db.Integer, nullable=True)
+    comment = db.Column(db.Text, nullable=True)
     
-    # Genel geri bildirim
-    rating = db.Column(db.Integer, nullable=True)  # 1-5 arası puan
-    comment = db.Column(db.Text, nullable=True)  # Kullanıcı yorumu
-    
-    # Kategori geri bildirimleri
-    # JSON formatında saklanan kategori değerlendirmeleri
-    # Örn: {'violence': 'accurate', 'adult_content': 'over_estimated'} vs.
-    category_feedback = db.Column(db.JSON, nullable=True)
-    
-    # Kullanıcı tarafından girilen doğru değerler
-    # JSON formatında saklanan 0-100 arası değerler
-    # Örn: {'violence': 75, 'adult_content': 30} vs.
-    category_correct_values = db.Column(db.JSON, nullable=True)
+    # Kategori Bazlı Geri Bildirimler (JSON)
+    category_feedback = db.Column(db.JSON, nullable=True) # PostgreSQL için JSON, diğer DB'ler için db.Text veya db.String
+    category_correct_values = db.Column(db.JSON, nullable=True) # PostgreSQL için JSON, diğer DB'ler için db.Text veya db.String
     
     def __repr__(self):
-        if self.feedback_type == 'age':
-            return f"<AgeFeedback(id={self.id}, person_id={self.person_id}, corrected_age={self.corrected_age})>"
-        else:
-            return f"<ContentFeedback(id={self.id}, content_id={self.content_id}, rating={self.rating})>"
+        return f"<Feedback(id={self.id}, type='{self.feedback_type}', source='{self.feedback_source}')>"
     
     def to_dict(self):
-        """Geri bildirimi sözlük formatına dönüştürür"""
-        result = {
+        data = {
             'id': self.id,
             'created_at': self.created_at.isoformat() if self.created_at else None,
+            'frame_path': self.frame_path,
+            'face_bbox': self.face_bbox,
+            # embedding'i to_dict'e eklemek genellikle iyi bir fikir değil, büyük olabilir.
+            'content_id': self.content_id,
+            'analysis_id': self.analysis_id,
+            'person_id': self.person_id,
+            'corrected_age': self.corrected_age,
+            'pseudo_label_original_age': self.pseudo_label_original_age,
+            'pseudo_label_clip_confidence': self.pseudo_label_clip_confidence,
+            'is_age_range_correct': self.is_age_range_correct,
             'feedback_type': self.feedback_type,
+            'feedback_source': self.feedback_source,
             'rating': self.rating,
-            'comment': self.comment
+            'comment': self.comment,
+            'category_feedback': self.category_feedback,
+            'category_correct_values': self.category_correct_values
         }
-        
-        if self.feedback_type == 'content':
-            result.update({
-                'content_id': self.content_id,
-                'analysis_id': self.analysis_id,
-                'category_feedback': self.category_feedback,
-                'category_correct_values': self.category_correct_values
-            })
-        else:  # age
-            result.update({
-                'person_id': self.person_id,
-                'corrected_age': self.corrected_age,
-                'is_age_range_correct': self.is_age_range_correct
-            })
-        
-        return result 
+        return data 

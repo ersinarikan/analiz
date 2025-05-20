@@ -1,5 +1,6 @@
 import os
 import sys
+import insightface
 
 # Çalıştırıldığı dizini (proje kök dizini olmalı) Python arama yoluna ekle
 current_working_directory = os.getcwd() # Mevcut çalışma dizinini al

@@ -1,8 +1,6 @@
 import os
-import time
 from datetime import datetime
 import logging
-import numpy as np
 import traceback
 from flask import current_app
 from app import db
@@ -10,16 +8,13 @@ from app import db
 from app.ai.content_analyzer import ContentAnalyzer, get_content_analyzer
 from app.ai.insightface_age_estimator import InsightFaceAgeEstimator, get_age_estimator
 from app.models.analysis import Analysis, ContentDetection, AgeEstimation
+from app.models.feedback import Feedback
 from app.models.file import File
 from app.utils.image_utils import load_image
 from app.routes.settings_routes import FACTORY_DEFAULTS
 import json
-import uuid
-# from app.services.file_service import get_file_info, create_thumbnail # TAMAMEN KALDIRILDI
-from app.json_encoder import json_dumps_numpy, NumPyJSONEncoder
+from app.json_encoder import NumPyJSONEncoder
 from deep_sort_realtime.deepsort_tracker import DeepSort
-import torch
-from PIL import Image
 import cv2
 from app.utils.person_tracker import PersonTrackerManager
 from app.utils.face_utils import extract_face_features
@@ -285,8 +280,8 @@ def analyze_image(analysis):
                 if x1 >= 0 and y1 >= 0 and w > 0 and h > 0 and x1+w <= image.shape[1] and y1+h <= image.shape[0]:
                     person_id = f"{analysis.id}_person_{i}"
                     logger.info(f"[SVC_LOG] Yüz #{i} (person_id={person_id}) için yaş tahmini çağrılıyor. BBox: [{x1},{y1},{w},{h}]")
-                    # Yaş tahmini ve güven skoru hesapla
-                    estimated_age, confidence = age_estimator.estimate_age(image, face)
+                    # Yaş tahmini, güven skoru ve potansiyel sözde etiket verisi
+                    estimated_age, confidence, pseudo_data = age_estimator.estimate_age(image, face)
                     logger.info(f"[SVC_LOG] Yüz #{i} (person_id={person_id}) için sonuç alındı: Yaş={estimated_age}, Güven={confidence}")
 
                     if estimated_age is None or confidence is None:
@@ -318,20 +313,31 @@ def analyze_image(analysis):
                         relative_frame_path = file.file_path # Default to original if relpath fails, though it shouldn't
                         if os.path.isabs(file.file_path):
                             try:
-                                relative_frame_path = os.path.relpath(file.file_path, current_app.config['STORAGE_FOLDER']).replace('\\', '/')
+                                relative_frame_path = os.path.relpath(file.file_path, current_app.config['STORAGE_FOLDER']).replace('\\\\', '/')
                             except ValueError as ve:
                                 logger.error(f"Error creating relative path for {file.file_path} relative to {current_app.config['STORAGE_FOLDER']}: {ve}. Falling back to original path.")
                         else:
                             # Ensure consistent path separators even if already relative
-                            relative_frame_path = file.file_path.replace('\\', '/')
+                            relative_frame_path = file.file_path.replace('\\\\', '/')
 
                         if not age_est:
+                            embedding = face.embedding if hasattr(face, 'embedding') and face.embedding is not None else None
+                            if embedding is not None:
+                                if hasattr(embedding, 'tolist'):
+                                    embedding_str = ",".join(str(float(x)) for x in embedding.tolist())
+                                elif isinstance(embedding, (list, tuple)):
+                                    embedding_str = ",".join(str(float(x)) for x in embedding)
+                                else:
+                                    embedding_str = str(embedding)
+                            else:
+                                embedding_str = None
                             age_est = AgeEstimation(
                                 analysis_id=analysis.id,
                                 person_id=person_id,
                                 frame_path=relative_frame_path, # Use relative path
                                 estimated_age=age,
-                                confidence_score=confidence
+                                confidence_score=confidence,
+                                embedding=embedding_str
                             )
                             logger.info(f"[SVC_LOG] Yeni AgeEstimation kaydı oluşturuldu: {person_id}")
                         else:
@@ -339,9 +345,41 @@ def analyze_image(analysis):
                                 age_est.frame_path = relative_frame_path # Use relative path
                                 age_est.estimated_age = age
                                 age_est.confidence_score = confidence
+                                age_est.embedding = embedding_str # embedding güncelle
                                 logger.info(f"[SVC_LOG] AgeEstimation kaydı güncellendi (daha iyi güven): {person_id}, Yeni Güven: {confidence:.4f}")
                         
                         db.session.add(age_est)
+                        
+                        # Sözde etiket verisi varsa Feedback tablosuna kaydet
+                        if pseudo_data:
+                            try:
+                                logger.info(f"[SVC_LOG] Sözde etiket verisi kaydediliyor. Person ID: {person_id}")
+                                embedding = None
+                                if pseudo_data.get("embedding") is not None:
+                                    emb = pseudo_data.get("embedding")
+                                    if isinstance(emb, (list, tuple)):
+                                        embedding = ",".join(str(float(x)) for x in emb)
+                                    elif hasattr(emb, 'tolist'):
+                                        embedding = ",".join(str(float(x)) for x in emb.tolist())
+                                    else:
+                                        embedding = str(emb)
+                                feedback_entry = Feedback(
+                                    frame_path=relative_frame_path, # Resim yolu (relatif)
+                                    face_bbox=pseudo_data.get("face_bbox"),
+                                    embedding=embedding,
+                                    pseudo_label_original_age=pseudo_data.get("pseudo_label_original_age"),
+                                    pseudo_label_clip_confidence=pseudo_data.get("pseudo_label_clip_confidence"),
+                                    feedback_source=pseudo_data.get("feedback_source", "PSEUDO_BUFFALO_HIGH_CONF"),
+                                    feedback_type="age_pseudo", # Ya da pseudo_data.get("feedback_type")
+                                    content_id=analysis.file_id, # content_id'yi analysis'ten al
+                                    analysis_id=analysis.id,
+                                    person_id=person_id 
+                                )
+                                db.session.add(feedback_entry)
+                                logger.info(f"[SVC_LOG] Sözde etiket için Feedback kaydı eklendi: {feedback_entry.id}")
+                            except Exception as fb_err:
+                                logger.error(f"[SVC_LOG] Sözde etiket Feedback kaydı oluşturulurken hata: {str(fb_err)}")
+                                # Bu hata ana akışı durdurmamalı, sadece loglanmalı.
                         
                         # Overlay oluştur
                         out_dir = os.path.join(current_app.config['PROCESSED_FOLDER'], f"frames_{analysis.id}", "overlays")
@@ -615,22 +653,16 @@ def analyze_video(analysis):
                                 if not hasattr(face, 'age') or not hasattr(face, 'confidence') or not hasattr(face, 'bbox'):
                                     logger.warning(f"Yüz {idx} için gerekli özellikler eksik: {face}")
                                     continue
-                                    
                                 age = face.age
                                 confidence = face.confidence
-                                
-                                # Eğer confidence None ise 0.5 olarak ayarla
                                 if confidence is None:
                                     confidence = 0.5
-                                
-                                # Yaş ve güven skorunu kontrol et
                                 if not isinstance(age, (int, float)) or not isinstance(confidence, (int, float)):
                                     logger.warning(f"Geçersiz yaş veya güven skoru: age={age}, confidence={confidence}")
                                     continue
                                 if age < 1 or age > 100 or confidence < 0.1:
                                     logger.warning(f"Geçersiz yaş aralığı veya düşük güven: age={age}, confidence={confidence}")
                                     continue
-                                    
                                 # Bounding box'ı kontrol et
                                 try:
                                     x1, y1, x2, y2 = [int(v) for v in face.bbox]
@@ -640,30 +672,35 @@ def analyze_video(analysis):
                                 except (ValueError, TypeError) as bbox_err:
                                     logger.warning(f"Bounding box dönüşüm hatası: {str(bbox_err)}")
                                     continue
-                                    
                                 w = x2 - x1
                                 h = y2 - y1
                                 bbox = [x1, y1, w, h]
-                                
                                 # Embedding kontrolü
-                                if not hasattr(face, 'embedding') or face.embedding is None:
-                                    logger.warning(f"Yüz {idx} için embedding bulunamadı")
-                                    continue
-                                    
-                                embedding = face.embedding
-                                        
+                                embedding = face.embedding if hasattr(face, 'embedding') and face.embedding is not None else None
+                                if embedding is not None:
+                                    if hasattr(embedding, 'tolist'):
+                                        embedding_vector = embedding.tolist()
+                                        embedding_str = ",".join(str(float(x)) for x in embedding_vector)
+                                    elif isinstance(embedding, (list, tuple)):
+                                        embedding_vector = list(embedding)
+                                        embedding_str = ",".join(str(float(x)) for x in embedding_vector)
+                                    else:
+                                        # Tek bir float veya yanlış tip
+                                        embedding_vector = [float(embedding)]
+                                        embedding_str = str(float(embedding))
+                                else:
+                                    embedding_vector = None
+                                    embedding_str = None
                                 # Yüz özelliklerini çıkar
                                 face_features = extract_face_features(image, face, bbox)
                                 face_features_list.append(face_features)
-                                
                                 detections.append({
                                     'bbox': bbox,
-                                    'embedding': embedding,
+                                    'embedding_vector': embedding_vector,  # float vektör (DeepSORT için)
+                                    'embedding_str': embedding_str,        # string (veritabanı için)
                                     'face': face
                                 })
-                                
                                 logger.info(f"Kare: {frame_path}, Yüz {idx}: age={age}, confidence={confidence}")
-                                
                             except Exception as face_err:
                                 logger.error(f"Yüz {idx} işlenirken hata: {str(face_err)}")
                                 continue
@@ -676,7 +713,7 @@ def analyze_video(analysis):
                         try:
                             tracks = tracker.update_tracks(
                                 [(d['bbox'], 1.0, "face") for d in detections],
-                                embeds=[d['embedding'] for d in detections],
+                                embeds=[d['embedding_vector'] for d in detections],  # float vektörler!
                                 frame=image
                             )
                             logger.info(f"[SVC_LOG][VID] Kare #{i}: DeepSORT {len(tracks)} track döndürdü.")
@@ -709,7 +746,8 @@ def analyze_video(analysis):
 
                                 x1, y1, w, h = det['bbox']
                                 logger.info(f"[SVC_LOG][VID] Kare #{i}: Track ID={track.track_id} (person_id={track_id_str}) için yaş tahmini çağrılıyor. BBox: [{x1},{y1},{w},{h}]")
-                                estimated_age, confidence = age_estimator.estimate_age(image, face_obj)
+                                embedding_str = det['embedding_str']  # string (veritabanı için)
+                                estimated_age, confidence, pseudo_data = age_estimator.estimate_age(image, face_obj)
                                 logger.info(f"[SVC_LOG][VID] Kare #{i}: Track ID={track.track_id} için sonuç: Yaş={estimated_age}, Güven={confidence}")
 
                                 if estimated_age is None or confidence is None:
@@ -729,8 +767,9 @@ def analyze_video(analysis):
                                             frame_path=frame_path,
                                             estimated_age=age,
                                             confidence_score=confidence,
-                                            frame_number=frame_idx, 
-                                            _face_location=json.dumps(db_bbox_to_store)
+                                            frame_number=frame_idx,
+                                            _face_location=json.dumps(db_bbox_to_store),
+                                            embedding=embedding_str
                                         )
                                         logger.info(f"[SVC_LOG][VID] Yeni AgeEstimation: {track_id_str}, Kare: {frame_idx}, BBox: {db_bbox_to_store}")
                                     else:
@@ -740,10 +779,42 @@ def analyze_video(analysis):
                                             age_est.confidence_score = confidence
                                             age_est.frame_number = frame_idx
                                             age_est._face_location = json.dumps(db_bbox_to_store)
+                                            age_est.embedding = embedding_str
                                             logger.info(f"[SVC_LOG][VID] AgeEstimation Güncelleme: {track_id_str}, Yeni Güven: {confidence:.4f}, Kare: {frame_idx}")
                                     db.session.add(age_est)
                                     processed_persons_with_data.add(track_id_str)
                                     
+                                    # Sözde etiket verisi varsa Feedback tablosuna kaydet
+                                    if pseudo_data:
+                                        try:
+                                            logger.info(f"[SVC_LOG][VID] Sözde etiket verisi kaydediliyor. Person ID: {track_id_str}, Kare Path: {frame_path}")
+                                            embedding_fb = pseudo_data.get("embedding")
+                                            if embedding_fb is not None:
+                                                if hasattr(embedding_fb, 'tolist'):
+                                                    embedding_fb_str = ",".join(str(float(x)) for x in embedding_fb.tolist())
+                                                elif isinstance(embedding_fb, (list, tuple)):
+                                                    embedding_fb_str = ",".join(str(float(x)) for x in embedding_fb)
+                                                else:
+                                                    embedding_fb_str = str(embedding_fb)
+                                            else:
+                                                embedding_fb_str = None
+                                            feedback_entry = Feedback(
+                                                frame_path=frame_path, 
+                                                face_bbox=pseudo_data.get("face_bbox"),
+                                                embedding=embedding_fb_str,
+                                                pseudo_label_original_age=pseudo_data.get("pseudo_label_original_age"),
+                                                pseudo_label_clip_confidence=pseudo_data.get("pseudo_label_clip_confidence"),
+                                                feedback_source=pseudo_data.get("feedback_source", "PSEUDO_BUFFALO_HIGH_CONF"),
+                                                feedback_type="age_pseudo",
+                                                content_id=analysis.file_id,  # DÜZELTİLDİ: Artık file_id kullanılıyor
+                                                analysis_id=analysis.id,
+                                                person_id=track_id_str 
+                                            )
+                                            db.session.add(feedback_entry)
+                                            logger.info(f"[SVC_LOG][VID] Sözde etiket için Feedback kaydı eklendi: {feedback_entry.id} (Person: {track_id_str})")
+                                        except Exception as fb_err:
+                                            logger.error(f"[SVC_LOG][VID] Sözde etiket Feedback kaydı oluşturulurken hata (Person: {track_id_str}): {str(fb_err)}")
+
                                 except Exception as db_err:
                                     logger.error(f"[SVC_LOG][VID] DB hatası (track_id={track_id_str}, kare={i}): {str(db_err)}")
                                     continue

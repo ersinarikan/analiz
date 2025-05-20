@@ -1,11 +1,22 @@
 from flask import Blueprint, request, jsonify, current_app
 from app import db, socketio
 from app.models.feedback import Feedback
-from app.models.analysis import FaceTracking
+from app.models.analysis import FaceTracking, AgeEstimation
 import logging
+import os
 
 bp = Blueprint('feedback', __name__, url_prefix='/api/feedback')
 logger = logging.getLogger(__name__)
+
+def normalize_path(frame_path):
+    """Mutlak path'i storage köküne göre bağıl hale getirir ve / ile normalize eder."""
+    if not frame_path:
+        return frame_path
+    storage_root = os.path.abspath(current_app.config['STORAGE_FOLDER'])
+    if os.path.isabs(frame_path):
+        rel_path = os.path.relpath(frame_path, storage_root)
+        return rel_path.replace("\\", "/")
+    return frame_path.replace("\\", "/")
 
 @bp.route('/submit', methods=['POST'])
 def submit_feedback():
@@ -47,7 +58,7 @@ def submit_feedback():
         feedback = Feedback(
             content_id=data['content_id'],
             analysis_id=data['analysis_id'],
-            frame_path=data.get('frame_path'),
+            frame_path=normalize_path(data.get('frame_path')),
             rating=data.get('rating'),
             comment=data.get('comment'),
             category_feedback=data.get('category_feedback', {}),
@@ -100,7 +111,7 @@ def submit_age_feedback():
         corrected_age = data['corrected_age']
         is_age_range_correct = data.get('is_age_range_correct', False)
         analysis_id = data['analysis_id']
-        frame_path = data['frame_path']
+        frame_path = normalize_path(data['frame_path'])
         
         face = FaceTracking.query.filter_by(person_id=person_id, analysis_id=analysis_id).first()
         
@@ -111,13 +122,32 @@ def submit_age_feedback():
             # return jsonify({'error': f'Belirtilen person_id ({person_id}) ve analysis_id ({analysis_id}) ile yüz takibi kaydı bulunamadı.'}), 404
             # Şimdilik kayda devam et, bu durum loglanmış oldu.
 
+        # Embedding'i AgeEstimation tablosundan bul
+        embedding_str = None
+        try:
+            # _confidence_score sütunu ile sıralama
+            age_est = AgeEstimation.query.filter_by(analysis_id=analysis_id, person_id=person_id).order_by(AgeEstimation._confidence_score.desc()).first()
+            if age_est and hasattr(age_est, 'embedding') and age_est.embedding:
+                emb = age_est.embedding
+                if isinstance(emb, str):
+                    embedding_str = emb
+                elif hasattr(emb, 'tolist'):
+                    embedding_str = ",".join(str(float(x)) for x in emb.tolist())
+                elif isinstance(emb, (list, tuple)):
+                    embedding_str = ",".join(str(float(x)) for x in emb)
+                else:
+                    embedding_str = str(emb)
+        except Exception as emb_err:
+            logger.warning(f"Embedding alınırken hata: {str(emb_err)}")
+
         feedback = Feedback(
             person_id=person_id,
             analysis_id=analysis_id,
             corrected_age=corrected_age,
             is_age_range_correct=is_age_range_correct,
             feedback_type='age',
-            frame_path=frame_path
+            frame_path=frame_path,
+            embedding=embedding_str
         )
         
         db.session.add(feedback)

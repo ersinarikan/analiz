@@ -175,47 +175,26 @@ class InsightFaceAgeEstimator:
             face: InsightFace modelinin get() metodundan dönen yüz nesnesi.
 
         Returns:
-            Tuple: (estimated_age, confidence_score) veya (None, None - hata durumunda)
+            Tuple: (final_age, final_confidence, pseudo_label_data_to_save)
+                   pseudo_label_data_to_save bir dict veya None olabilir.
         """
         if face is None:
             logger.warning("estimate_age: Geçersiz 'face' nesnesi alındı (None). Varsayılan değerler dönülüyor.")
-            return 25.0, 0.5
+            return 25.0, 0.5, None
 
-        logger.info(f"[AGE_LOG] estimate_age başladı. Gelen face bbox: {face.bbox}, Ham Yaş: {face.age}")
-        raw_insightface_age = face.age
+        logger.info(f"[AGE_LOG] estimate_age başladı. Gelen face bbox: {face.bbox}, Ham InsightFace Yaşı: {face.age}")
 
-        # Yaş değeri None ise varsayılanı kullan
-        if raw_insightface_age is None:
-            logger.warning("[AGE_LOG] InsightFace ham yaşı None, varsayılan (25) kullanılacak.")
-            estimated_age = 25
-        else:
-            # Özel yaş modeli kontrolü
-            if self.age_model is not None:
-                try:
-                    if not hasattr(face, 'embedding') or face.embedding is None:
-                        logger.warning("[AGE_LOG] Özel model için embedding yok, InsightFace yaşı ({raw_insightface_age}) kullanılacak.")
-                        estimated_age = raw_insightface_age
-                    else:
-                        embedding = face.embedding
-                        with torch.no_grad():
-                            emb_tensor = torch.tensor(embedding, dtype=torch.float32).unsqueeze(0)
-                            age_pred = self.age_model(emb_tensor).item()
-                        logger.info(f"[AGE_LOG] Özel yaş modeli tahmini: {age_pred:.1f}. Bu kullanılacak.")
-                        estimated_age = age_pred
-                except Exception as e:
-                    logger.error(f"[AGE_LOG] Özel yaş modeli hatası: {str(e)}. InsightFace yaşı ({raw_insightface_age}) kullanılacak.")
-                    estimated_age = raw_insightface_age
-            else:
-                 estimated_age = raw_insightface_age
-                 logger.info(f"[AGE_LOG] Özel yaş modeli yok, InsightFace yaşı ({estimated_age:.1f}) kullanılacak.")
+        # Adım 1: Temel Bilgileri Topla
+        embedding_current = face.embedding if hasattr(face, 'embedding') and face.embedding is not None else None
+        age_buffalo_raw = face.age # Bu buffalo_l'nin ONNX modelinden gelen ham yaş
 
-        if estimated_age is None: # Should not happen if raw_insightface_age was not None initially, but double-check
-             logger.warning("[AGE_LOG] Belirlenen yaş None kaldı, varsayılan (25) kullanılacak.")
-             estimated_age = 25
+        if age_buffalo_raw is None:
+            logger.warning("[AGE_LOG] InsightFace (Buffalo) ham yaşı None, varsayılan (25.0) kullanılacak.")
+            age_buffalo_raw = 25.0
         
-        logger.info(f"[AGE_LOG] CLIP için kullanılacak yaş: {estimated_age:.1f}")
+        age_buffalo = float(age_buffalo_raw) # Tutarlılık için float yapalım
 
-        # CLIP için yüz bölgesini çıkar
+        # Adım 1.1: CLIP için Yüz ROI Çıkar
         face_roi = None
         try:
             x1, y1, x2, y2 = [int(v) for v in face.bbox]
@@ -231,17 +210,98 @@ class InsightFaceAgeEstimator:
         except Exception as e:
             logger.error(f"[AGE_LOG] face_roi çıkarılırken hata: {str(e)}")
 
-        # CLIP modeli ile güven skoru hesapla
         if face_roi is None:
-             logger.warning("[AGE_LOG] face_roi yok, CLIP atlanıyor, varsayılan güven (0.5) dönülüyor.")
-             confidence_score = 0.5
-        else:
-             logger.info(f"[AGE_LOG] _calculate_confidence_with_clip çağrılıyor... Yaş: {estimated_age:.1f}")
-             confidence_score = self._calculate_confidence_with_clip(face_roi, estimated_age)
-             logger.info(f"[AGE_LOG] _calculate_confidence_with_clip döndü. Güven: {confidence_score:.4f}")
+             logger.warning("[AGE_LOG] face_roi yok, CLIP tabanlı karşılaştırma yapılamıyor. Buffalo ham tahmini ({age_buffalo:.1f}) ve varsayılan güven (0.5) dönülüyor.")
+             # Sözde etiket verisi de None olmalı çünkü CLIP güveni yok
+             return age_buffalo, 0.5, None
 
-        logger.info(f"[AGE_LOG] estimate_age tamamlandı. Dönen Yaş: {estimated_age:.1f}, Dönen Güven: {confidence_score:.4f}")
-        return estimated_age, confidence_score
+        # Adım 2: Buffalo_l Tahmini için CLIP Güvenini Hesapla
+        logger.info(f"[AGE_LOG] Buffalo ham tahmini ({age_buffalo:.1f}) için CLIP güveni hesaplanıyor...")
+        confidence_clip_buffalo = self._calculate_confidence_with_clip(face_roi, age_buffalo)
+        logger.info(f"[AGE_LOG] Buffalo Ham Yaşının CLIP Güveni: {confidence_clip_buffalo:.4f}")
+
+        # Adım 3: CustomAgeHead Tahmini ve CLIP Güvenini Hesapla (Eğer Mümkünse)
+        age_custom = None
+        confidence_clip_custom = -1.0 # Karşılaştırmada düşük kalması için başlangıç değeri
+        custom_age_calculated = False
+
+        if self.age_model is not None and embedding_current is not None:
+            try:
+                with torch.no_grad():
+                    emb_tensor = torch.tensor(embedding_current, dtype=torch.float32).unsqueeze(0)
+                    age_custom_pred = self.age_model(emb_tensor).item()
+                logger.info(f"[AGE_LOG] Özel yaş modeli (CustomAgeHead) tahmini: {age_custom_pred:.1f}")
+                age_custom = float(age_custom_pred) # float yap
+                logger.info(f"[AGE_LOG] CustomAgeHead tahmini ({age_custom:.1f}) için CLIP güveni hesaplanıyor...")
+                confidence_clip_custom = self._calculate_confidence_with_clip(face_roi, age_custom)
+                logger.info(f"[AGE_LOG] CustomAgeHead Tahmininin CLIP Güveni: {confidence_clip_custom:.4f}")
+                custom_age_calculated = True
+            except Exception as e:
+                logger.error(f"[AGE_LOG] Özel yaş modeli (CustomAgeHead) ile tahmin veya CLIP güveni hesaplanırken hata: {str(e)}")
+        elif self.age_model is None:
+            logger.info("[AGE_LOG] Özel yaş modeli (CustomAgeHead) yüklenmemiş.")
+        elif embedding_current is None:
+            logger.info("[AGE_LOG] Özel yaş modeli (CustomAgeHead) için embedding mevcut değil (face.embedding None).")
+
+        # Adım 4: Nihai Yaş ve Güven Belirleme
+        final_age = age_buffalo # Varsayılan olarak buffalo'nun ham yaşı
+        final_confidence = confidence_clip_buffalo # ve onun CLIP güveni
+
+        if custom_age_calculated and confidence_clip_custom >= confidence_clip_buffalo:
+            logger.info(f"[AGE_LOG][SELECT] Seçilen yaş tahmini: CustomAgeHead (Yaş: {age_custom:.2f}, Güven: {confidence_clip_custom:.4f})")
+            final_age = age_custom
+            final_confidence = confidence_clip_custom
+        else:
+            if custom_age_calculated: # Ama Buffalo daha iyi veya eşit
+                logger.info(f"[AGE_LOG][SELECT] Seçilen yaş tahmini: Buffalo (Yaş: {age_buffalo:.2f}, Güven: {confidence_clip_buffalo:.4f})")
+            else: # Custom hesaplanamadı
+                logger.info("[AGE_LOG] Nihai yaş Buffalo'dan (ham) seçildi (CustomAgeHead kullanılamadı).")
+        
+        # Adım 5: CustomAgeHead İçin Potansiyel Sözde Etiketli Veri Hazırlama
+        pseudo_label_data_to_save = None
+        RECORD_THRESHOLD = current_app.config.get('PSEUDO_LABEL_RECORD_CLIP_THRESHOLD', 0.75) 
+
+        # Sözde etiket için buffalo_l'nin kendi ham tahmini ve onun CLIP güvenini kullan
+        # Dikkat: Burada final_confidence değil, confidence_clip_buffalo kullanılmalı!
+        if confidence_clip_buffalo >= RECORD_THRESHOLD:
+            logger.info(f"[DATA_LOG] Buffalo ham tahmini (Yaş: {age_buffalo:.1f}, CLIP Güveni: {confidence_clip_buffalo:.4f}) CustomAgeHead için potansiyel eğitim verisi olarak hazırlanıyor (Eşik: {RECORD_THRESHOLD}).")
+            bbox_str = ",".join(map(str, [int(v) for v in face.bbox])) 
+            emb = embedding_current
+            if emb is not None:
+                if hasattr(emb, 'tolist'):
+                    emb_str = ",".join(str(float(x)) for x in emb.tolist())
+                elif isinstance(emb, (list, tuple)):
+                    emb_str = ",".join(str(float(x)) for x in emb)
+                else:
+                    emb_str = str(emb)
+            else:
+                emb_str = None
+            pseudo_label_data_to_save = {
+                "face_bbox": bbox_str,
+                "embedding": emb_str, # Artık string olarak
+                "pseudo_label_original_age": age_buffalo, # Buffalo'nun ham yaş tahmini
+                "pseudo_label_clip_confidence": confidence_clip_buffalo, # Buffalo'nun yaşının CLIP güveni
+                "feedback_source": "PSEUDO_BUFFALO_HIGH_CONF",
+                "feedback_type": "age_pseudo"
+                # frame_path, content_id, analysis_id, person_id gibi bilgiler servis katmanında eklenecek
+            }
+            if embedding_current is None: # embedding_current yukarıda zaten None ise buraya girmez ama yine de kontrol
+                 logger.warning("[DATA_LOG] Sözde etiket için embedding (embedding_current) mevcut değil, bu bilgi eksik olacak.")
+
+        logger.info(f"[AGE_LOG][DETAIL] Buffalo yaş tahmini: {age_buffalo:.2f}, CLIP güveni: {confidence_clip_buffalo:.4f}")
+        if custom_age_calculated:
+            logger.info(f"[AGE_LOG][DETAIL] CustomAgeHead yaş tahmini: {age_custom:.2f}, CLIP güveni: {confidence_clip_custom:.4f}")
+        else:
+            logger.info(f"[AGE_LOG][DETAIL] CustomAgeHead tahmini yapılamadı.")
+        if custom_age_calculated and confidence_clip_custom >= confidence_clip_buffalo:
+            logger.info(f"[AGE_LOG][SELECT] Seçilen yaş tahmini: CustomAgeHead (Yaş: {age_custom:.2f}, Güven: {confidence_clip_custom:.4f})")
+        else:
+            logger.info(f"[AGE_LOG][SELECT] Seçilen yaş tahmini: Buffalo (Yaş: {age_buffalo:.2f}, Güven: {confidence_clip_buffalo:.4f})")
+        if pseudo_label_data_to_save:
+            logger.info(f"[AGE_LOG][PSEUDO] Pseudo label kaydı hazırlanacak: {pseudo_label_data_to_save}")
+
+        logger.info(f"[AGE_LOG] estimate_age tamamlandı. Dönen Nihai Yaş: {final_age:.1f}, Dönen Nihai Güven: {final_confidence:.4f}")
+        return final_age, final_confidence, pseudo_label_data_to_save
 
     def _calculate_confidence_with_clip(self, face_image, estimated_age):
         logger.info(f"[AGE_LOG] _calculate_confidence_with_clip başladı. Gelen Yaş: {estimated_age:.1f}, Görüntü Shape: {face_image.shape}")

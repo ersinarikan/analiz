@@ -69,6 +69,8 @@ class Analysis(db.Model):
     
     processed_image_path = db.Column(db.String(255), nullable=True)
     
+    embedding = db.Column(db.Text, nullable=True)  # Virgül ile ayrılmış float string
+    
     def start_analysis(self):
         """Analiz sürecini başlatır ve durumu 'processing' olarak günceller."""
         self.status = 'processing'
@@ -138,7 +140,8 @@ class Analysis(db.Model):
             'highest_risk_score': self.highest_risk_score,
             'highest_risk_category': self.highest_risk_category,
             'processed_image_path': self.processed_image_path,
-            'category_specific_highest_risks_data': self.category_specific_highest_risks_data
+            'category_specific_highest_risks_data': self.category_specific_highest_risks_data,
+            'embedding': self.embedding
         }
 
 
@@ -278,6 +281,8 @@ class AgeEstimation(db.Model):
     
     processed_image_path = db.Column(db.String(255), nullable=True)
     
+    embedding = db.Column(db.Text, nullable=True)  # Virgül ile ayrılmış float string
+    
     def set_face_location(self, x, y, width, height):
         """
         Yüz konumunu ayarlar ve JSON formatında saklar.
@@ -360,7 +365,8 @@ class AgeEstimation(db.Model):
             'estimated_age': self.estimated_age,
             'confidence_score': self.confidence_score,
             'processed_image_path': self.processed_image_path,
-            'age_estimations': self.get_age_estimations()
+            'age_estimations': self.get_age_estimations(),
+            'embedding': self.embedding
         }
 
 
