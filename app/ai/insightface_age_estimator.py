@@ -17,19 +17,19 @@ logger = logging.getLogger(__name__)
 
 # CustomAgeHead sınıfı (train_v1.py'den alınmalı)
 class CustomAgeHead(torch.nn.Module):
-    def __init__(self, input_size=512, hidden_size=256):
+    def __init__(self, input_size=512, hidden_dims=[256, 128], output_dim=1):
         super().__init__()
-        self.fc1 = torch.nn.Linear(input_size, hidden_size)
-        self.relu = torch.nn.ReLU()
-        self.dropout = torch.nn.Dropout(0.5)
-        self.fc2 = torch.nn.Linear(hidden_size, 1)
+        layers = []
+        prev_dim = input_size
+        for hidden_dim in hidden_dims:
+            layers.append(torch.nn.Linear(prev_dim, hidden_dim))
+            layers.append(torch.nn.ReLU())
+            prev_dim = hidden_dim
+        layers.append(torch.nn.Linear(prev_dim, output_dim))
+        self.network = torch.nn.Sequential(*layers)
 
     def forward(self, x):
-        x = self.fc1(x)
-        x = self.relu(x)
-        x = self.dropout(x)
-        x = self.fc2(x)
-        return x
+        return self.network(x)
 
 # Versiyonlu model bulucu fonksiyon
 def find_latest_age_model(model_path):

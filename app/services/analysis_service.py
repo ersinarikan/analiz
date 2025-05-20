@@ -1327,3 +1327,23 @@ def get_content_analyzer():
 def get_age_estimator():
     """Yaş tahmini için InsightFaceAgeEstimator nesnesi döndürür"""
     return InsightFaceAgeEstimator() 
+
+# --- analyze_image ve analyze_video fonksiyonlarında feedback_entry oluşturulmadan önce ---
+# frame_path normalize et
+BASE_DIR = os.path.abspath(os.path.dirname(os.path.dirname(__file__)))
+
+def normalize_path(path):
+    if not path:
+        return path
+    # Hem Windows hem Linux için normalize et
+    path = os.path.abspath(path)
+    try:
+        rel_path = os.path.relpath(path, BASE_DIR)
+        # processed/ veya uploads/ ile başlıyorsa başını kırp
+        for prefix in ["processed", "uploads"]:
+            idx = rel_path.find(prefix)
+            if idx != -1:
+                return rel_path[idx:].replace("\\", "/")
+        return rel_path.replace("\\", "/")
+    except Exception:
+        return path.replace("\\", "/")
