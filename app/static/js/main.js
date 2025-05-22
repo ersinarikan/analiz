@@ -1977,8 +1977,10 @@ function displayAnalysisResults(fileId, results) {
                     // Görsel URL'sini oluştur
                     let frameUrl = '';
                     if (face.processed_image_path) {
-                        frameUrl = `/${face.processed_image_path}`;
+                        frameUrl = `/api/files/${normalizePath(face.processed_image_path).replace(/^\/+|\/+/g, '/')}`;
                         console.log("[DEBUG] İşlenmiş görsel URL'si:", frameUrl);
+                        console.log('[LOG][FRONTEND] Backendden gelen processed_image_path:', face.processed_image_path);
+                        console.log('[LOG][FRONTEND] Frontendde gösterilen img src:', frameUrl);
                         
                         col.innerHTML = `
                             <div class="card h-100 ${ageClass}">
@@ -2290,119 +2292,10 @@ function submitFeedback(event) {
 
 // Yaş geri bildirimi gönder
 // submitAgeFeedback fonksiyonunu güncelliyoruz: buttonElement parametresi alacak
-function submitAgeFeedback(personId, buttonElement) {
-    // This function is no longer called by individual buttons.
-    // Its logic has been integrated into the main submitFeedback function.
-    // It can be removed or kept for other purposes if any.
-    // For now, let's comment it out to avoid confusion.
-    /*
-    const correctedAgeInput = buttonElement.previousElementSibling; // input[type=number]
-    const correctedAge = parseInt(correctedAgeInput.value);
-    
-    // analysis_id ve frame_path'i butonun data attribute'larından al
-    const analysisId = buttonElement.dataset.analysisId;
-    const framePath = buttonElement.dataset.framePath;
-
-    // is_age_range_correct için bir checkbox varsa onun değerini al
-    // Not: HTML template'inde bu ID ile bir checkbox görünmüyordu,
-    // Eğer farklı bir ID veya class kullanılıyorsa burası güncellenmeli.
-    // Şimdilik, böyle bir checkbox olmadığını varsayarak veya opsiyonel bırakarak devam edelim.
-    let isAgeRangeCorrect = false; 
-    const ageRangeCheckbox = document.querySelector(`#ageRange-${personId}`); // Bu ID'yi kontrol edin
-    if (ageRangeCheckbox) {
-        isAgeRangeCorrect = ageRangeCheckbox.checked;
-    }
-    
-    if (isNaN(correctedAge) || correctedAge <= 0 || correctedAge > 100) {
-        showToast('Uyarı', 'Lütfen geçerli bir yaş değeri girin (1-100).', 'warning');
-        return;
-    }
-    
-    if (!analysisId || !framePath) {
-        showToast('Hata', 'Analiz ID veya Kare Yolu bilgisi eksik. Lütfen sayfayı yenileyin.', 'danger');
-        console.error('submitAgeFeedback: analysisId veya framePath eksik.', buttonElement.dataset);
-        return;
-    }
-    
-    // Yaş geri bildirimini gönder
-    fetch('/api/feedback/age', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-            person_id: personId,
-            corrected_age: correctedAge,
-            is_age_range_correct: isAgeRangeCorrect,
-            analysis_id: analysisId, // EKLENDİ
-            frame_path: framePath    // EKLENDİ
-        })
-    })
-    .then(response => {
-        if (!response.ok) {
-            return response.json().then(err => { throw new Error(err.error || `HTTP error! Status: ${response.status}`) });
-        }
-        return response.json();
-    })
-    .then(data => {
-        console.log('Yaş geri bildirimi başarıyla gönderildi:', data);
-        showToast('Başarılı', 'Yaş geri bildirimi kaydedildi. Model eğitiminde kullanılacaktır.', 'success');
-        
-        buttonElement.disabled = true;
-        buttonElement.innerHTML = '<i class="fas fa-check"></i> Gönderildi';
-        buttonElement.classList.remove('btn-primary');
-        buttonElement.classList.add('btn-success');
-        
-        if (correctedAgeInput) {
-            correctedAgeInput.readOnly = true;
-        }
-    })
-    .catch(error => {
-        console.error('Yaş geri bildirimi gönderme hatası:', error);
-        showToast('Hata', `Yaş geri bildirimi gönderilirken hata oluştu: ${error.message}`, 'danger');
-    });
-    */
-    console.warn("submitAgeFeedback fonksiyonu artık doğrudan kullanılmamalıdır. Ana submitFeedback fonksiyonuna entegre edildi.");
-}
+// Bu fonksiyon artık kullanılmıyor, kaldırıldı.
 
 // Geliştirilmiş yaş tahmini display için yardımcı fonksiyon
-function createAgeFeedbackElements(faceId, estimatedAge, personId, analysisId, framePath) { // analysisId ve framePath eklendi
-    const feedbackItem = document.createElement('div');
-    feedbackItem.className = 'age-feedback-item mb-3 p-3 border rounded';
-    // Benzersiz ID için faceId veya personId kullanılabilir
-    const uniqueIdSuffix = personId.replace(/[^a-zA-Z0-9]/g, "_"); // Sanitize personId for use in ID
-
-    const imgElement = document.createElement('img');
-    imgElement.className = 'img-thumbnail me-2 age-feedback-thumbnail'; // Yeni bir sınıf ekleyebiliriz stil için
-    imgElement.style.width = '100px'; // 80px'den 100px'e çıkarıldı
-    imgElement.style.height = '100px'; // 80px'den 100px'e çıkarıldı
-    imgElement.style.objectFit = 'cover';
-    // src ve alt, displayAgeFeedback içinde ayarlanacak
-
-    const detailsDiv = document.createElement('div');
-    detailsDiv.className = 'flex-grow-1';
-    detailsDiv.innerHTML = `
-        <div class="mb-1">
-            <strong>Kişi ID: <span class="person-id-display">${personId}</span></strong>
-        </div>
-        <div class="mb-2">
-            Tahmini Yaş: <span class="estimated-age-display">${estimatedAge}</span>
-        </div>
-        <div class="input-group">
-            <span class="input-group-text">Gerçek Yaş:</span>
-            <input type="number" class="form-control corrected-age" 
-                   min="1" max="100" placeholder="Yaş girin" 
-            data-person-id="${personId}" 
-                   data-analysis-id="${analysisId}" 
-                   data-frame-path="${normalizePath(framePath)}">
-        </div>
-    `;
-
-    feedbackItem.appendChild(imgElement);
-    feedbackItem.appendChild(detailsDiv);
-
-    return feedbackItem;
-}
+// createAgeFeedbackElements fonksiyonu artık kullanılmıyor, kaldırıldı.
 
 // Model metrikleri yükle
 function loadModelMetrics() {
@@ -3385,8 +3278,10 @@ function displayHighRiskFramesByCategory(results) {
             const cardDiv = document.createElement('div');
             cardDiv.className = 'col-md-4 mb-4';
             
-            const frameUrl = `/${frameData.processed_image_path}`;  // /api/files/ prefix'ini kaldırdık
+            const frameUrl = `/api/files/${normalizePath(frameData.processed_image_path).replace(/^\/+|\/+/g, '/')}`;  // /api/files/ prefix'ini kaldırdık
             console.log(`${categoryName} için frame URL:`, frameUrl);
+            console.log('[LOG][FRONTEND] Backendden gelen processed_image_path:', frameData.processed_image_path);
+            console.log('[LOG][FRONTEND] Frontendde gösterilen img src:', frameUrl);
             
             // Kategori badge'inin rengini belirle
             let badgeClass = getCategoryBadgeClass(category);
@@ -3502,7 +3397,7 @@ function displayAgeEstimations(results) {
             // Görsel URL'sini oluştur
             let frameUrl = '';
             if (face.processed_image_path) {
-                frameUrl = `/${face.processed_image_path}`;
+                frameUrl = `/api/files/${normalizePath(face.processed_image_path).replace(/^\/+|\/+/g, '/')}`;
                 console.log("[DEBUG] İşlenmiş görsel URL'si:", frameUrl);
                 
                 col.innerHTML = `
@@ -3624,7 +3519,6 @@ function displayAgeFeedback(feedbackTab, results) { // results objesi analysis_i
         }
     });
 
-
     let personCounter = 0; // Kişi sayacı eklendi
     facesMap.forEach((face, personId) => {
         personCounter++; // Sayaç artırıldı
@@ -3633,10 +3527,10 @@ function displayAgeFeedback(feedbackTab, results) { // results objesi analysis_i
         
         const faceImageElement = feedbackItem.querySelector('.face-image');
         if (faceImageElement) {
-            // Ensure the src path is correct, prepending / if it's not absolute
+            // Görsel yolunu /api/files/ ile başlatacak şekilde düzelt
             let imgSrc = face.face_image_src;
-            if (imgSrc && !imgSrc.startsWith('/') && !imgSrc.startsWith('http')) {
-                imgSrc = '/' + imgSrc;
+            if (imgSrc && !imgSrc.startsWith('/api/files/') && !imgSrc.startsWith('http') && !imgSrc.startsWith('/static/')) {
+                imgSrc = '/api/files/' + imgSrc.replace(/^\/+/, '');
             }
             faceImageElement.src = imgSrc;
             faceImageElement.alt = `Kişi ${personCounter}`;
@@ -3658,7 +3552,6 @@ function displayAgeFeedback(feedbackTab, results) { // results objesi analysis_i
             correctedAgeInput.dataset.personId = personId;
             correctedAgeInput.dataset.analysisId = analysisId; // analysis_id from the main results
             correctedAgeInput.dataset.framePath = face.frame_path || ''; // original frame_path for this specific face
-            // correctedAgeInput.value = face.age; // Optionally prefill with estimated age
         }
         
         // Remove individual submit button if it exists in the template

@@ -382,6 +382,17 @@ def get_detailed_results(analysis_id):
             'category_specific_highest_risks_data': analysis.category_specific_highest_risks_data
         }
         
+        # --- LOG EKLEME ---
+        # content_detections içindeki frame_path ve processed_image_path logla
+        for idx, det in enumerate(content_detections):
+            logger.info(f"[BACKEND][content_detections][{idx}] frame_path: {det.get('frame_path')}, processed_image_path: {det.get('processed_image_path')}")
+        # age_estimations içindeki processed_image_path logla
+        for idx, age in enumerate(age_estimations):
+            logger.info(f"[BACKEND][age_estimations][{idx}] processed_image_path: {age.get('processed_image_path')}")
+        # highest_risk frame logla
+        logger.info(f"[BACKEND][highest_risk] frame: {results['highest_risk'].get('frame')}")
+        # --- LOG EKLEME SONU ---
+
         # NumPy veri tipleri ile başa çıkabilmek için özel JSON dönüştürücü kullan
         json_str = json_dumps_numpy(results)
         return Response(json_str, mimetype='application/json'), 200

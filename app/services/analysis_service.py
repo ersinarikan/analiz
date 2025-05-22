@@ -1,10 +1,11 @@
 import os
-from datetime import datetime
 import logging
 import traceback
+from datetime import datetime
+import json
+import cv2
 from flask import current_app
 from app import db
-# Import the real analyzers
 from app.ai.content_analyzer import ContentAnalyzer, get_content_analyzer
 from app.ai.insightface_age_estimator import InsightFaceAgeEstimator, get_age_estimator
 from app.models.analysis import Analysis, ContentDetection, AgeEstimation
@@ -12,12 +13,11 @@ from app.models.feedback import Feedback
 from app.models.file import File
 from app.utils.image_utils import load_image
 from app.routes.settings_routes import FACTORY_DEFAULTS
-import json
 from app.json_encoder import NumPyJSONEncoder
 from deep_sort_realtime.deepsort_tracker import DeepSort
-import cv2
 from app.utils.person_tracker import PersonTrackerManager
 from app.utils.face_utils import extract_face_features
+from app.utils.path_utils import to_rel_path
 
 logger = logging.getLogger(__name__)
 
@@ -310,7 +310,7 @@ def analyze_image(analysis):
                         ).first()
                         
                         # Convert absolute file.file_path to relative path for storage
-                        relative_frame_path = file.file_path # Default to original if relpath fails, though it shouldn't
+                        relative_frame_path = to_rel_path(file.file_path)
                         if os.path.isabs(file.file_path):
                             try:
                                 relative_frame_path = os.path.relpath(file.file_path, current_app.config['STORAGE_FOLDER']).replace('\\\\', '/')
@@ -364,7 +364,7 @@ def analyze_image(analysis):
                                     else:
                                         embedding = str(emb)
                                 feedback_entry = Feedback(
-                                    frame_path=relative_frame_path, # Resim yolu (relatif)
+                                    frame_path=to_rel_path(file.file_path), # Resim yolu (relatif)
                                     face_bbox=pseudo_data.get("face_bbox"),
                                     embedding=embedding,
                                     pseudo_label_original_age=pseudo_data.get("pseudo_label_original_age"),
@@ -429,7 +429,8 @@ def analyze_image(analysis):
                                 continue
                                 
                             # Göreceli yolu hesapla ve kaydet
-                            rel_path = os.path.relpath(out_path, current_app.config['STORAGE_FOLDER']).replace('\\', '/')
+                            rel_path = to_rel_path(out_path)
+                            rel_path = normalize_rel_storage_path(rel_path)
                             age_est.processed_image_path = rel_path
                             db.session.add(age_est)
 
@@ -799,7 +800,7 @@ def analyze_video(analysis):
                                             else:
                                                 embedding_fb_str = None
                                             feedback_entry = Feedback(
-                                                frame_path=frame_path, 
+                                                frame_path=to_rel_path(file.file_path), 
                                                 face_bbox=pseudo_data.get("face_bbox"),
                                                 embedding=embedding_fb_str,
                                                 pseudo_label_original_age=pseudo_data.get("pseudo_label_original_age"),
@@ -952,7 +953,8 @@ def analyze_video(analysis):
                     # final_overlay_path_on_disk (örn: /.../WSANALIZ/storage/processed/frames_ANALYSISID/overlays/FILENAME.jpg)
                     # Hedef: processed/frames_ANALYSISID/overlays/FILENAME.jpg
                     try:
-                        relative_overlay_path_for_db = os.path.relpath(final_overlay_path_on_disk, current_app.config['STORAGE_FOLDER']).replace('\\', '/')
+                        relative_overlay_path_for_db = to_rel_path(final_overlay_path_on_disk)
+                        relative_overlay_path_for_db = normalize_rel_storage_path(relative_overlay_path_for_db)
                     except ValueError as ve:
                         logger.error(f"Göreli yol oluşturulurken hata (final_overlay_path_on_disk='{final_overlay_path_on_disk}', STORAGE_FOLDER='{current_app.config['STORAGE_FOLDER']}'): {ve}")
                         # Fallback to a simpler relative path construction if relpath fails due to different drives on Windows etc.
@@ -1326,24 +1328,17 @@ def get_content_analyzer():
 
 def get_age_estimator():
     """Yaş tahmini için InsightFaceAgeEstimator nesnesi döndürür"""
-    return InsightFaceAgeEstimator() 
+    return InsightFaceAgeEstimator()
 
-# --- analyze_image ve analyze_video fonksiyonlarında feedback_entry oluşturulmadan önce ---
-# frame_path normalize et
-BASE_DIR = os.path.abspath(os.path.dirname(os.path.dirname(__file__)))
-
-def normalize_path(path):
-    if not path:
-        return path
-    # Hem Windows hem Linux için normalize et
-    path = os.path.abspath(path)
-    try:
-        rel_path = os.path.relpath(path, BASE_DIR)
-        # processed/ veya uploads/ ile başlıyorsa başını kırp
-        for prefix in ["processed", "uploads"]:
-            idx = rel_path.find(prefix)
-            if idx != -1:
-                return rel_path[idx:].replace("\\", "/")
-        return rel_path.replace("\\", "/")
-    except Exception:
-        return path.replace("\\", "/")
+# --- PATH NORMALİZASYON HELPER ---
+def normalize_rel_storage_path(rel_path):
+    import os
+    rel_path = os.path.normpath(rel_path).replace("\\", "/")
+    # Başındaki ../ veya ./ gibi ifadeleri tamamen temizle
+    while rel_path.startswith("../") or rel_path.startswith("./"):
+        rel_path = rel_path[3:] if rel_path.startswith("../") else rel_path[2:]
+    # Sadece 'storage/...' ile başlayan kısmı al
+    idx = rel_path.find("storage/")
+    if idx != -1:
+        rel_path = rel_path[idx:]
+    return rel_path

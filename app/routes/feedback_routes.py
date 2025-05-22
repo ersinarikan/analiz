@@ -4,19 +4,10 @@ from app.models.feedback import Feedback
 from app.models.analysis import FaceTracking, AgeEstimation
 import logging
 import os
+from app.utils.path_utils import to_rel_path
 
 bp = Blueprint('feedback', __name__, url_prefix='/api/feedback')
 logger = logging.getLogger(__name__)
-
-def normalize_path(frame_path):
-    """Mutlak path'i storage köküne göre bağıl hale getirir ve / ile normalize eder."""
-    if not frame_path:
-        return frame_path
-    storage_root = os.path.abspath(current_app.config['STORAGE_FOLDER'])
-    if os.path.isabs(frame_path):
-        rel_path = os.path.relpath(frame_path, storage_root)
-        return rel_path.replace("\\", "/")
-    return frame_path.replace("\\", "/")
 
 @bp.route('/submit', methods=['POST'])
 def submit_feedback():
@@ -58,7 +49,7 @@ def submit_feedback():
         feedback = Feedback(
             content_id=data['content_id'],
             analysis_id=data['analysis_id'],
-            frame_path=normalize_path(data.get('frame_path')),
+            frame_path=to_rel_path(data.get('frame_path')),
             rating=data.get('rating'),
             comment=data.get('comment'),
             category_feedback=data.get('category_feedback', {}),
@@ -111,7 +102,7 @@ def submit_age_feedback():
         corrected_age = data['corrected_age']
         is_age_range_correct = data.get('is_age_range_correct', False)
         analysis_id = data['analysis_id']
-        frame_path = normalize_path(data['frame_path'])
+        frame_path = to_rel_path(data['frame_path'])
         
         face = FaceTracking.query.filter_by(person_id=person_id, analysis_id=analysis_id).first()
         
