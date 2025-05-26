@@ -69,6 +69,7 @@ def create_app(config_name=None):
     from app.routes.feedback_routes import bp as feedback_bp
     from app.routes.debug_routes import bp as debug_bp
     from app.routes.settings_routes import bp as settings_bp
+    from app.routes.model_management_routes import model_management_bp
     
     app.register_blueprint(main_bp)
     app.register_blueprint(file_bp)
@@ -77,6 +78,7 @@ def create_app(config_name=None):
     app.register_blueprint(feedback_bp)
     app.register_blueprint(debug_bp)
     app.register_blueprint(settings_bp)
+    app.register_blueprint(model_management_bp)
     
     # NumPy JSON serializer middleware'i kaydet
     from app.middleware import register_json_middleware

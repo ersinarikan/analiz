@@ -15,4 +15,11 @@ def metrics():
     """
     Model metrikleri sayfası.
     """
-    return render_template('metrics.html') 
+    return render_template('metrics.html')
+
+@bp.route('/model-management')
+def model_management():
+    """
+    Model yönetimi sayfası.
+    """
+    return render_template('model_management.html') 
