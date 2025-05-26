@@ -507,9 +507,26 @@ def train_with_feedback(model_type, params=None):
         params = {
             'epochs': 10,
             'batch_size': 32,
-            'learning_rate': 0.001
+            'learning_rate': 0.001,
+            'test_size': 0.2,
+            'hidden_dims': [256, 128],
+            'early_stopping_patience': 10
         }
         logging.debug("Varsayılan parametreler kullanılıyor")
+    else:
+        # Eksik parametreleri varsayılan değerlerle tamamla
+        default_params = {
+            'epochs': 10,
+            'batch_size': 32,
+            'learning_rate': 0.001,
+            'test_size': 0.2,
+            'hidden_dims': [256, 128],
+            'early_stopping_patience': 10
+        }
+        for key, value in default_params.items():
+            if key not in params:
+                params[key] = value
+        logging.debug(f"Parametreler tamamlandı: {params}")
     
     start_time = time.time()
     
