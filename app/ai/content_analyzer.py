@@ -379,13 +379,7 @@ class ContentAnalyzer:
                  scores['drug'] = min(scores['drug'] * 1.1, 1.0)
                  logger.info("Genel madde kullanımı göstergeleri (şişe/bardak) parti/bar bağlamında, madde skoru hafif artırıldı")
 
-        # Birden fazla kişi varsa kişilerarası etkileşim olasılığı
-        if person_count >= 2:
-            scores['harassment'] = min(scores['harassment'] * (1.0 + (person_count * 0.08)), 1.0) # Çarpanı biraz düşürdük
-            scores['adult_content'] = min(scores['adult_content'] * (1.0 + (person_count * 0.04)), 1.0) # Çarpanı biraz düşürdük
-            if person_count > 5: # Çok kalabalık durumlar için
-                 scores['safe'] = max(scores['safe'] * 0.9, 0.0) # Kalabalıklar bazen daha az güvenli olabilir
-            logger.info(f"{person_count} kişi tespit edildi, kişilerarası etkileşim skorları ayarlandı")
+        # Kişilerarası etkileşim ayarlaması kaldırıldı - çok yüksek skorlara neden oluyordu
         
         # GÜVENLİ KATEGORİSİ İÇİN GÜÇLENDİRME
         # Eğer belirgin bir riskli nesne yoksa ve kişi sayısı azsa 'safe' skorunu artır
