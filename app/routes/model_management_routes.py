@@ -1,6 +1,6 @@
 from flask import Blueprint, jsonify, request, current_app
 from app.services import model_service
-from app.models import db # Gerekirse diye ekliyorum, model_service genelde db işlemini kendi yapar
+from app import db  # Doğru import
 import logging
 
 logger = logging.getLogger(__name__)
