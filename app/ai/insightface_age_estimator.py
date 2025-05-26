@@ -17,8 +17,12 @@ logger = logging.getLogger(__name__)
 
 # CustomAgeHead sınıfı (train_v1.py'den alınmalı)
 class CustomAgeHead(torch.nn.Module):
-    def __init__(self, input_size=512, hidden_dims=[256, 128], output_dim=1):
+    def __init__(self, input_size=512, hidden_dims=[256, 128], output_dim=1, input_dim=None):
         super().__init__()
+        # input_dim parametresi varsa onu kullan (backward compatibility için)
+        if input_dim is not None:
+            input_size = input_dim
+        
         layers = []
         prev_dim = input_size
         for hidden_dim in hidden_dims:
