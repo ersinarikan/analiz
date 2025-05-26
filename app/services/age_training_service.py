@@ -7,7 +7,7 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, TensorDataset
 from sklearn.model_selection import train_test_split
-from datetime import datetime
+from datetime import datetime, timedelta
 from flask import current_app
 from app import db
 from app.models.feedback import Feedback
@@ -377,6 +377,10 @@ class AgeTrainingService:
         db.session.add(model_version)
         db.session.commit()
         
+        # Eğitimde kullanılan verileri işaretle
+        if 'used_feedback_ids' in training_result:
+            self.mark_training_data_used(training_result['used_feedback_ids'], version_name)
+        
         logger.info(f"Model version saved: {version_name} (ID: {model_version.id})")
         
         return model_version
@@ -455,4 +459,139 @@ class AgeTrainingService:
             'metrics': v.metrics,
             'training_samples': v.training_samples,
             'validation_samples': v.validation_samples
-        } for v in versions] 
+        } for v in versions]
+
+    def cleanup_training_data(self, dry_run=True):
+        """
+        Eğitim verilerini temizler (silmez, sadece işaretler)
+        
+        Args:
+            dry_run: True ise sadece rapor verir, değişiklik yapmaz
+            
+        Returns:
+            dict: Temizlik raporu
+        """
+        logger.info(f"Starting training data cleanup (dry_run={dry_run})")
+        
+        # Temizlik politikası
+        policy = current_app.config.get('TRAINING_DATA_RETENTION_POLICY', {
+            'pseudo_label_max_age_days': 180,
+            'max_feedback_per_person': 3,
+            'keep_manual_feedback': True
+        })
+        
+        cleanup_report = {
+            'total_feedbacks': 0,
+            'duplicate_pseudo_labels': 0,
+            'old_pseudo_labels': 0,
+            'excess_feedbacks_per_person': 0,
+            'invalid_data': 0,
+            'actions_taken': []
+        }
+        
+        # Tüm yaş feedback'lerini al
+        all_feedbacks = Feedback.query.filter(
+            (Feedback.feedback_type == 'age') | 
+            (Feedback.feedback_type == 'age_pseudo')
+        ).all()
+        
+        cleanup_report['total_feedbacks'] = len(all_feedbacks)
+        
+        # 1. Eski pseudo-label'ları bul
+        cutoff_date = datetime.now() - timedelta(days=policy['pseudo_label_max_age_days'])
+        old_pseudo_labels = Feedback.query.filter(
+            Feedback.feedback_type == 'age_pseudo',
+            Feedback.created_at < cutoff_date
+        ).all()
+        
+        cleanup_report['old_pseudo_labels'] = len(old_pseudo_labels)
+        
+        if not dry_run:
+            for feedback in old_pseudo_labels:
+                feedback.is_archived = True
+                feedback.archive_reason = f'old_pseudo_label_{policy["pseudo_label_max_age_days"]}_days'
+                cleanup_report['actions_taken'].append(f'Archived old pseudo-label: {feedback.id}')
+        
+        # 2. Person başına fazla feedback'leri bul
+        person_feedbacks = {}
+        for feedback in all_feedbacks:
+            if feedback.person_id:
+                if feedback.person_id not in person_feedbacks:
+                    person_feedbacks[feedback.person_id] = []
+                person_feedbacks[feedback.person_id].append(feedback)
+        
+        excess_count = 0
+        for person_id, feedbacks in person_feedbacks.items():
+            if len(feedbacks) > policy['max_feedback_per_person']:
+                # Manuel feedback'leri koru, pseudo'ları sırala
+                manual_feedbacks = [f for f in feedbacks if f.feedback_source == 'MANUAL_USER']
+                pseudo_feedbacks = [f for f in feedbacks if f.feedback_source != 'MANUAL_USER']
+                
+                # En yeni pseudo feedback'leri koru
+                pseudo_feedbacks.sort(key=lambda x: x.created_at, reverse=True)
+                
+                # Fazla olanları işaretle
+                keep_count = max(0, policy['max_feedback_per_person'] - len(manual_feedbacks))
+                excess_pseudo = pseudo_feedbacks[keep_count:]
+                
+                excess_count += len(excess_pseudo)
+                
+                if not dry_run:
+                    for feedback in excess_pseudo:
+                        feedback.is_archived = True
+                        feedback.archive_reason = f'excess_feedback_per_person_{policy["max_feedback_per_person"]}'
+                        cleanup_report['actions_taken'].append(f'Archived excess feedback: {feedback.id}')
+        
+        cleanup_report['excess_feedbacks_per_person'] = excess_count
+        
+        # 3. Geçersiz veri kontrolü
+        invalid_feedbacks = Feedback.query.filter(
+            (Feedback.feedback_type == 'age') | 
+            (Feedback.feedback_type == 'age_pseudo'),
+            db.or_(
+                Feedback.embedding.is_(None),
+                Feedback.corrected_age < 0,
+                Feedback.corrected_age > 120,
+                Feedback.pseudo_label_original_age < 0,
+                Feedback.pseudo_label_original_age > 120
+            )
+        ).all()
+        
+        cleanup_report['invalid_data'] = len(invalid_feedbacks)
+        
+        if not dry_run:
+            for feedback in invalid_feedbacks:
+                feedback.is_archived = True
+                feedback.archive_reason = 'invalid_data'
+                cleanup_report['actions_taken'].append(f'Archived invalid data: {feedback.id}')
+            
+            db.session.commit()
+            logger.info("Training data cleanup completed and committed to database")
+        else:
+            logger.info("Training data cleanup completed (dry run - no changes made)")
+        
+        return cleanup_report
+
+    def mark_training_data_used(self, feedback_ids, model_version_name):
+        """
+        Eğitimde kullanılan verileri işaretler
+        
+        Args:
+            feedback_ids: Kullanılan feedback ID'leri
+            model_version_name: Model versiyon adı
+        """
+        try:
+            updated_count = Feedback.query.filter(
+                Feedback.id.in_(feedback_ids)
+            ).update({
+                'training_status': 'used_in_training',
+                'used_in_model_version': model_version_name,
+                'training_used_at': datetime.now()
+            }, synchronize_session=False)
+            
+            db.session.commit()
+            logger.info(f"Marked {updated_count} feedback records as used in training for model {model_version_name}")
+            
+        except Exception as e:
+            logger.error(f"Error marking training data as used: {str(e)}")
+            db.session.rollback() 

@@ -67,6 +67,15 @@ class Config:
 
     # Yaş tahmini için CLIP güven eşiği (sözde etiketleme veri kaydı için)
     PSEUDO_LABEL_RECORD_CLIP_THRESHOLD = 0.75 # Yeni İngilizce standart isim
+    
+    # Eğitim Verisi Saklama Politikası
+    TRAINING_DATA_RETENTION_POLICY = {
+        'keep_manual_feedback': True,  # Manuel veriler hiç silinmez
+        'pseudo_label_max_age_days': 180,  # 6 ay
+        'max_feedback_per_person': 3,  # Person başına max feedback
+        'archive_after_training': True,  # Eğitim sonrası arşivle
+        'delete_after_archive_days': 365  # 1 yıl sonra sil
+    }
 
 class DevelopmentConfig(Config):
     DEBUG = True
