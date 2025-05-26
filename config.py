@@ -70,12 +70,13 @@ class Config:
     
     # Eğitim Verisi Saklama Politikası
     TRAINING_DATA_RETENTION_POLICY = {
-        'keep_manual_feedback': True,  # Manuel veriler hiç silinmez
-        'pseudo_label_max_age_days': 180,  # 6 ay
-        'max_feedback_per_person': 3,  # Person başına max feedback
-        'archive_after_training': True,  # Eğitim sonrası arşivle
-        'delete_after_archive_days': 365  # 1 yıl sonra sil
+        'pseudo_label_max_age_days': 180,
+        'max_feedback_per_person': 3,
+        'keep_manual_feedback': True
     }
+    
+    # Eğitim sonrası temizlik ayarı
+    CLEANUP_TRAINING_DATA_AFTER_TRAINING = True  # Eğitim sonrası kullanılan verileri tamamen siler (VT + dosyalar)
 
 class DevelopmentConfig(Config):
     DEBUG = True

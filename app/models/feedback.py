@@ -42,6 +42,13 @@ class Feedback(db.Model):
     category_feedback = db.Column(db.JSON, nullable=True) # PostgreSQL için JSON, diğer DB'ler için db.Text veya db.String
     category_correct_values = db.Column(db.JSON, nullable=True) # PostgreSQL için JSON, diğer DB'ler için db.Text veya db.String
     
+    # Eğitim Durumu Alanları
+    training_status = db.Column(db.String(50), nullable=True, index=True) # 'used_in_training', 'archived', vb.
+    used_in_model_version = db.Column(db.String(100), nullable=True) # Hangi model versiyonunda kullanıldı
+    training_used_at = db.Column(db.DateTime, nullable=True) # Ne zaman eğitimde kullanıldı
+    is_archived = db.Column(db.Boolean, default=False, index=True) # Arşivlenmiş mi
+    archive_reason = db.Column(db.String(100), nullable=True) # Arşivleme nedeni
+    
     def __repr__(self):
         return f"<Feedback(id={self.id}, type='{self.feedback_type}', source='{self.feedback_source}')>"
     
@@ -64,6 +71,11 @@ class Feedback(db.Model):
             'rating': self.rating,
             'comment': self.comment,
             'category_feedback': self.category_feedback,
-            'category_correct_values': self.category_correct_values
+            'category_correct_values': self.category_correct_values,
+            'training_status': self.training_status,
+            'used_in_model_version': self.used_in_model_version,
+            'training_used_at': self.training_used_at.isoformat() if self.training_used_at else None,
+            'is_archived': self.is_archived,
+            'archive_reason': self.archive_reason
         }
         return data 

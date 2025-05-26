@@ -25,32 +25,53 @@ class AgeTrainingService:
     
     def prepare_training_data(self, min_samples=10):
         """
-        Feedback tablosundan eğitim verilerini hazırlar
+        Feedback tablosundan yaş eğitim verilerini hazırlar
         
+        Args:
+            min_samples: Minimum gerekli örnek sayısı
+            
         Returns:
-            dict: {
-                'embeddings': np.array,
-                'ages': np.array,
-                'sources': list,  # Her örneğin kaynağı (manual/pseudo)
-                'confidence_scores': np.array,  # Pseudo label'lar için güven skorları
-                'feedback_ids': list  # Kullanılan feedback ID'leri
-            }
+            dict: Eğitim verisi (embeddings, ages, sources, confidence_scores, feedback_ids)
+            None: Yetersiz veri durumunda
         """
         logger.info("Preparing training data from feedback table...")
         
-        # Yaş geri bildirimi olan tüm kayıtları al
+        # Yaş geri bildirimi olan ve daha önce eğitimde kullanılmamış kayıtları al
         feedbacks = Feedback.query.filter(
             (Feedback.feedback_type == 'age') | 
             (Feedback.feedback_type == 'age_pseudo')
         ).filter(
             Feedback.embedding.isnot(None)
+        ).filter(
+            # Daha önce eğitimde kullanılmamış verileri al
+            db.or_(
+                Feedback.training_status.is_(None),
+                Feedback.training_status != 'used_in_training'
+            )
         ).all()
         
-        logger.info(f"Found {len(feedbacks)} age feedback records with embeddings")
+        logger.info(f"Found {len(feedbacks)} unused age feedback records with embeddings")
         
         if len(feedbacks) < min_samples:
-            logger.warning(f"Insufficient feedback data: {len(feedbacks)} < {min_samples}")
-            return None
+            logger.warning(f"Insufficient unused feedback data: {len(feedbacks)} < {min_samples}")
+            # Eğer yeterli yeni veri yoksa, kullanılmış verileri de dahil et (opsiyonel)
+            logger.info("Checking if we should include previously used data...")
+            
+            all_feedbacks = Feedback.query.filter(
+                (Feedback.feedback_type == 'age') | 
+                (Feedback.feedback_type == 'age_pseudo')
+            ).filter(
+                Feedback.embedding.isnot(None)
+            ).all()
+            
+            logger.info(f"Total available feedback records: {len(all_feedbacks)}")
+            
+            if len(all_feedbacks) >= min_samples:
+                logger.warning("Using previously used training data due to insufficient new data")
+                feedbacks = all_feedbacks
+            else:
+                logger.error(f"Insufficient total feedback data: {len(all_feedbacks)} < {min_samples}")
+                return None
         
         # Person ID bazında verileri organize et (çakışmaları önlemek için)
         person_feedbacks = {}
@@ -570,6 +591,107 @@ class AgeTrainingService:
         else:
             logger.info("Training data cleanup completed (dry run - no changes made)")
         
+        return cleanup_report
+
+    def cleanup_used_training_data(self, used_feedback_ids, model_version_name):
+        """
+        Eğitimde kullanılan verileri tamamen temizler (VT + dosyalar)
+        
+        Args:
+            used_feedback_ids: Kullanılan feedback ID'leri
+            model_version_name: Model versiyon adı
+            
+        Returns:
+            dict: Temizlik raporu
+        """
+        logger.info(f"Cleaning up training data for model {model_version_name}")
+        
+        cleanup_report = {
+            'deleted_feedbacks': 0,
+            'deleted_files': 0,
+            'deleted_directories': 0,
+            'errors': []
+        }
+        
+        try:
+            # 1. Önce feedback'leri al (dosya yollarını almak için)
+            feedbacks_to_delete = Feedback.query.filter(
+                Feedback.id.in_(used_feedback_ids)
+            ).all()
+            
+            # 2. İlgili dosya yollarını topla
+            frame_paths = set()
+            person_ids = set()
+            
+            for feedback in feedbacks_to_delete:
+                if feedback.frame_path:
+                    frame_paths.add(feedback.frame_path)
+                if feedback.person_id:
+                    person_ids.add(feedback.person_id)
+            
+            logger.info(f"Found {len(frame_paths)} frame paths and {len(person_ids)} person IDs to clean")
+            
+            # 3. Processed klasöründeki ilgili dosyaları sil
+            processed_dir = current_app.config.get('PROCESSED_FOLDER', 'storage/processed')
+            
+            # Frame klasörlerini kontrol et ve sil
+            if os.path.exists(processed_dir):
+                for item in os.listdir(processed_dir):
+                    item_path = os.path.join(processed_dir, item)
+                    
+                    if os.path.isdir(item_path) and item.startswith('frames_'):
+                        # Bu frame klasöründe silinecek person_id'ler var mı kontrol et
+                        should_delete_dir = False
+                        
+                        try:
+                            # Klasör içindeki dosyaları kontrol et
+                            for file_name in os.listdir(item_path):
+                                # Person ID'li dosyaları kontrol et
+                                for person_id in person_ids:
+                                    if person_id in file_name:
+                                        should_delete_dir = True
+                                        break
+                                if should_delete_dir:
+                                    break
+                            
+                            # Eğer bu klasörde silinecek veriler varsa, tüm klasörü sil
+                            if should_delete_dir:
+                                import shutil
+                                shutil.rmtree(item_path)
+                                cleanup_report['deleted_directories'] += 1
+                                logger.info(f"Deleted directory: {item_path}")
+                                
+                        except Exception as e:
+                            logger.error(f"Error processing directory {item_path}: {str(e)}")
+                            cleanup_report['errors'].append(f"Directory error: {str(e)}")
+            
+            # 4. Belirli frame dosyalarını sil (eğer tam yol verilmişse)
+            for frame_path in frame_paths:
+                try:
+                    if frame_path and os.path.exists(frame_path):
+                        os.remove(frame_path)
+                        cleanup_report['deleted_files'] += 1
+                        logger.info(f"Deleted file: {frame_path}")
+                except Exception as e:
+                    logger.error(f"Error deleting file {frame_path}: {str(e)}")
+                    cleanup_report['errors'].append(f"File deletion error: {str(e)}")
+            
+            # 5. Veritabanından feedback kayıtlarını sil
+            deleted_feedbacks = Feedback.query.filter(
+                Feedback.id.in_(used_feedback_ids)
+            ).delete(synchronize_session=False)
+            
+            cleanup_report['deleted_feedbacks'] = deleted_feedbacks
+            logger.info(f"Deleted {deleted_feedbacks} feedback records from database")
+            
+            db.session.commit()
+            logger.info(f"Training data cleanup completed for model {model_version_name}")
+            
+        except Exception as e:
+            logger.error(f"Error during training data cleanup: {str(e)}")
+            cleanup_report['errors'].append(str(e))
+            db.session.rollback()
+            
         return cleanup_report
 
     def mark_training_data_used(self, feedback_ids, model_version_name):
