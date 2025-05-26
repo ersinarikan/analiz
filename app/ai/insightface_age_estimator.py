@@ -98,27 +98,74 @@ class InsightFaceAgeEstimator:
             logger.error(f"InsightFace model yükleme hatası: {str(e)}")
             raise
         
-        # Kendi yaş modelini yüklemeye çalış
+        # Custom Age Head modelini yükle
+        self.device = torch.device("cuda" if torch.cuda.is_available() and current_app.config.get('USE_GPU', True) else "cpu")
+        self.custom_age_head = None
+        
         try:
-            # Özel yaş modeli artık INSIGHTFACE_AGE_MODEL_ACTIVE_PATH içindeki custom_age_head.pth gibi bir dosyadan yüklenecek
-            # veya versiyonlama ile versions klasöründen seçilecek.
-            # Şimdilik find_latest_age_model fonksiyonunu ve CustomAgeHead yüklemesini basitleştirelim
-            # ve doğrudan active_model klasöründe 'custom_age_head.pth' arayalım.
-            custom_age_head_path = os.path.join(insightface_root_to_load, 'custom_age_head.pth') 
-            # find_latest_age_model fonksiyonunu daha sonra versiyonlama ile entegre edeceğiz.
-            # age_model_path = find_latest_age_model(insightface_root_to_load) 
+            # Önce active_model'den yüklemeye çalış
+            custom_age_head_dir = os.path.join(current_app.config['MODELS_FOLDER'], 'age', 'custom_age_head', 'active_model')
             
-            if os.path.exists(custom_age_head_path):
-                logger.info(f"Özel yaş tahmin başlığı yükleniyor: {custom_age_head_path}")
-                self.age_model = CustomAgeHead()
-                self.age_model.load_state_dict(torch.load(custom_age_head_path, map_location='cpu'))
-                self.age_model.eval()
-                logger.info("Özel yaş tahmin modeli başarıyla yüklendi")
+            # active_model bir sembolik link olabilir, gerçek dizini kontrol et
+            if os.path.islink(custom_age_head_dir):
+                custom_age_head_dir = os.path.realpath(custom_age_head_dir)
+            
+            if not os.path.exists(custom_age_head_dir):
+                # Eğer active_model yoksa base_model'den yükle
+                custom_age_head_dir = os.path.join(current_app.config['MODELS_FOLDER'], 'age', 'custom_age_head', 'base_model')
+            
+            if os.path.exists(custom_age_head_dir):
+                # .pth dosyasını bul (model.pth veya custom_age_head.pth olabilir)
+                pth_files = [f for f in os.listdir(custom_age_head_dir) if f.endswith('.pth')]
+                if pth_files:
+                    model_path = os.path.join(custom_age_head_dir, pth_files[0])
+                    logger.info(f"CustomAgeHead model dosyası bulundu: {model_path}")
+                    try:
+                        # Model checkpoint'ini yükle
+                        checkpoint = torch.load(model_path, map_location='cpu', weights_only=True)
+                        
+                        # Model konfigürasyonunu al
+                        if 'model_config' in checkpoint:
+                            model_config = checkpoint['model_config']
+                            self.custom_age_head = CustomAgeHead(
+                                input_size=model_config['input_dim'],
+                                hidden_dims=model_config['hidden_dims'],
+                                output_dim=model_config['output_dim']
+                            )
+                        else:
+                            # Varsayılan konfigürasyon
+                            self.custom_age_head = CustomAgeHead(input_size=512, hidden_dims=[256, 128], output_dim=1)
+                        
+                        # Model ağırlıklarını yükle
+                        if 'model_state_dict' in checkpoint:
+                            self.custom_age_head.load_state_dict(checkpoint['model_state_dict'])
+                        else:
+                            # Eski formatta kaydedilmiş olabilir
+                            self.custom_age_head.load_state_dict(checkpoint)
+                        
+                        self.custom_age_head.eval()  # Evaluation moduna geç
+                        self.custom_age_head.to(self.device)
+                        logger.info(f"CustomAgeHead başarıyla {model_path} yolundan {self.device} üzerinde yüklendi.")
+                        
+                        # Eski uyumluluk için age_model alias'ı
+                        self.age_model = self.custom_age_head
+                        
+                    except Exception as e:
+                        logger.error(f"CustomAgeHead yüklenirken hata: {str(e)}")
+                        self.custom_age_head = None
+                        self.age_model = None
+                else:
+                    logger.warning(f"CustomAgeHead model dosyası (.pth) bulunamadı: {custom_age_head_dir}")
+                    self.custom_age_head = None
+                    self.age_model = None
             else:
-                logger.warning("Özel yaş tahmin modeli bulunamadı, varsayılan InsightFace yaş tahmini kullanılacak")
+                logger.warning(f"CustomAgeHead model dizini bulunamadı: {custom_age_head_dir}")
+                self.custom_age_head = None
                 self.age_model = None
+                
         except Exception as e:
-            logger.error(f"Özel yaş modeli yükleme hatası: {str(e)}")
+            logger.error(f"Custom Age Head model yükleme hatası: {str(e)}")
+            self.custom_age_head = None
             self.age_model = None
             
         # CLIP modelini yükle

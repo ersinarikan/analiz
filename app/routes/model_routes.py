@@ -242,4 +242,96 @@ def train_with_feedback():
     # Not: Gerçek uygulamada bu işlem Celery ile asenkron çalıştırılmalı
     result = model_service.train_with_feedback(model_type, params)
     
-    return jsonify(result) 
+    return jsonify(result)
+
+@bp.route('/age/versions', methods=['GET'])
+def get_age_model_versions():
+    """
+    Custom Age model versiyonlarını listeler
+    """
+    try:
+        from app.services.age_training_service import AgeTrainingService
+        trainer = AgeTrainingService()
+        versions = trainer.get_model_versions()
+        
+        return jsonify({
+            'success': True,
+            'versions': versions
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Age model versiyonları alınırken hata: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@bp.route('/age/activate/<int:version_id>', methods=['POST'])
+def activate_age_model_version(version_id):
+    """
+    Belirli bir Custom Age model versiyonunu aktif hale getirir
+    """
+    try:
+        from app.services.age_training_service import AgeTrainingService
+        trainer = AgeTrainingService()
+        
+        success = trainer.activate_model_version(version_id)
+        
+        if success:
+            return jsonify({
+                'success': True,
+                'message': f'Model version {version_id} activated successfully'
+            }), 200
+        else:
+            return jsonify({
+                'success': False,
+                'message': 'Failed to activate model version'
+            }), 400
+            
+    except Exception as e:
+        logger.error(f"Model versiyonu aktifleştirme hatası: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@bp.route('/age/training-data-stats', methods=['GET'])
+def get_age_training_data_stats():
+    """
+    Mevcut yaş eğitim verisi istatistiklerini döndürür
+    """
+    try:
+        from app.services.age_training_service import AgeTrainingService
+        trainer = AgeTrainingService()
+        
+        # Veriyi hazırla ama eğitme
+        training_data = trainer.prepare_training_data(min_samples=1)
+        
+        if training_data is None:
+            return jsonify({
+                'success': True,
+                'stats': {
+                    'total_samples': 0,
+                    'manual_samples': 0,
+                    'pseudo_samples': 0,
+                    'age_range': None,
+                    'mean_age': None
+                }
+            }), 200
+        
+        manual_count = training_data['sources'].count('manual')
+        pseudo_count = training_data['sources'].count('pseudo')
+        ages = training_data['ages']
+        
+        return jsonify({
+            'success': True,
+            'stats': {
+                'total_samples': len(training_data['embeddings']),
+                'manual_samples': manual_count,
+                'pseudo_samples': pseudo_count,
+                'age_range': {
+                    'min': float(ages.min()),
+                    'max': float(ages.max())
+                },
+                'mean_age': float(ages.mean()),
+                'std_age': float(ages.std())
+            }
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Eğitim verisi istatistikleri alınırken hata: {str(e)}")
+        return jsonify({'error': str(e)}), 500 

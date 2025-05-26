@@ -77,6 +77,7 @@ class ModelVersion(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     model_type = db.Column(db.String(50), nullable=False)  # 'content' veya 'age'
     version = db.Column(db.Integer, nullable=False)
+    version_name = db.Column(db.String(100), nullable=True)  # Örn: "v1_20240101_120000"
     created_at = db.Column(db.DateTime, default=datetime.now)
     metrics = db.Column(db.JSON) # Doğruluk, F1, Kesinlik, Geri çağırma skorları
     is_active = db.Column(db.Boolean, default=True)

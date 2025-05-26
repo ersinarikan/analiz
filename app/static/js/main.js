@@ -452,6 +452,21 @@ function initializeEventListeners() {
     // Yapay Zeka Eğitim Butonu
     document.getElementById('trainModelBtn').addEventListener('click', () => {
         const modal = new bootstrap.Modal(document.getElementById('trainModelModal'));
+        
+        // Modal açıldığında eğitim verisi istatistiklerini göster
+        modal._element.addEventListener('shown.bs.modal', () => {
+            if (window.TrainingStats) {
+                window.TrainingStats.displayTrainingStats('trainModelModal');
+            }
+        });
+        
+        // Modal kapandığında periyodik güncellemeyi durdur
+        modal._element.addEventListener('hidden.bs.modal', () => {
+            if (window.TrainingStats) {
+                window.TrainingStats.stopPeriodicUpdate();
+            }
+        });
+        
         modal.show();
     });
     

@@ -402,7 +402,7 @@ def analyze_image(analysis):
                             cv2.rectangle(image_with_overlay, (x1, y1), (x2, y2), (0, 255, 0), 2)
                             
                             # Metin için arka plan oluştur
-                            text = f"ID: {person_id.split('_')[-1]}  YAS: {int(age)}"
+                            text = f"ID: {person_id.split('_')[-1]}  YAS: {round(age)}"
                             text_size = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.7, 2)[0]
                             text_y = y1 - 10 if y1 > 20 else y1 + h + 25
                             
@@ -916,7 +916,8 @@ def analyze_video(analysis):
                         logger.error(f"Overlay için kare okunamadı (Kişi: {person_id_str}): {source_frame_for_overlay_path}")
                         continue
 
-                    age_to_display = int(round(best_est.estimated_age))
+                    age_to_display = round(best_est.estimated_age)  # JavaScript Math.round ile aynı davranış
+                    logger.info(f"DEBUG - Kişi {person_id_str}: best_est.estimated_age={best_est.estimated_age}, round()={age_to_display}")
                     bbox_json_str = best_est._face_location
                     if not bbox_json_str:
                         logger.warning(f"Kişi {person_id_str} için BBox yok, overlay atlanıyor (Kayıt ID: {best_est.id}).")
@@ -930,9 +931,30 @@ def analyze_video(analysis):
                     
                     # Overlay çizimi (yaş ve kutu)
                     image_with_overlay = image_source_for_overlay.copy()
-                    label = f"Yas: {age_to_display}"
+                    # person_id_str'den ID numarasını çıkar
+                    person_number = person_id_str.split('_person_')[-1] if '_person_' in person_id_str else person_id_str
+                    label = f"ID: {person_number}  YAS: {age_to_display}"
                     cv2.rectangle(image_with_overlay, (x1_bbox, y1_bbox), (x1_bbox + w_bbox, y1_bbox + h_bbox), (0, 255, 0), 2)
-                    cv2.putText(image_with_overlay, label, (x1_bbox, y1_bbox - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
+                    
+                    # Metin için arka plan oluştur (görüntü analizindeki gibi)
+                    text_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.7, 2)[0]
+                    text_y = y1_bbox - 10 if y1_bbox > 20 else y1_bbox + h_bbox + 25
+                    
+                    # Metin arka planı için koordinatları hesapla
+                    text_bg_x1 = x1_bbox
+                    text_bg_y1 = text_y - text_size[1] - 5
+                    text_bg_x2, text_bg_y2 = x1_bbox + text_size[0] + 10, text_y + 5
+                    
+                    # Arka plan çiz
+                    cv2.rectangle(image_with_overlay, 
+                                (text_bg_x1, text_bg_y1),
+                                (text_bg_x2, text_bg_y2),
+                                (0, 0, 0),
+                                -1)
+                    
+                    # Metni çiz
+                    cv2.putText(image_with_overlay, label, (x1_bbox + 5, text_y), 
+                              cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
                     
                     # Benzersiz ve anlamlı bir dosya adı oluştur (orijinal kare adını içerebilir)
                     original_frame_basename = os.path.basename(source_frame_for_overlay_path) # ör: frame_000123.jpg
@@ -1296,6 +1318,8 @@ def get_analysis_results(analysis_id):
         for person_id, estimations in persons.items():
             best_estimation = max(estimations, key=lambda e: e['confidence_score'])
             logger.info(f"[SVC_LOG][RESULTS] get_analysis_results: Kişi {person_id} için en iyi tahmin seçildi (Güven: {best_estimation['confidence_score']:.4f}).")
+            logger.info(f"DEBUG - Frontend'e gönderilecek yaş: person_id={person_id}, estimated_age={best_estimation.get('estimated_age')}, all_estimations_for_person={[(e.get('estimated_age'), e.get('confidence_score')) for e in estimations]}")
+            logger.info(f"DEBUG - best_estimation tüm alanları: {best_estimation}")
             best_estimations.append(best_estimation)
         result['age_estimations'] = best_estimations
         logger.info(f"[SVC_LOG][RESULTS] get_analysis_results: API yanıtına {len(best_estimations)} en iyi tahmin eklendi.")

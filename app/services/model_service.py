@@ -500,6 +500,7 @@ def train_with_feedback(model_type, params=None):
     Kullanıcı geri bildirimleriyle model eğitimi yapar
     """
     logging.info(f"Geri bildirimlerle model eğitimi başlatılıyor: {model_type}")
+    logging.debug(f"Eğitim parametreleri: {params}")
     
     # Varsayılan parametreleri ayarla
     if not params:
@@ -508,72 +509,67 @@ def train_with_feedback(model_type, params=None):
             'batch_size': 32,
             'learning_rate': 0.001
         }
-    
-    # Geri bildirim verilerini al
-    if model_type == 'content':
-        feedback_data = db_service.get_content_feedback()
-    else:  # age
-        feedback_data = db_service.get_age_feedback()
-    
-    logging.info(f"{len(feedback_data)} adet geri bildirim verisi alındı")
-    
-    if not feedback_data or len(feedback_data) < 10:  # Minimum 10 geri bildirim olmalı
-        return {
-            "success": False,
-            "message": "Yeterli sayıda geri bildirim verisi bulunamadı. En az 10 geri bildirim gerekli."
-        }
-    
-    # Eğitim verilerini hazırla
-    training_data = prepare_feedback_data(feedback_data, model_type)
-    
-    # Mevcut modeli yükle
-    try:
-        model = load_model(model_type)
-    except Exception as e:
-        logging.error(f"Model yüklenirken hata: {str(e)}")
-        return {
-            "success": False,
-            "message": f"Model yüklenirken hata: {str(e)}"
-        }
+        logging.debug("Varsayılan parametreler kullanılıyor")
     
     start_time = time.time()
     
     try:
-        # Modeli eğit
-        if model_type == 'content':
-            history = train_content_model(model, training_data, params)
-        else:  # age
-            history = train_age_model(model, training_data, params)
+        if model_type == 'age':
+            # Custom Age modelini eğit
+            from app.services.age_training_service import AgeTrainingService
+            
+            trainer = AgeTrainingService()
+            
+            # Veriyi hazırla
+            training_data = trainer.prepare_training_data(min_samples=10)
+    
+            if training_data is None:
+                return {
+                    "success": False,
+                    "message": "Yeterli sayıda geri bildirim verisi bulunamadı. En az 10 geri bildirim gerekli."
+                }
+    
+            logging.info(f"Eğitim verisi hazırlandı: {len(training_data['embeddings'])} örnek")
+    
+            # Modeli eğit
+            training_result = trainer.train_model(training_data, params)
         
-        # Metrikleri hesapla
-        metrics = calculate_metrics(model, training_data, model_type)
+            # Model versiyonunu kaydet
+            model_version = trainer.save_model_version(
+                training_result['model'],
+                training_result
+            )
         
-        # Yeni sürüm oluştur
-        new_version = create_model_version(
-            model_type=model_type,
-            metrics=metrics,
-            training_samples=len(training_data['train_data']),
-            validation_samples=len(training_data['val_data']),
-            epochs=params['epochs'],
-            feedback_ids=[f.id for f in feedback_data]
-        )
+            duration = time.time() - start_time
+            
+            logging.info(f"Model eğitimi tamamlandı. Süre: {duration:.2f} saniye")
         
-        # Yeni modeli kaydet
-        save_model(model, model_type, version=new_version.version)
-        
-        duration = time.time() - start_time
-        
-        return {
-            "success": True,
-            "version": new_version.version,
-            "duration": duration,
-            "metrics": metrics,
-            "samples": len(training_data['train_data']) + len(training_data['val_data']),
-            "training_samples": len(training_data['train_data']),
-            "validation_samples": len(training_data['val_data'])
-        }
+            return {
+                "success": True,
+                "version": model_version.version,
+                "version_name": model_version.version_name,
+                "duration": duration,
+                "metrics": training_result['metrics'],
+                "training_samples": training_result['training_samples'],
+                "validation_samples": training_result['validation_samples'],
+                "epochs": len(training_result['history']['train_loss']),
+                "model_id": model_version.id
+            }
+            
+        elif model_type == 'content':
+            # İçerik modeli eğitimi (şimdilik placeholder)
+            return {
+                "success": False,
+                "message": "İçerik modeli eğitimi henüz implemente edilmedi"
+            }
+        else:
+            return {
+                "success": False,
+                "message": f"Geçersiz model tipi: {model_type}"
+            }
+            
     except Exception as e:
-        logging.error(f"Model eğitimi sırasında hata: {str(e)}")
+        logging.error(f"Model eğitimi sırasında hata: {str(e)}", exc_info=True)
         return {
             "success": False,
             "message": f"Eğitim sırasında hata: {str(e)}"
