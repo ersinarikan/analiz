@@ -29,25 +29,111 @@ function handleParamsAlert(e) {
     alert('Analiz parametrelerini değiştirmeden önce lütfen yüklenmiş dosyaları kaldırın veya analizi tamamlayın.');
 }
 
-// Analiz parametreleri butonunun durumunu güncelleme fonksiyonu
-function updateAnalysisParamsButtonState() {
-    const analysisParamsBtn = document.getElementById('openAnalysisParamsModalBtn');
-    if (!analysisParamsBtn) return;
+// Model butonları için uyarı gösterme fonksiyonu
+function handleModelAlert(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    alert('Model işlemlerini yapmadan önce lütfen yüklenmiş dosyaları kaldırın veya analizi tamamlayın.');
+}
 
-    if (uploadedFiles.length > 0) {
-        analysisParamsBtn.classList.add('disabled');
-        analysisParamsBtn.setAttribute('aria-disabled', 'true');
-        analysisParamsBtn.removeAttribute('data-bs-toggle');
-        analysisParamsBtn.removeAttribute('data-bs-target');
-        // Eski listener'ı kaldır (varsa) ve yenisini ekle
-        analysisParamsBtn.removeEventListener('click', handleParamsAlert);
-        analysisParamsBtn.addEventListener('click', handleParamsAlert);
+// Analiz parametreleri ve model yönetimi butonlarının durumunu güncelleme fonksiyonu (sadece yüklü dosyalara göre)
+function updateAnalysisParamsButtonState() {
+    // Bu fonksiyon sadece dosya ekleme/çıkarma durumlarında çağrılır
+    // Kuyruk durumu kontrolü updateAnalysisParamsButtonStateWithQueue() fonksiyonunda yapılır
+    updateAnalysisParamsButtonStateWithQueue(null);
+}
+
+// Analiz parametreleri ve model yönetimi butonlarının durumunu güncelleme fonksiyonu (hem yüklü dosya hem kuyruk durumuna göre)
+function updateAnalysisParamsButtonStateWithQueue(queueData) {
+    const analysisParamsBtn = document.getElementById('openAnalysisParamsModalBtn');
+    const modelMetricsBtn = document.getElementById('modelMetricsBtn');
+    const trainModelBtn = document.getElementById('trainModelBtn');
+    const modelManagementBtn = document.getElementById('modelManagementBtn');
+
+    // Yüklü dosya kontrolü
+    const hasUploadedFiles = uploadedFiles.length > 0;
+    
+    // Kuyruk durumu kontrolü
+    let hasFilesInQueue = false;
+    if (queueData) {
+        hasFilesInQueue = (queueData.queue_size > 0) || (queueData.active_analyses > 0);
+    }
+    
+    // Butonlar devre dışı mı?
+    const shouldDisableButtons = hasUploadedFiles || hasFilesInQueue;
+
+    console.log('Ana sayfada yüklü dosya var mı?', hasUploadedFiles); // Debug için
+    console.log('Kuyrukta dosya var mı?', hasFilesInQueue); // Debug için
+    console.log('Butonlar devre dışı mı?', shouldDisableButtons); // Debug için
+
+    if (shouldDisableButtons) {
+        // Analiz Parametreleri butonu
+        if (analysisParamsBtn) {
+            analysisParamsBtn.classList.add('disabled');
+            analysisParamsBtn.setAttribute('aria-disabled', 'true');
+            analysisParamsBtn.removeAttribute('data-bs-toggle');
+            analysisParamsBtn.removeAttribute('data-bs-target');
+            analysisParamsBtn.removeEventListener('click', handleParamsAlert);
+            analysisParamsBtn.addEventListener('click', handleParamsAlert);
+        }
+
+        // Model Metrikleri butonu
+        if (modelMetricsBtn) {
+            modelMetricsBtn.classList.add('disabled');
+            modelMetricsBtn.setAttribute('aria-disabled', 'true');
+            modelMetricsBtn.removeEventListener('click', handleModelAlert);
+            modelMetricsBtn.addEventListener('click', handleModelAlert);
+        }
+
+        // Model Eğitimi butonu
+        if (trainModelBtn) {
+            trainModelBtn.classList.add('disabled');
+            trainModelBtn.setAttribute('aria-disabled', 'true');
+            trainModelBtn.removeEventListener('click', handleModelAlert);
+            trainModelBtn.addEventListener('click', handleModelAlert);
+        }
+
+        // Model Yönetimi butonu
+        if (modelManagementBtn) {
+            modelManagementBtn.classList.add('disabled');
+            modelManagementBtn.setAttribute('aria-disabled', 'true');
+            modelManagementBtn.removeAttribute('data-bs-toggle');
+            modelManagementBtn.removeAttribute('data-bs-target');
+            modelManagementBtn.removeEventListener('click', handleModelAlert);
+            modelManagementBtn.addEventListener('click', handleModelAlert);
+        }
     } else {
-        analysisParamsBtn.classList.remove('disabled');
-        analysisParamsBtn.setAttribute('aria-disabled', 'false');
-        analysisParamsBtn.setAttribute('data-bs-toggle', 'modal');
-        analysisParamsBtn.setAttribute('data-bs-target', '#analysisParamsModal');
-        analysisParamsBtn.removeEventListener('click', handleParamsAlert);
+        // Analiz Parametreleri butonu
+        if (analysisParamsBtn) {
+            analysisParamsBtn.classList.remove('disabled');
+            analysisParamsBtn.setAttribute('aria-disabled', 'false');
+            analysisParamsBtn.setAttribute('data-bs-toggle', 'modal');
+            analysisParamsBtn.setAttribute('data-bs-target', '#analysisParamsModal');
+            analysisParamsBtn.removeEventListener('click', handleParamsAlert);
+        }
+
+        // Model Metrikleri butonu
+        if (modelMetricsBtn) {
+            modelMetricsBtn.classList.remove('disabled');
+            modelMetricsBtn.setAttribute('aria-disabled', 'false');
+            modelMetricsBtn.removeEventListener('click', handleModelAlert);
+        }
+
+        // Model Eğitimi butonu
+        if (trainModelBtn) {
+            trainModelBtn.classList.remove('disabled');
+            trainModelBtn.setAttribute('aria-disabled', 'false');
+            trainModelBtn.removeEventListener('click', handleModelAlert);
+        }
+
+        // Model Yönetimi butonu
+        if (modelManagementBtn) {
+            modelManagementBtn.classList.remove('disabled');
+            modelManagementBtn.setAttribute('aria-disabled', 'false');
+            modelManagementBtn.setAttribute('data-bs-toggle', 'modal');
+            modelManagementBtn.setAttribute('data-bs-target', '#modelManagementModal');
+            modelManagementBtn.removeEventListener('click', handleModelAlert);
+        }
     }
 }
 
@@ -64,6 +150,9 @@ document.addEventListener('DOMContentLoaded', () => {
     // Eğitim butonu kurulumu
     setupTrainingButton();
     updateAnalysisParamsButtonState(); // Butonun başlangıç durumunu ayarla
+    
+    // Resim tıklama özelliğini etkinleştir
+    addImageClickListeners();
 
     // --- Yeni Analiz Parametreleri Modalı (GLOBAL) için Event Listener'lar ve Fonksiyonlar ---
     const globalAnalysisParamsModalElement = document.getElementById('analysisParamsModal'); 
@@ -453,17 +542,40 @@ function initializeEventListeners() {
     document.getElementById('trainModelBtn').addEventListener('click', () => {
         const modal = new bootstrap.Modal(document.getElementById('trainModelModal'));
         
-        // Modal açıldığında eğitim verisi istatistiklerini göster
+        // Modal açıldığında eğitim verisi istatistiklerini göster ve butonları sıfırla
         modal._element.addEventListener('shown.bs.modal', () => {
             if (window.TrainingStats) {
                 window.TrainingStats.displayTrainingStats('trainModelModal');
             }
+            
+            // Modal açıldığında butonları ve durumları sıfırla
+            resetTrainingModal();
         });
         
         // Modal kapandığında periyodik güncellemeyi durdur
         modal._element.addEventListener('hidden.bs.modal', () => {
             if (window.TrainingStats) {
                 window.TrainingStats.stopPeriodicUpdate();
+            }
+        });
+        
+        modal.show();
+    });
+    
+    // Model Yönetimi Butonu
+    document.getElementById('modelManagementBtn').addEventListener('click', () => {
+        const modal = new bootstrap.Modal(document.getElementById('modelManagementModal'));
+        
+        // Modal açıldığında model yönetimi verilerini yükle
+        modal._element.addEventListener('shown.bs.modal', () => {
+            initializeModelManagementModal();
+        });
+        
+        // Modal kapandığında interval'ları temizle
+        modal._element.addEventListener('hidden.bs.modal', () => {
+            if (modalQueueStatusInterval) {
+                clearInterval(modalQueueStatusInterval);
+                modalQueueStatusInterval = null;
             }
         });
         
@@ -547,6 +659,9 @@ function updateQueueStatus(data) {
         // Kuyruk aktif değilse ve bekleyen dosya yoksa
         queueStatusElement.style.display = 'none';
     }
+    
+    // Buton durumlarını güncelle (hem yüklü dosya hem kuyruk durumuna göre)
+    updateAnalysisParamsButtonStateWithQueue(data);
 }
 
 // Dosya seçimini işle
@@ -1637,6 +1752,10 @@ function displayAnalysisResults(fileId, results) {
                     this.onerror = null; // Sonsuz döngüyü önle
                 };
                 
+                // Tıklama özelliği ekle
+                highestRiskFrame.style.cursor = 'pointer';
+                highestRiskFrame.title = 'Büyütmek için tıklayın';
+                
                 highestRiskFrame.src = imageSource;
                 
                 // Kategori adını düzenle
@@ -1880,7 +1999,8 @@ function displayAnalysisResults(fileId, results) {
                             <div class="position-relative">
                                 <div style="height: 240px; overflow: hidden;">
                                     <img src="${frameUrl}" class="card-img-top detection-img" alt="${categoryName}" 
-                                        style="width: 100%; height: 100%; object-fit: cover;"
+                                        style="width: 100%; height: 100%; object-fit: cover; cursor: pointer;"
+                                        title="Büyütmek için tıklayın"
                                         onerror="this.onerror=null;this.src='/static/img/image-not-found.svg';">
                                 </div>
                                 <span class="position-absolute top-0 end-0 m-2 badge ${badgeClass}">${categoryName}</span>
@@ -2005,9 +2125,11 @@ function displayAnalysisResults(fileId, results) {
                                             <div class="position-relative" style="height: 300px; overflow: hidden;">
                                                 <img src="${frameUrl}" 
                                                      alt="ID: ${faceId.includes('_person_') ? faceId.split('_person_').pop() : index + 1}"
-                                                     style="width: 100%; height: 100%; object-fit: contain;"
+                                                     style="width: 100%; height: 100%; object-fit: contain; cursor: pointer;"
+                                                     class="age-estimation-image"
                                                      onerror="this.onerror=null;this.src='/static/img/image-not-found.svg';"
-                                                     onload="console.log('[DEBUG] Görsel başarıyla yüklendi:', this.src)">
+                                                     onload="console.log('[DEBUG] Görsel başarıyla yüklendi:', this.src)"
+                                                     title="Büyütmek için tıklayın">
                                                 <span class="position-absolute top-0 end-0 m-2 badge bg-info">ID: ${faceId.includes('_person_') ? faceId.split('_person_').pop() : index + 1}</span>
                                                 ${isUnderAge ? '<span class="position-absolute top-0 start-0 m-2 badge bg-danger"><i class="fas fa-exclamation-triangle me-1"></i> 18 yaş altı</span>' : ''}
                                             </div>
@@ -2887,6 +3009,12 @@ function displayTrainingResults(results) {
     const resultsSection = document.getElementById('trainingResultsSection');
     resultsSection.style.display = 'block';
     
+    // Eğitim tamamlandığında "Eğitimi Başlat" butonunu gizle
+    const startTrainingBtn = document.getElementById('startTrainingBtn');
+    if (startTrainingBtn) {
+        startTrainingBtn.style.display = 'none';
+    }
+    
     const resultsContainer = document.getElementById('trainingResults');
     
     if (results.model_type === 'content') {
@@ -3104,11 +3232,48 @@ function handleTrainingCompleted(data) {
     // Eğitim sonuçlarını göster
     displayTrainingResults(data.results);
     
-    // Butonları aktif et
+    // Butonları aktif et (ama gizli tut)
     document.getElementById('startTrainingBtn').disabled = false;
     
     // Başarı mesajı göster
     showToast('Başarılı', 'Model eğitimi başarıyla tamamlandı.', 'success');
+}
+
+// Eğitim modal'ını sıfırla
+function resetTrainingModal() {
+    // Eğitim butonunu göster ve aktif et
+    const startTrainingBtn = document.getElementById('startTrainingBtn');
+    if (startTrainingBtn) {
+        startTrainingBtn.style.display = 'block';
+        startTrainingBtn.disabled = false;
+        startTrainingBtn.innerHTML = '<i class="fas fa-play me-1"></i> Eğitimi Başlat';
+    }
+    
+    // Eğitim durumu bölümünü gizle
+    const trainingInfo = document.querySelector('.training-info');
+    if (trainingInfo) {
+        trainingInfo.style.display = 'none';
+    }
+    
+    // Eğitim sonuçları bölümünü gizle
+    const trainingResultsSection = document.getElementById('trainingResultsSection');
+    if (trainingResultsSection) {
+        trainingResultsSection.style.display = 'none';
+    }
+    
+    // İlerleme çubuğunu sıfırla
+    const progressBar = document.getElementById('trainingProgressBar');
+    if (progressBar) {
+        progressBar.style.width = '0%';
+        progressBar.textContent = '0%';
+        progressBar.setAttribute('aria-valuenow', 0);
+    }
+    
+    // Durum metnini sıfırla
+    const statusText = document.getElementById('trainingStatusText');
+    if (statusText) {
+        statusText.textContent = 'Hazırlanıyor...';
+    }
 }
 
 // Süre formatla
@@ -3549,6 +3714,8 @@ function displayAgeFeedback(feedbackTab, results) { // results objesi analysis_i
             }
             faceImageElement.src = imgSrc;
             faceImageElement.alt = `Kişi ${personCounter}`;
+            faceImageElement.style.cursor = 'pointer';
+            faceImageElement.title = 'Büyütmek için tıklayın';
         }
         
         const personIdElement = feedbackItem.querySelector('.person-id');
@@ -3580,3 +3747,312 @@ function displayAgeFeedback(feedbackTab, results) { // results objesi analysis_i
 }
 
 // ... (rest of the code remains unchanged)
+
+// Model Yönetimi Modal JavaScript fonksiyonları
+let modalTrainingInterval = null;
+let modalQueueStatusInterval = null;
+
+// Model Yönetimi Modal açıldığında çalışacak fonksiyon
+function initializeModelManagementModal() {
+    loadModalModelVersions();
+    loadModalModelStats();
+    startModalQueueStatusChecker();
+}
+
+// Modal kuyruk durumu kontrolünü başlat
+function startModalQueueStatusChecker() {
+    // İlk kontrol
+    checkModalQueueStatus();
+    
+    // 5 saniyede bir kontrol et
+    modalQueueStatusInterval = setInterval(checkModalQueueStatus, 5000);
+}
+
+// Modal kuyruk durumunu kontrol et
+function checkModalQueueStatus() {
+    // Hem kuyruk durumunu hem de yüklü dosya sayısını al
+    Promise.all([
+        fetch('/api/debug/queue-status').then(response => response.json()),
+        fetch('/api/debug/uploaded-files-count').then(response => response.json())
+    ])
+    .then(([queueData, uploadedFilesData]) => {
+        updateModalButtonsState(queueData, uploadedFilesData);
+    })
+    .catch(error => {
+        console.error('Modal kuyruk durumu kontrol hatası:', error);
+    });
+}
+
+// Modal butonlarının durumunu güncelle
+function updateModalButtonsState(queueData, uploadedFilesData) {
+    console.log('Modal - Kuyruk durumu:', queueData);
+    console.log('Modal - Yüklü dosya durumu:', uploadedFilesData);
+    
+    // Ana sayfadaki mantık: Yüklü dosya varsa veya kuyrukta dosya varsa veya aktif analiz varsa devre dışı bırak
+    const hasUploadedFiles = uploadedFilesData.uploaded_files_count > 0;
+    const hasFilesInQueue = queueData.queue_size > 0 || queueData.active_analyses > 0;
+    const shouldDisableButtons = hasUploadedFiles || hasFilesInQueue;
+    
+    console.log('Modal - Ana sayfada yüklü dosya var mı?', hasUploadedFiles);
+    console.log('Modal - Kuyrukta dosya var mı?', hasFilesInQueue);
+    console.log('Modal - Butonlar devre dışı mı?', shouldDisableButtons);
+    
+    // Modal içindeki tüm model yönetimi butonlarını bul
+    const trainButtons = document.querySelectorAll('[onclick*="trainModelFromModal"]');
+    const resetButtons = document.querySelectorAll('[onclick*="resetModelFromModal"]');
+    const activateButtons = document.querySelectorAll('[onclick*="activateVersionFromModal"]');
+    
+    if (shouldDisableButtons) {
+        // Dosya yüklü veya kuyrukta dosya varken butonları devre dışı bırak
+        trainButtons.forEach(btn => {
+            btn.disabled = true;
+            btn.classList.add('disabled');
+            btn.title = 'Dosya yüklü veya analiz devam ederken model eğitimi yapılamaz';
+        });
+        
+        resetButtons.forEach(btn => {
+            btn.disabled = true;
+            btn.classList.add('disabled');
+            btn.title = 'Dosya yüklü veya analiz devam ederken model sıfırlanamaz';
+        });
+        
+        activateButtons.forEach(btn => {
+            btn.disabled = true;
+            btn.classList.add('disabled');
+            btn.title = 'Dosya yüklü veya analiz devam ederken model değiştirilemez';
+        });
+        
+    } else {
+        // Dosya yüklü değil ve analiz yokken butonları aktif et
+        trainButtons.forEach(btn => {
+            btn.disabled = false;
+            btn.classList.remove('disabled');
+            btn.title = '';
+        });
+        
+        resetButtons.forEach(btn => {
+            btn.disabled = false;
+            btn.classList.remove('disabled');
+            btn.title = '';
+        });
+        
+        activateButtons.forEach(btn => {
+            btn.disabled = false;
+            btn.classList.remove('disabled');
+            btn.title = '';
+        });
+    }
+}
+
+// Modal model versiyonlarını yükle
+async function loadModalModelVersions() {
+    try {
+        // Yaş modeli versiyonları
+        const ageResponse = await fetch('/api/model/versions/age');
+        if (ageResponse.ok) {
+            const ageData = await ageResponse.json();
+            console.log('Modal Age API Response:', ageData);
+            
+            const ageVersions = ageData.versions || [];
+            console.log('Modal Age Versions:', ageVersions);
+            displayModalVersions('age', ageVersions);
+        } else {
+            console.error('Modal Age API Error:', ageResponse.status, ageResponse.statusText);
+            document.getElementById('modal-age-versions').innerHTML = '<span class="text-danger">API hatası</span>';
+        }
+
+        // İçerik modeli versiyonları (şimdilik statik)
+        displayModalVersions('content', []);
+    } catch (error) {
+        console.error('Modal model versiyonları yüklenirken hata:', error);
+        document.getElementById('modal-age-versions').innerHTML = '<span class="text-danger">Yükleme hatası</span>';
+    }
+}
+
+// Modal model istatistiklerini yükle
+async function loadModalModelStats() {
+    try {
+        // Yaş modeli istatistikleri
+        const ageResponse = await fetch('/api/model/metrics/age');
+        if (ageResponse.ok) {
+            const ageStats = await ageResponse.json();
+            updateModalModelStats('age', ageStats);
+        }
+
+        // İçerik modeli istatistikleri
+        const contentResponse = await fetch('/api/model/metrics/content');
+        if (contentResponse.ok) {
+            const contentStats = await contentResponse.json();
+            updateModalModelStats('content', contentStats);
+        }
+    } catch (error) {
+        console.error('Modal model istatistikleri yüklenirken hata:', error);
+    }
+}
+
+// Modal model versiyonlarını göster
+function displayModalVersions(modelType, versions) {
+    const container = document.getElementById(`modal-${modelType}-versions`);
+    console.log(`Modal - Displaying ${modelType} versions:`, versions);
+    
+    if (!Array.isArray(versions) || versions.length === 0) {
+        container.innerHTML = '<span class="text-muted">Henüz eğitilmiş versiyon yok</span>';
+        
+        if (modelType === 'age') {
+            document.getElementById('modal-age-active-version').textContent = 'Yok';
+            document.getElementById('modal-age-status').innerHTML = '<i class="fas fa-times-circle text-danger"></i> Aktif versiyon yok';
+        }
+        return;
+    }
+
+    let html = '';
+    versions.forEach(version => {
+        const badgeClass = version.is_active ? 'bg-success' : 'bg-secondary';
+        const activeText = version.is_active ? ' (Aktif)' : '';
+        html += `
+            <span class="badge ${badgeClass} version-badge me-2 mb-2">
+                v${version.version}${activeText}
+                <button class="btn btn-sm btn-link text-white p-0 ms-2" 
+                        onclick="activateVersionFromModal(${version.id})" 
+                        ${version.is_active ? 'disabled' : ''}>
+                    <i class="fas fa-play"></i>
+                </button>
+            </span>
+        `;
+    });
+    
+    container.innerHTML = html;
+
+    // Aktif versiyonu güncelle
+    if (modelType === 'age') {
+        const activeVersion = versions.find(v => v.is_active);
+        console.log('Modal - Active version found:', activeVersion);
+        
+        if (activeVersion) {
+            document.getElementById('modal-age-active-version').textContent = `v${activeVersion.version}`;
+            document.getElementById('modal-age-status').innerHTML = 
+                '<i class="fas fa-check-circle status-active"></i> Aktif';
+            
+            if (activeVersion.metrics && activeVersion.metrics.mae) {
+                document.getElementById('modal-age-mae').textContent = `${activeVersion.metrics.mae.toFixed(2)} yaş`;
+            }
+        } else {
+            document.getElementById('modal-age-active-version').textContent = 'Yok';
+            document.getElementById('modal-age-status').innerHTML = '<i class="fas fa-times-circle text-danger"></i> Aktif versiyon yok';
+        }
+    }
+}
+
+// Modal model istatistiklerini güncelle
+function updateModalModelStats(modelType, stats) {
+    console.log(`Modal - Updating ${modelType} stats:`, stats);
+    
+    if (modelType === 'age' && stats.training_data_count !== undefined) {
+        document.getElementById('modal-age-training-data').textContent = `${stats.training_data_count} örnek`;
+    }
+    
+    if (modelType === 'content' && stats.training_data_count !== undefined) {
+        document.getElementById('modal-content-training-data').textContent = `${stats.training_data_count} örnek`;
+    }
+}
+
+// Modal'dan model eğitimi başlat
+function trainModelFromModal(modelType) {
+    console.log(`Modal - Training ${modelType} model`);
+    // Ana sayfadaki train modal'ını aç
+    const trainModal = new bootstrap.Modal(document.getElementById('trainModelModal'));
+    trainModal.show();
+    
+    // Model tipini seç
+    document.getElementById('modelType').value = modelType;
+}
+
+// Modal'dan model sıfırla
+function resetModelFromModal(modelType) {
+    if (confirm(`${modelType === 'age' ? 'Yaş tahmin' : 'İçerik analiz'} modelini sıfırlamak istediğinizden emin misiniz?`)) {
+        console.log(`Modal - Resetting ${modelType} model`);
+        // Model sıfırlama API çağrısı burada yapılacak
+        fetch(`/api/model/reset/${modelType}`, {
+            method: 'POST'
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                alert('Model başarıyla sıfırlandı!');
+                loadModalModelVersions();
+                loadModalModelStats();
+            } else {
+                alert('Model sıfırlanırken hata oluştu: ' + data.error);
+            }
+        })
+        .catch(error => {
+            console.error('Model sıfırlama hatası:', error);
+            alert('Model sıfırlanırken hata oluştu!');
+        });
+    }
+}
+
+// Modal'dan versiyon aktifleştir
+function activateVersionFromModal(versionId) {
+    console.log(`Modal - Activating version ${versionId}`);
+    fetch(`/api/model/activate/${versionId}`, {
+        method: 'POST'
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert('Model versiyonu başarıyla aktifleştirildi!');
+            loadModalModelVersions();
+        } else {
+            alert('Model versiyonu aktifleştirilirken hata oluştu: ' + data.error);
+        }
+    })
+    .catch(error => {
+        console.error('Model versiyon aktifleştirme hatası:', error);
+        alert('Model versiyonu aktifleştirilirken hata oluştu!');
+    });
+}
+
+// Resim büyütme fonksiyonu
+function zoomImage(imageSrc, imageTitle = 'Resim Görüntüleyici') {
+    const zoomedImage = document.getElementById('zoomedImage');
+    const modalTitle = document.getElementById('imageZoomModalLabel');
+    
+    if (zoomedImage && modalTitle) {
+        zoomedImage.src = imageSrc;
+        modalTitle.textContent = imageTitle;
+        
+        const imageZoomModal = new bootstrap.Modal(document.getElementById('imageZoomModal'));
+        imageZoomModal.show();
+    }
+}
+
+// Resim tıklama event listener'ını ekle
+function addImageClickListeners() {
+    // Tüm analiz sonuç resimlerine tıklama özelliği ekle
+    document.addEventListener('click', function(e) {
+        // Yaş tahminleri resimleri
+        if (e.target.matches('.age-estimations img, .age-feedback-container img, .face-image, .age-estimation-image')) {
+            e.preventDefault();
+            const imageSrc = e.target.src;
+            const imageAlt = e.target.alt || 'Yaş Tahmini Resmi';
+            zoomImage(imageSrc, imageAlt);
+        }
+        
+        // İçerik tespiti resimleri
+        if (e.target.matches('.content-detections img, .detection-img')) {
+            e.preventDefault();
+            const imageSrc = e.target.src;
+            const imageAlt = e.target.alt || 'İçerik Tespiti Resmi';
+            zoomImage(imageSrc, imageAlt);
+        }
+        
+        // En yüksek riskli kare resimleri
+        if (e.target.matches('.highest-risk-frame img, .frame-container img')) {
+            e.preventDefault();
+            const imageSrc = e.target.src;
+            const imageAlt = e.target.alt || 'En Yüksek Riskli Kare';
+            zoomImage(imageSrc, imageAlt);
+        }
+    });
+}

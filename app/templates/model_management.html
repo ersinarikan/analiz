@@ -4,8 +4,16 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Model Yönetimi - WSANALIZ</title>
+    
+    <!-- Favicon -->
+    <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}" type="image/x-icon">
+    <link rel="shortcut icon" href="{{ url_for('static', filename='favicon.ico') }}" type="image/x-icon">
+    
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    
+    <!-- Custom CSS -->
+    <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
     <style>
         .model-card {
             transition: transform 0.2s;
@@ -29,14 +37,34 @@
     </style>
 </head>
 <body>
-    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+    <!-- Navbar -->
+    <nav class="navbar navbar-expand-lg navbar-dark mb-4">
         <div class="container">
             <a class="navbar-brand" href="/">
-                <i class="fas fa-brain me-2"></i>WSANALIZ
+                <i class="fas fa-shield-alt me-2"></i>
+                WS<span>Analiz</span>
             </a>
-            <div class="navbar-nav ms-auto">
-                <a class="nav-link" href="/">Ana Sayfa</a>
-                <a class="nav-link active" href="/model-management">Model Yönetimi</a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav ms-auto">
+                    <li class="nav-item">
+                        <a class="nav-link" href="/"><i class="fas fa-home me-1"></i> Ana Sayfa</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#" id="modelMetricsBtn"><i class="fas fa-chart-line me-1"></i> Model Metrikleri</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#" id="trainModelBtn"><i class="fas fa-brain me-1"></i> Model Eğitimi</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link active" href="/model-management"><i class="fas fa-cogs me-1"></i> Model Yönetimi</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#" data-bs-toggle="modal" data-bs-target="#analysisParamsModal" id="openAnalysisParamsModalBtn"><i class="fas fa-cog me-1"></i> Analiz Parametreleri</a>
+                    </li>
+                </ul>
             </div>
         </div>
     </nav>
@@ -209,12 +237,166 @@
     <script>
         // Model yönetimi JavaScript fonksiyonları
         let trainingInterval = null;
+        let queueStatusInterval = null;
 
         // Sayfa yüklendiğinde model bilgilerini getir
         document.addEventListener('DOMContentLoaded', function() {
             loadModelVersions();
             loadModelStats();
+            startQueueStatusChecker();
+            setupNavbarEventHandlers();
         });
+
+        // Navbar butonları için event handler'ları kur
+        function setupNavbarEventHandlers() {
+            // Model Metrikleri butonu
+            const modelMetricsBtn = document.getElementById('modelMetricsBtn');
+            if (modelMetricsBtn) {
+                modelMetricsBtn.addEventListener('click', function(e) {
+                    if (this.classList.contains('disabled')) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        alert('Dosya yüklü veya analiz devam ederken model metrikleri görüntülenemez.');
+                    }
+                });
+            }
+
+            // Model Eğitimi butonu
+            const trainModelBtn = document.getElementById('trainModelBtn');
+            if (trainModelBtn) {
+                trainModelBtn.addEventListener('click', function(e) {
+                    if (this.classList.contains('disabled')) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        alert('Dosya yüklü veya analiz devam ederken model eğitimi yapılamaz.');
+                    }
+                });
+            }
+
+            // Analiz Parametreleri butonu
+            const analysisParamsBtn = document.getElementById('openAnalysisParamsModalBtn');
+            if (analysisParamsBtn) {
+                analysisParamsBtn.addEventListener('click', function(e) {
+                    if (this.classList.contains('disabled')) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        alert('Dosya yüklü veya analiz devam ederken analiz parametreleri değiştirilemez.');
+                    }
+                });
+            }
+        }
+
+        // Kuyruk durumu kontrolünü başlat
+        function startQueueStatusChecker() {
+            // İlk kontrol
+            checkQueueStatus();
+            
+            // 5 saniyede bir kontrol et
+            queueStatusInterval = setInterval(checkQueueStatus, 5000);
+        }
+
+        // Kuyruk durumunu kontrol et
+        function checkQueueStatus() {
+            // Hem kuyruk durumunu hem de yüklü dosya sayısını al
+            Promise.all([
+                fetch('/api/debug/queue-status').then(response => response.json()),
+                fetch('/api/debug/uploaded-files-count').then(response => response.json())
+            ])
+            .then(([queueData, uploadedFilesData]) => {
+                updateModelManagementButtonsState(queueData, uploadedFilesData);
+            })
+            .catch(error => {
+                console.error('Kuyruk durumu kontrol hatası:', error);
+            });
+        }
+
+        // Model yönetimi butonlarının durumunu güncelle
+        function updateModelManagementButtonsState(queueData, uploadedFilesData) {
+            console.log('Kuyruk durumu:', queueData); // Debug için
+            console.log('Yüklü dosya durumu:', uploadedFilesData); // Debug için
+            
+            // Ana sayfadaki mantık: Yüklü dosya varsa veya kuyrukta dosya varsa veya aktif analiz varsa devre dışı bırak
+            const hasUploadedFiles = uploadedFilesData.uploaded_files_count > 0;
+            const hasFilesInQueue = queueData.queue_size > 0 || queueData.active_analyses > 0;
+            const shouldDisableButtons = hasUploadedFiles || hasFilesInQueue;
+            
+            console.log('Ana sayfada yüklü dosya var mı?', hasUploadedFiles); // Debug için
+            console.log('Kuyrukta dosya var mı?', hasFilesInQueue); // Debug için
+            console.log('Butonlar devre dışı mı?', shouldDisableButtons); // Debug için
+            
+            // Tüm model yönetimi butonlarını bul
+            const trainButtons = document.querySelectorAll('[onclick*="trainModel"]');
+            const resetButtons = document.querySelectorAll('[onclick*="resetModel"]');
+            const activateButtons = document.querySelectorAll('[onclick*="activateVersion"]');
+            
+            // Navbar'daki butonları da kontrol et
+            const navbarButtons = document.querySelectorAll('#modelMetricsBtn, #trainModelBtn, #openAnalysisParamsModalBtn');
+            
+            if (shouldDisableButtons) {
+                // Dosya yüklü veya kuyrukta dosya varken butonları devre dışı bırak
+                trainButtons.forEach(btn => {
+                    btn.disabled = true;
+                    btn.classList.add('disabled');
+                    btn.title = 'Dosya yüklü veya analiz devam ederken model eğitimi yapılamaz';
+                });
+                
+                resetButtons.forEach(btn => {
+                    btn.disabled = true;
+                    btn.classList.add('disabled');
+                    btn.title = 'Dosya yüklü veya analiz devam ederken model sıfırlanamaz';
+                });
+                
+                activateButtons.forEach(btn => {
+                    btn.disabled = true;
+                    btn.classList.add('disabled');
+                    btn.title = 'Dosya yüklü veya analiz devam ederken model değiştirilemez';
+                });
+                
+                // Navbar butonlarını da devre dışı bırak
+                navbarButtons.forEach(btn => {
+                    btn.classList.add('disabled');
+                    btn.setAttribute('aria-disabled', 'true');
+                    if (btn.id === 'openAnalysisParamsModalBtn') {
+                        btn.removeAttribute('data-bs-toggle');
+                        btn.removeAttribute('data-bs-target');
+                        btn.title = 'Dosya yüklü veya analiz devam ederken parametreler değiştirilemez';
+                    } else {
+                        btn.title = 'Dosya yüklü veya analiz devam ederken bu işlem yapılamaz';
+                    }
+                });
+                
+            } else {
+                // Dosya yüklü değil ve analiz yokken butonları aktif et
+                trainButtons.forEach(btn => {
+                    btn.disabled = false;
+                    btn.classList.remove('disabled');
+                    btn.title = '';
+                });
+                
+                resetButtons.forEach(btn => {
+                    btn.disabled = false;
+                    btn.classList.remove('disabled');
+                    btn.title = '';
+                });
+                
+                activateButtons.forEach(btn => {
+                    btn.disabled = false;
+                    btn.classList.remove('disabled');
+                    btn.title = '';
+                });
+                
+                // Navbar butonlarını da aktif et
+                navbarButtons.forEach(btn => {
+                    btn.classList.remove('disabled');
+                    btn.setAttribute('aria-disabled', 'false');
+                    if (btn.id === 'openAnalysisParamsModalBtn') {
+                        btn.setAttribute('data-bs-toggle', 'modal');
+                        btn.setAttribute('data-bs-target', '#analysisParamsModal');
+                    }
+                    btn.title = '';
+                });
+            }
+        }
 
         // Model versiyonlarını yükle
         async function loadModelVersions() {
@@ -222,14 +404,23 @@
                 // Yaş modeli versiyonları
                 const ageResponse = await fetch('/api/model/versions/age');
                 if (ageResponse.ok) {
-                    const ageVersions = await ageResponse.json();
+                    const ageData = await ageResponse.json();
+                    console.log('Age API Response:', ageData); // Debug için
+                    
+                    // API response'da versions array'i var
+                    const ageVersions = ageData.versions || [];
+                    console.log('Age Versions:', ageVersions); // Debug için
                     displayVersions('age', ageVersions);
+                } else {
+                    console.error('Age API Error:', ageResponse.status, ageResponse.statusText);
+                    document.getElementById('age-versions').innerHTML = '<span class="text-danger">API hatası</span>';
                 }
 
                 // İçerik modeli versiyonları (şimdilik statik)
                 displayVersions('content', []);
             } catch (error) {
                 console.error('Model versiyonları yüklenirken hata:', error);
+                document.getElementById('age-versions').innerHTML = '<span class="text-danger">Yükleme hatası</span>';
             }
         }
 
@@ -257,9 +448,17 @@
         // Model versiyonlarını göster
         function displayVersions(modelType, versions) {
             const container = document.getElementById(`${modelType}-versions`);
+            console.log(`Displaying ${modelType} versions:`, versions); // Debug için
             
-            if (versions.length === 0) {
+            // Versions'ın array olduğundan emin ol
+            if (!Array.isArray(versions) || versions.length === 0) {
                 container.innerHTML = '<span class="text-muted">Henüz eğitilmiş versiyon yok</span>';
+                
+                // Aktif versiyon bilgilerini güncelle
+                if (modelType === 'age') {
+                    document.getElementById('age-active-version').textContent = 'Yok';
+                    document.getElementById('age-status').innerHTML = '<i class="fas fa-times-circle text-danger"></i> Aktif versiyon yok';
+                }
                 return;
             }
 
@@ -282,21 +481,38 @@
             container.innerHTML = html;
 
             // Aktif versiyonu güncelle
-            const activeVersion = versions.find(v => v.is_active);
-            if (activeVersion) {
-                document.getElementById(`${modelType}-active-version`).textContent = `v${activeVersion.version}`;
-                document.getElementById(`${modelType}-status`).innerHTML = 
-                    '<i class="fas fa-check-circle status-active"></i> Aktif';
+            if (modelType === 'age') {
+                const activeVersion = versions.find(v => v.is_active);
+                console.log('Active version found:', activeVersion); // Debug için
+                
+                if (activeVersion) {
+                    document.getElementById('age-active-version').textContent = `v${activeVersion.version}`;
+                    document.getElementById('age-status').innerHTML = 
+                        '<i class="fas fa-check-circle status-active"></i> Aktif';
+                    
+                    // MAE bilgisini de güncelle
+                    if (activeVersion.metrics && activeVersion.metrics.mae) {
+                        document.getElementById('age-mae').textContent = `${activeVersion.metrics.mae.toFixed(2)} yaş`;
+                    }
+                } else {
+                    document.getElementById('age-active-version').textContent = 'Yok';
+                    document.getElementById('age-status').innerHTML = '<i class="fas fa-times-circle text-danger"></i> Aktif versiyon yok';
+                }
             }
         }
 
         // Model istatistiklerini güncelle
         function updateModelStats(modelType, stats) {
+            console.log(`Updating ${modelType} stats:`, stats); // Debug için
+            
             if (modelType === 'age') {
+                // Sadece eğitim verisi bilgisini güncelle, aktif versiyon bilgisini dokunma
                 document.getElementById('age-training-data').textContent = 
                     stats.feedback_count ? `${stats.feedback_count} örnek` : 'Veri yok';
                 
-                if (stats.metrics && stats.metrics.mae) {
+                // MAE bilgisini sadece aktif versiyon yoksa güncelle
+                const currentMAE = document.getElementById('age-mae').textContent;
+                if (currentMAE === '-' && stats.metrics && stats.metrics.mae) {
                     document.getElementById('age-mae').textContent = `${stats.metrics.mae.toFixed(2)} yaş`;
                 }
             } else if (modelType === 'content') {

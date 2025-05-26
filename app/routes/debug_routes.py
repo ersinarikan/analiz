@@ -171,4 +171,36 @@ def queue_status():
         return jsonify(status), 200
     except Exception as e:
         logger.error(f"Kuyruk durumu alınırken hata: {str(e)}")
-        return jsonify({'error': f'Kuyruk durumu alınırken bir hata oluştu: {str(e)}'}), 500 
+        return jsonify({'error': f'Kuyruk durumu alınırken bir hata oluştu: {str(e)}'}), 500
+
+@bp.route('/uploaded-files-count', methods=['GET'])
+def uploaded_files_count():
+    """
+    Yüklü dosya sayısını döndürür.
+    """
+    from app.models.file import File
+    from app.models.analysis import Analysis
+    
+    try:
+        # Analizi tamamlanmamış dosyaları say
+        # (pending, processing, failed durumundaki analizlere sahip dosyalar + hiç analizi olmayan dosyalar)
+        
+        # Tüm dosyaları al
+        total_files = File.query.count()
+        
+        # Tamamlanmış analizlere sahip dosyaları say
+        completed_analyses = Analysis.query.filter_by(status='completed').all()
+        completed_file_ids = set(analysis.file_id for analysis in completed_analyses)
+        
+        # Yüklü ama henüz analizi tamamlanmamış dosya sayısı
+        uploaded_files_count = total_files - len(completed_file_ids)
+        
+        return jsonify({
+            'uploaded_files_count': uploaded_files_count,
+            'total_files': total_files,
+            'completed_files': len(completed_file_ids)
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Yüklü dosya sayısı alınırken hata: {str(e)}")
+        return jsonify({'error': f'Yüklü dosya sayısı alınırken bir hata oluştu: {str(e)}'}), 500

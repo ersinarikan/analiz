@@ -552,6 +552,16 @@ def train_with_feedback(model_type, params=None):
                 training_result['model'],
                 training_result
             )
+            
+            # Eğitim sonrası temizlik (opsiyonel)
+            cleanup_enabled = current_app.config.get('CLEANUP_TRAINING_DATA_AFTER_TRAINING', True)
+            if cleanup_enabled:
+                logging.info("Starting post-training cleanup...")
+                cleanup_report = trainer.cleanup_used_training_data(
+                    training_result['used_feedback_ids'],
+                    model_version.version_name
+                )
+                logging.info(f"Cleanup completed: {cleanup_report}")
         
             duration = time.time() - start_time
             
