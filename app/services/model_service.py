@@ -65,22 +65,22 @@ def _get_content_model_stats():
             current_app.logger.error(f"Model konfigürasyonu okuma hatası: {str(e)}")
     
     # İçerik kategorileri için geri bildirim sayısını hesapla
-    feedback_categories = ['violence_feedback', 'adult_content_feedback', 'harassment_feedback', 'weapon_feedback', 'drug_feedback']
-    category_counts = {}
+    content_feedbacks = Feedback.query.filter(
+        Feedback.feedback_type.in_(['violence', 'adult', 'harassment', 'weapon', 'drug'])
+    ).all()
     
-    for category in feedback_categories:
-        # Her kategori için geri bildirim dağılımını hesapla
-        results = db.session.query(
-            getattr(Feedback, category),
-            db.func.count(Feedback.id)
-        ).filter(getattr(Feedback, category) != None).group_by(getattr(Feedback, category)).all()
+    if content_feedbacks:
+        stats['feedback_count'] = len(content_feedbacks)
         
-        category_name = category.replace('_feedback', '')
-        distribution = {value: count for value, count in results}
+        # Kategori dağılımını hesapla
+        category_counts = {}
+        for feedback in content_feedbacks:
+            category = feedback.feedback_type
+            if category not in category_counts:
+                category_counts[category] = 0
+            category_counts[category] += 1
         
-        if distribution:
-            stats['feedback_distribution'][category_name] = distribution
-            stats['feedback_count'] += sum(distribution.values())
+        stats['feedback_distribution'] = category_counts
     
     return stats
 
@@ -119,35 +119,31 @@ def _get_age_model_stats():
     from app.models.analysis import AgeEstimation
     
     # Yaş geri bildirimi olan kayıtları al
-    feedbacks = db.session.query(
-        Feedback.person_id,
-        Feedback.age_feedback,
-        AgeEstimation.estimated_age
-    ).join(
-        AgeEstimation, 
-        (AgeEstimation.person_id == Feedback.person_id) & (AgeEstimation.analysis_id == Feedback.analysis_id)
-    ).filter(
-        Feedback.age_feedback != None
+    feedbacks = Feedback.query.filter(
+        (Feedback.feedback_type == 'age') | (Feedback.feedback_type == 'age_pseudo'),
+        Feedback.corrected_age.isnot(None)
     ).all()
     
     if feedbacks:
         stats['feedback_count'] = len(feedbacks)
         
-        # Yaş farkı dağılımını hesapla
-        age_diffs = {}
-        for person_id, age_feedback, estimated_age in feedbacks:
-            diff = abs(age_feedback - estimated_age)
-            age_diffs[diff] = age_diffs.get(diff, 0) + 1
-        
-        stats['feedback_accuracy'] = age_diffs
-        
         # Yaş dağılımını hesapla (10'ar yıllık gruplar halinde)
         age_counts = {}
-        for person_id, age_feedback, estimated_age in feedbacks:
-            age_group = str(age_feedback // 10 * 10) + 's'  # 0s, 10s, 20s, vb.
-            age_counts[age_group] = age_counts.get(age_group, 0) + 1
+        for feedback in feedbacks:
+            age = feedback.corrected_age or feedback.pseudo_label_original_age
+            if age:
+                age_group = str(int(age) // 10 * 10) + 's'  # 0s, 10s, 20s, vb.
+                age_counts[age_group] = age_counts.get(age_group, 0) + 1
         
         stats['age_distribution'] = age_counts
+        
+        # Manuel vs pseudo feedback dağılımı
+        manual_count = len([f for f in feedbacks if f.feedback_source == 'MANUAL_USER'])
+        pseudo_count = len([f for f in feedbacks if f.feedback_source != 'MANUAL_USER'])
+        stats['feedback_sources'] = {
+            'manual': manual_count,
+            'pseudo': pseudo_count
+        }
     
     return stats
 
