@@ -219,28 +219,13 @@ def get_model_versions(model_type):
     if model_type not in ['content', 'age']:
         return jsonify({'error': 'Geçersiz model tipi'}), 400
     
-    versions = model_service.get_model_versions(model_type)
+    result = model_service.get_model_versions(model_type)
     
-    # Verileri JSON formatına dönüştür
-    versions_data = []
-    for version in versions:
-        versions_data.append({
-            'id': version.id,
-            'model_type': version.model_type,
-            'version': version.version,
-            'created_at': version.created_at.isoformat(),
-            'is_active': version.is_active,
-            'metrics': version.metrics,
-            'training_samples': version.training_samples,
-            'validation_samples': version.validation_samples,
-            'epochs': version.epochs
-        })
-    
-    return jsonify({
-        'success': True,
-        'model_type': model_type,
-        'versions': versions_data
-    })
+    # model_service.get_model_versions zaten bir dictionary döndürüyor
+    if result.get('success', False):
+        return jsonify(result)
+    else:
+        return jsonify({'error': result.get('error', 'Bilinmeyen hata')}), 500
 
 @bp.route('/activate/<int:version_id>', methods=['POST'])
 def activate_model_version(version_id):

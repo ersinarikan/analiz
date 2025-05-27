@@ -848,9 +848,10 @@ def get_age_model_versions():
             'success': True,
             'versions': [
                 {
+                    'id': getattr(v, 'id', 0),
                     'version': getattr(v, 'version', 0),
                     'version_name': getattr(v, 'version_name', 'unknown'),
-                    'created_at': getattr(v, 'created_at', None),
+                    'created_at': getattr(v, 'created_at', None).isoformat() if getattr(v, 'created_at', None) else None,
                     'is_active': getattr(v, 'is_active', False) or (getattr(v, 'version_name', '') == active_version),
                     'training_samples': getattr(v, 'training_samples', 0),
                     'validation_samples': getattr(v, 'validation_samples', 0),
@@ -930,9 +931,10 @@ def get_content_model_versions():
             'success': True,
             'versions': [
                 {
+                    'id': getattr(v, 'id', 0),
                     'version': getattr(v, 'version', 0),
                     'version_name': getattr(v, 'version_name', 'unknown'),
-                    'created_at': getattr(v, 'created_at', None),
+                    'created_at': getattr(v, 'created_at', None).isoformat() if getattr(v, 'created_at', None) else None,
                     'is_active': getattr(v, 'is_active', False) or (getattr(v, 'version_name', '') == active_version),
                     'training_samples': getattr(v, 'training_samples', 0),
                     'validation_samples': getattr(v, 'validation_samples', 0),
