@@ -1,7 +1,6 @@
 import os
 import shutil
 import uuid
-import magic
 import mimetypes
 from flask import current_app
 from werkzeug.utils import secure_filename
@@ -37,12 +36,28 @@ def generate_unique_filename(original_filename):
 def get_file_mimetype(file_path):
     """Dosyanın MIME türünü döndürür."""
     try:
-        mime = magic.Magic(mime=True)
-        return mime.from_file(file_path)
-    except:
-        # Fallback: mimetypes kütüphanesini kullan
+        # mimetypes kütüphanesini kullan
         mime_type, _ = mimetypes.guess_type(file_path)
-        return mime_type or 'application/octet-stream'
+        if not mime_type:
+            # Fallback to common types based on extension
+            ext = file_path.rsplit('.', 1)[1].lower() if '.' in file_path else ''
+            if ext in ['jpg', 'jpeg']:
+                mime_type = 'image/jpeg'
+            elif ext == 'png':
+                mime_type = 'image/png'
+            elif ext == 'gif':
+                mime_type = 'image/gif'
+            elif ext == 'mp4':
+                mime_type = 'video/mp4'
+            elif ext == 'avi':
+                mime_type = 'video/x-msvideo'
+            elif ext == 'mov':
+                mime_type = 'video/quicktime'
+            else:
+                mime_type = 'application/octet-stream'
+        return mime_type
+    except:
+        return 'application/octet-stream'
 
 def is_image_file(mime_type):
     """Dosyanın bir resim dosyası olup olmadığını kontrol eder."""

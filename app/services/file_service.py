@@ -3,7 +3,6 @@ import uuid
 import mimetypes
 from flask import current_app
 from werkzeug.utils import secure_filename
-import magic
 from PIL import Image
 import io
 from config import Config
@@ -41,7 +40,25 @@ def get_file_mimetype(filename):
         str: Dosyanın MIME tipi
     """
     try:
-        return magic.from_file(filename, mime=True)
+        mime_type, _ = mimetypes.guess_type(filename)
+        if not mime_type:
+            # Fallback to common types based on extension
+            ext = filename.rsplit('.', 1)[1].lower() if '.' in filename else ''
+            if ext in ['jpg', 'jpeg']:
+                mime_type = 'image/jpeg'
+            elif ext == 'png':
+                mime_type = 'image/png'
+            elif ext == 'gif':
+                mime_type = 'image/gif'
+            elif ext == 'mp4':
+                mime_type = 'video/mp4'
+            elif ext == 'avi':
+                mime_type = 'video/x-msvideo'
+            elif ext == 'mov':
+                mime_type = 'video/quicktime'
+            else:
+                mime_type = 'application/octet-stream'
+        return mime_type
     except Exception as e:
         current_app.logger.error(f"MIME tipi belirlenirken hata: {str(e)}")
         return None
