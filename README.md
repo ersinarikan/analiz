@@ -291,6 +291,42 @@ curl http://localhost:5000/api/model/metrics/content
 curl http://localhost:5000/api/model/metrics/all
 ```
 
+#### 3. Model Eğitimi
+
+##### Yaş Modeli Eğitimi
+```bash
+# Varsayılan parametrelerle eğitim
+python train_v1_model.py
+
+# Özel parametrelerle eğitim
+python train_v1_model.py --epochs 20 --batch-size 64 --learning-rate 0.001
+
+# Sadece veri istatistiklerini görmek için
+python train_v1_model.py --dry-run
+```
+
+##### OpenCLIP İçerik Modeli Eğitimi
+```bash
+# Varsayılan parametrelerle eğitim
+python train_content_model.py
+
+# Özel parametrelerle eğitim
+python train_content_model.py --epochs 15 --batch-size 32 --learning-rate 0.0005
+
+# Sadece veri istatistiklerini görmek için
+python train_content_model.py --dry-run
+
+# Minimum örnek sayısını değiştirme
+python train_content_model.py --min-samples 100
+```
+
+**İçerik Modeli Eğitim Özellikleri:**
+- OpenCLIP base modelini kullanır (ViT-H-14-378-quickgelu)
+- Classification head eklenerek fine-tuning yapılır
+- Kategoriler: şiddet, yetişkin içerik, taciz, silah, uyuşturucu
+- Kullanıcı geri bildirimleri training data olarak kullanılır
+- Eğitim sonrası model versiyonu otomatik olarak kaydedilir
+
 ### Güvenlik Kontrolleri
 
 #### Model Silme Güvenliği:

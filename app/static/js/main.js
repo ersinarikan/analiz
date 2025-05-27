@@ -3932,8 +3932,19 @@ async function loadModalModelVersions() {
             document.getElementById('modal-age-versions').innerHTML = '<span class="text-danger">API hatası</span>';
         }
 
-        // İçerik modeli versiyonları (şimdilik statik)
-        displayModalVersions('content', []);
+        // İçerik modeli versiyonları
+        const contentResponse = await fetch('/api/model/versions/content');
+        if (contentResponse.ok) {
+            const contentData = await contentResponse.json();
+            console.log('Modal Content API Response:', contentData);
+            
+            const contentVersions = contentData.versions || [];
+            console.log('Modal Content Versions:', contentVersions);
+            displayModalVersions('content', contentVersions);
+        } else {
+            console.error('Modal Content API Error:', contentResponse.status, contentResponse.statusText);
+            document.getElementById('modal-content-versions').innerHTML = '<span class="text-danger">API hatası</span>';
+        }
     } catch (error) {
         console.error('Modal model versiyonları yüklenirken hata:', error);
         document.getElementById('modal-age-versions').innerHTML = '<span class="text-danger">Yükleme hatası</span>';

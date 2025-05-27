@@ -57,6 +57,9 @@ class ContentAnalyzer:
             self.tokenizer = open_clip.get_tokenizer('ViT-H-14-378-quickgelu')
             logger.info("OpenCLIP tokenizer başarıyla yüklendi.")
             
+            # Eğitilmiş classification head'i yükle (varsa)
+            self.classification_head = self._load_classification_head()
+            
             # Kategori tanımlayıcıları - Pozitif ve zıt (negatif) promptlar
             self.category_prompts = {
                 "violence": {
@@ -234,6 +237,44 @@ class ContentAnalyzer:
             logger.error(f"YOLOv8 modeli yüklenemedi ({yolo_model_full_path}): {str(yolo_err)}", exc_info=True)
             raise
     
+    def _load_classification_head(self):
+        """Eğitilmiş classification head'i yükle (varsa)"""
+        try:
+            # Aktif model versiyonun classification head'ini kontrol et
+            active_model_path = current_app.config['OPENCLIP_MODEL_ACTIVE_PATH']
+            classifier_path = os.path.join(active_model_path, 'classification_head.pth')
+            
+            if os.path.exists(classifier_path):
+                import torch.nn as nn
+                device = "cuda" if torch.cuda.is_available() and current_app.config.get('USE_GPU', True) else "cpu"
+                
+                # Classification head yapısını oluştur
+                feature_dim = self.clip_model.visual.output_dim
+                classifier = nn.Sequential(
+                    nn.Linear(feature_dim, 512),
+                    nn.ReLU(),
+                    nn.Dropout(0.3),
+                    nn.Linear(512, 256),
+                    nn.ReLU(),
+                    nn.Dropout(0.3),
+                    nn.Linear(256, 5),  # 5 kategori: violence, adult_content, harassment, weapon, drug
+                    nn.Sigmoid()
+                ).to(device)
+                
+                # Ağırlıkları yükle
+                classifier.load_state_dict(torch.load(classifier_path, map_location=device))
+                classifier.eval()
+                
+                logger.info(f"Eğitilmiş classification head yüklendi: {classifier_path}")
+                return classifier
+            else:
+                logger.info("Eğitilmiş classification head bulunamadı, prompt-based yaklaşım kullanılacak")
+                return None
+                
+        except Exception as e:
+            logger.warning(f"Classification head yüklenirken hata: {str(e)}, prompt-based yaklaşım kullanılacak")
+            return None
+    
     def analyze_image(self, image_path):
         """
         Bir resmi CLIP modeli ile analiz eder ve içerik skorlarını hesaplar.
@@ -271,10 +312,28 @@ class ContentAnalyzer:
             with torch.no_grad():
                 image_features = self.clip_model.encode_image(preprocessed_image)
                 image_features = image_features / image_features.norm(dim=-1, keepdim=True)
+            
             categories = list(self.category_prompts.keys())
             final_scores = {}
-            for cat in categories:
-                pos_prompts = [f"Is there {p} in this frame?" for p in self.category_prompts[cat]["positive"]]
+            
+            # Eğitilmiş classification head varsa onu kullan, yoksa prompt-based yaklaşım
+            if self.classification_head is not None:
+                logger.info("Eğitilmiş classification head ile analiz yapılıyor")
+                with torch.no_grad():
+                    # Classification head ile tahmin
+                    predictions = self.classification_head(image_features)
+                    predictions = predictions.squeeze(0).cpu().numpy()
+                    
+                    # Skorları kategorilere ata
+                    for i, cat in enumerate(categories):
+                        final_scores[cat] = float(predictions[i])
+                        
+                    logger.info(f"[TRAINED_MODEL_LOG] Predictions: {dict(zip(categories, predictions))}")
+            else:
+                logger.info("Prompt-based analiz yapılıyor")
+                # Orijinal prompt-based yaklaşım
+                for cat in categories:
+                    pos_prompts = [f"Is there {p} in this frame?" for p in self.category_prompts[cat]["positive"]]
                 neg_prompts = [f"Is there {p} in this frame?" for p in self.category_prompts[cat]["negative"]]
                 all_prompts = pos_prompts + neg_prompts
                 text_inputs = self.tokenizer(all_prompts).to("cuda" if torch.cuda.is_available() else "cpu")

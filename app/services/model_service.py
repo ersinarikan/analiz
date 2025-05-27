@@ -603,10 +603,36 @@ def train_with_feedback(model_type, params=None):
             }
             
         elif model_type == 'content':
-            # İçerik modeli eğitimi (şimdilik placeholder)
+            # İçerik modeli eğitimi
+            from app.services.content_training_service import ContentTrainingService
+            
+            content_trainer = ContentTrainingService()
+            
+            # Eğitim verisini hazırla
+            training_data = content_trainer.prepare_training_data(min_samples=params.get('min_samples', 50))
+            if not training_data:
+                return {
+                    "success": False,
+                    "message": "Yeterli eğitim verisi bulunamadı"
+                }
+            
+            # Modeli eğit
+            training_result = content_trainer.train_model(training_data, params)
+            
+            # Modeli kaydet
+            model_version = content_trainer.save_model_version(
+                training_result['model'], 
+                training_result
+            )
+            
             return {
-                "success": False,
-                "message": "İçerik modeli eğitimi henüz implemente edilmedi"
+                "success": True,
+                "message": f"İçerik modeli başarıyla eğitildi (v{model_version.version})",
+                "model_id": model_version.id,
+                "version": model_version.version,
+                "metrics": training_result['metrics'],
+                "training_samples": training_result['training_samples'],
+                "validation_samples": training_result['validation_samples']
             }
         else:
             return {
@@ -759,11 +785,176 @@ def get_model_versions(model_type):
     """
     Belirli bir model tipi için tüm versiyonları getirir
     """
-    versions = db.session.query(ModelVersion).filter_by(
-        model_type=model_type
-    ).order_by(ModelVersion.version.desc()).all()
-    
-    return versions
+    if model_type == 'age':
+        return get_age_model_versions()
+    elif model_type == 'content':
+        return get_content_model_versions()
+    else:
+        logger.warning(f"Desteklenmeyen model tipi: {model_type}")
+        return {'success': False, 'error': 'Desteklenmeyen model tipi'}
+
+def get_age_model_versions():
+    """Yaş modeli versiyonlarını getir"""
+    try:
+        # Veritabanından versiyonları al
+        versions_query = db.session.query(ModelVersion).filter_by(
+            model_type='age'
+        ).order_by(ModelVersion.version.desc())
+        
+        db_versions = versions_query.all()
+        
+        # Versions klasöründen fiziksel versiyonları kontrol et
+        versions_path = current_app.config['AGE_MODEL_VERSIONS_PATH']
+        physical_versions = []
+        
+        if os.path.exists(versions_path):
+            for version_dir in os.listdir(versions_path):
+                version_full_path = os.path.join(versions_path, version_dir)
+                if os.path.isdir(version_full_path):
+                    # metadata.json dosyasını kontrol et
+                    metadata_path = os.path.join(version_full_path, 'metadata.json')
+                    if os.path.exists(metadata_path):
+                        try:
+                            with open(metadata_path, 'r') as f:
+                                metadata = json.load(f)
+                            physical_versions.append({
+                                'version_name': version_dir,
+                                'path': version_full_path,
+                                'metadata': metadata
+                            })
+                        except:
+                            continue
+        
+        # Aktif model versiyonunu belirle
+        active_model_path = current_app.config['AGE_MODEL_ACTIVE_PATH']
+        active_version = None
+        
+        if os.path.exists(active_model_path):
+            # active_model klasöründeki version_info.json'u oku
+            active_info_path = os.path.join(active_model_path, 'version_info.json')
+            if os.path.exists(active_info_path):
+                try:
+                    with open(active_info_path, 'r') as f:
+                        active_info = json.load(f)
+                        active_version = active_info.get('version_name')
+                except:
+                    pass
+        
+        # Base model bilgisi
+        base_model_path = current_app.config['AGE_MODEL_BASE_PATH']
+        base_model_exists = os.path.exists(os.path.join(base_model_path, 'age_model.h5'))
+        
+        return {
+            'success': True,
+            'versions': [
+                {
+                    'version': getattr(v, 'version', 0),
+                    'version_name': getattr(v, 'version_name', 'unknown'),
+                    'created_at': getattr(v, 'created_at', None),
+                    'is_active': getattr(v, 'is_active', False) or (getattr(v, 'version_name', '') == active_version),
+                    'training_samples': getattr(v, 'training_samples', 0),
+                    'validation_samples': getattr(v, 'validation_samples', 0),
+                    'epochs': getattr(v, 'epochs', 0),
+                    'metrics': getattr(v, 'metrics', {}),
+                    'model_type': 'age'
+                } for v in db_versions
+            ],
+            'physical_versions': physical_versions,
+            'active_version': active_version,
+            'base_model_exists': base_model_exists,
+            'versions_path': versions_path,
+            'active_path': active_model_path,
+            'base_path': base_model_path
+        }
+        
+    except Exception as e:
+        logger.error(f"Age model versiyonları alınırken hata: {str(e)}")
+        return {
+            'success': False,
+            'error': str(e)
+        }
+
+def get_content_model_versions():
+    """İçerik modeli versiyonlarını getir"""
+    try:
+        # Veritabanından versiyonları al
+        versions_query = db.session.query(ModelVersion).filter_by(
+            model_type='content'
+        ).order_by(ModelVersion.version.desc())
+        
+        db_versions = versions_query.all()
+        
+        # Versions klasöründen fiziksel versiyonları kontrol et
+        versions_path = current_app.config['OPENCLIP_MODEL_VERSIONS_PATH']
+        physical_versions = []
+        
+        if os.path.exists(versions_path):
+            for version_dir in os.listdir(versions_path):
+                version_full_path = os.path.join(versions_path, version_dir)
+                if os.path.isdir(version_full_path):
+                    # metadata.json dosyasını kontrol et
+                    metadata_path = os.path.join(version_full_path, 'metadata.json')
+                    if os.path.exists(metadata_path):
+                        try:
+                            with open(metadata_path, 'r') as f:
+                                metadata = json.load(f)
+                            physical_versions.append({
+                                'version_name': version_dir,
+                                'path': version_full_path,
+                                'metadata': metadata
+                            })
+                        except:
+                            continue
+        
+        # Aktif model versiyonunu belirle
+        active_model_path = current_app.config['OPENCLIP_MODEL_ACTIVE_PATH']
+        active_version = None
+        
+        if os.path.exists(active_model_path):
+            # active_model klasöründeki symlink veya referansı kontrol et
+            # Şimdilik version_info.json varsa onu oku
+            active_info_path = os.path.join(active_model_path, 'version_info.json')
+            if os.path.exists(active_info_path):
+                try:
+                    with open(active_info_path, 'r') as f:
+                        active_info = json.load(f)
+                        active_version = active_info.get('version_name')
+                except:
+                    pass
+        
+        # Base model bilgisi
+        base_model_path = current_app.config['OPENCLIP_MODEL_BASE_PATH']
+        base_model_exists = os.path.exists(os.path.join(base_model_path, 'open_clip_pytorch_model.bin'))
+        
+        return {
+            'success': True,
+            'versions': [
+                {
+                    'version': getattr(v, 'version', 0),
+                    'version_name': getattr(v, 'version_name', 'unknown'),
+                    'created_at': getattr(v, 'created_at', None),
+                    'is_active': getattr(v, 'is_active', False) or (getattr(v, 'version_name', '') == active_version),
+                    'training_samples': getattr(v, 'training_samples', 0),
+                    'validation_samples': getattr(v, 'validation_samples', 0),
+                    'epochs': getattr(v, 'epochs', 0),
+                    'metrics': getattr(v, 'metrics', {}),
+                    'model_type': 'content'
+                } for v in db_versions
+            ],
+            'physical_versions': physical_versions,
+            'active_version': active_version,
+            'base_model_exists': base_model_exists,
+            'versions_path': versions_path,
+            'active_path': active_model_path,
+            'base_path': base_model_path
+        }
+        
+    except Exception as e:
+        logger.error(f"Content model versiyonları alınırken hata: {str(e)}")
+        return {
+            'success': False,
+            'error': str(e)
+        }
 
 def update_model_state_file(model_type, version_id):
     """

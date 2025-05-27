@@ -52,6 +52,20 @@ class Config:
     OPENCLIP_MODEL_VERSIONS_PATH = os.path.join(MODELS_FOLDER, OPENCLIP_MODEL_TYPE, OPENCLIP_MODEL_NAME, 'versions')
     OPENCLIP_MODEL_ACTIVE_PATH = os.path.join(MODELS_FOLDER, OPENCLIP_MODEL_TYPE, OPENCLIP_MODEL_NAME, 'active_model') # Başlangıçta base_model'i işaret edebilir
 
+    # Custom Age Head Model
+    AGE_MODEL_TYPE = 'age'
+    AGE_MODEL_NAME = 'custom_age_head'
+    AGE_MODEL_BASE_PATH = os.path.join(MODELS_FOLDER, AGE_MODEL_TYPE, AGE_MODEL_NAME, 'base_model')
+    AGE_MODEL_VERSIONS_PATH = os.path.join(MODELS_FOLDER, AGE_MODEL_TYPE, AGE_MODEL_NAME, 'versions')
+    AGE_MODEL_ACTIVE_PATH = os.path.join(MODELS_FOLDER, AGE_MODEL_TYPE, AGE_MODEL_NAME, 'active_model')
+
+    # Content Analysis Model (OpenCLIP with Classification Head)
+    CONTENT_MODEL_TYPE = 'content'
+    CONTENT_MODEL_NAME = 'openclip_classifier'
+    CONTENT_MODEL_BASE_PATH = os.path.join(MODELS_FOLDER, CONTENT_MODEL_TYPE, CONTENT_MODEL_NAME, 'base_model')
+    CONTENT_MODEL_VERSIONS_PATH = os.path.join(MODELS_FOLDER, CONTENT_MODEL_TYPE, CONTENT_MODEL_NAME, 'versions')
+    CONTENT_MODEL_ACTIVE_PATH = os.path.join(MODELS_FOLDER, CONTENT_MODEL_TYPE, CONTENT_MODEL_NAME, 'active_model')
+
     # Diğer modeller için benzer tanımlamalar eklenebilir (örn: YOLO)
     YOLO_MODEL_TYPE = 'detection'
     YOLO_MODEL_NAME = 'yolov8x' # veya 'yolov8n' gibi
