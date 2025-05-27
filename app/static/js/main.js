@@ -3983,13 +3983,18 @@ function displayModalVersions(modelType, versions) {
         if (modelType === 'age') {
             document.getElementById('modal-age-active-version').textContent = 'Yok';
             document.getElementById('modal-age-status').innerHTML = '<i class="fas fa-times-circle text-danger"></i> Aktif versiyon yok';
-            // Silme butonunu devre dışı bırak
-            const deleteBtn = document.getElementById('deleteLatestVersionBtn');
-            if (deleteBtn) {
-                deleteBtn.disabled = true;
-                deleteBtn.title = 'Silinecek versiyon yok';
-            }
+        } else if (modelType === 'content') {
+            document.getElementById('modal-content-active-version').textContent = 'Yok';
+            document.getElementById('modal-content-status').innerHTML = '<i class="fas fa-times-circle text-danger"></i> Aktif versiyon yok';
         }
+        
+        // Silme butonunu devre dışı bırak
+        const deleteBtn = document.getElementById('deleteLatestVersionBtn');
+        if (deleteBtn) {
+            deleteBtn.disabled = true;
+            deleteBtn.title = 'Silinecek versiyon yok';
+        }
+        
         return;
     }
 
@@ -4018,7 +4023,7 @@ function displayModalVersions(modelType, versions) {
     container.innerHTML = html;
     
     // Silme butonunu güncelle
-    if (modelType === 'age') {
+    if (modelType === 'age' || modelType === 'content') {
         const deleteBtn = document.getElementById('deleteLatestVersionBtn');
         if (deleteBtn) {
             const latestVersion = sortedVersions[0];
@@ -4051,6 +4056,22 @@ function displayModalVersions(modelType, versions) {
         } else {
             document.getElementById('modal-age-active-version').textContent = 'Yok';
             document.getElementById('modal-age-status').innerHTML = '<i class="fas fa-times-circle text-danger"></i> Aktif versiyon yok';
+        }
+    } else if (modelType === 'content') {
+        const activeVersion = versions.find(v => v.is_active);
+        console.log('Modal - Content active version found:', activeVersion);
+        
+        if (activeVersion) {
+            document.getElementById('modal-content-active-version').textContent = `v${activeVersion.version}`;
+            document.getElementById('modal-content-status').innerHTML = 
+                '<i class="fas fa-check-circle status-active"></i> Aktif';
+            
+            if (activeVersion.metrics && activeVersion.metrics.accuracy) {
+                document.getElementById('modal-content-accuracy').textContent = `${(activeVersion.metrics.accuracy * 100).toFixed(1)}%`;
+            }
+        } else {
+            document.getElementById('modal-content-active-version').textContent = 'Yok';
+            document.getElementById('modal-content-status').innerHTML = '<i class="fas fa-times-circle text-danger"></i> Aktif versiyon yok';
         }
     }
 }
