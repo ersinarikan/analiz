@@ -7,7 +7,8 @@ import threading
 import uuid
 from app.services import model_service
 from app.models.content import ModelVersion
-from app import db
+from app.models.feedback import Feedback
+from app import db, socketio
 
 bp = Blueprint('model', __name__, url_prefix='/api/model')
 logger = logging.getLogger(__name__)
@@ -394,4 +395,279 @@ def delete_latest_model_version(model_type):
             
     except Exception as e:
         logger.error(f"Model versiyonu silme hatası: {str(e)}")
-        return jsonify({'error': f'Model versiyonu silinirken bir hata oluştu: {str(e)}'}), 500 
+        return jsonify({'error': f'Model versiyonu silinirken bir hata oluştu: {str(e)}'}), 500
+
+@bp.route('/train-web', methods=['POST'])
+def train_model_web():
+    """
+    Web arayüzünden model eğitimi başlatır
+    """
+    try:
+        data = request.json
+        
+        model_type = data.get('model_type', 'content')
+        params = {
+            'epochs': int(data.get('epochs', 20)),
+            'batch_size': int(data.get('batch_size', 16)),
+            'learning_rate': float(data.get('learning_rate', 0.001)),
+            'patience': int(data.get('patience', 5)),
+            'regression_mode': data.get('training_mode', 'regression') == 'regression',
+            'validation_strategy': data.get('validation_strategy', 'strict'),
+            'conflict_resolution': data.get('conflict_resolution', 'average'),
+            'min_samples': int(data.get('min_samples', 50))
+        }
+        
+        logger.info(f"Web training request: model_type={model_type}, params={params}")
+        
+        if model_type == 'content':
+            # Content model training
+            from app.services.content_training_service import ContentTrainingService
+            
+            trainer = ContentTrainingService()
+            
+            # Veriyi hazırla
+            training_data = trainer.prepare_training_data(
+                min_samples=params['min_samples'],
+                validation_strategy=params['validation_strategy']
+            )
+            
+            if training_data is None:
+                return jsonify({
+                    'success': False,
+                    'error': f'Yeterli eğitim verisi bulunamadı. En az {params["min_samples"]} örnek gerekli.'
+                }), 400
+            
+            # WebSocket ile progress tracking için session ID oluştur
+            training_session_id = str(uuid.uuid4())
+            
+            # Background task olarak eğitimi başlat
+            from threading import Thread
+            training_thread = Thread(
+                target=_run_content_training,
+                args=(trainer, training_data, params, training_session_id)
+            )
+            training_thread.daemon = True
+            training_thread.start()
+            
+            return jsonify({
+                'success': True,
+                'message': 'Content model eğitimi başlatıldı',
+                'session_id': training_session_id,
+                'training_samples': training_data['total_samples'],
+                'estimated_duration': _estimate_training_duration(training_data['total_samples'], params['epochs'])
+            })
+            
+        elif model_type == 'age':
+            # Age model training (mevcut sistem)
+            return jsonify({
+                'success': False,
+                'error': 'Yaş modeli eğitimi henüz web arayüzünde desteklenmiyor.'
+            }), 400
+            
+        else:
+            return jsonify({
+                'success': False,
+                'error': f'Bilinmeyen model türü: {model_type}'
+            }), 400
+            
+    except Exception as e:
+        logger.error(f"Web training error: {str(e)}")
+        return jsonify({
+            'success': False,
+            'error': f'Eğitim başlatılamadı: {str(e)}'
+        }), 500
+
+@bp.route('/training-stats/<model_type>', methods=['GET'])
+def get_training_stats(model_type):
+    """
+    Model eğitimi için veri istatistiklerini döndürür
+    """
+    try:
+        if model_type == 'content':
+            from app.services.content_training_service import ContentTrainingService
+            
+            trainer = ContentTrainingService()
+            training_data = trainer.prepare_training_data(min_samples=1, validation_strategy='all')
+            
+            if training_data is None:
+                return jsonify({
+                    'success': True,
+                    'stats': {
+                        'total_feedbacks': 0,
+                        'total_samples': 0,
+                        'category_stats': {},
+                        'message': 'Henüz feedback verisi bulunmuyor'
+                    }
+                })
+            
+            # Çelişki analizi
+            conflicts = trainer.detect_feedback_conflicts(training_data)
+            
+            return jsonify({
+                'success': True,
+                'stats': {
+                    'total_feedbacks': training_data['feedbacks_processed'],
+                    'total_samples': training_data['total_samples'],
+                    'category_stats': training_data['category_stats'],
+                    'conflicts_detected': len(conflicts),
+                    'conflicts': conflicts[:10]  # İlk 10 çelişki
+                }
+            })
+            
+        elif model_type == 'age':
+            # Age model stats
+            feedbacks = Feedback.query.filter_by(feedback_type='age').all()
+            
+            stats = {
+                'total_feedbacks': len(feedbacks),
+                'total_samples': len(feedbacks),
+                'age_distribution': {},
+                'manual_vs_pseudo': {}
+            }
+            
+            # Yaş dağılımı
+            for feedback in feedbacks:
+                age = feedback.corrected_age
+                if age:
+                    age_group = f"{(age // 10) * 10}s"
+                    stats['age_distribution'][age_group] = stats['age_distribution'].get(age_group, 0) + 1
+            
+            return jsonify({
+                'success': True,
+                'stats': stats
+            })
+            
+        else:
+            return jsonify({
+                'success': False,
+                'error': f'Bilinmeyen model türü: {model_type}'
+            }), 400
+            
+    except Exception as e:
+        logger.error(f"Training stats error: {str(e)}")
+        return jsonify({
+            'success': False,
+            'error': f'İstatistikler alınamadı: {str(e)}'
+        }), 500
+
+@bp.route('/analyze-conflicts/<model_type>', methods=['GET'])
+def analyze_conflicts(model_type):
+    """
+    Feedback çelişkilerini analiz eder (sadece content modeli için)
+    """
+    try:
+        if model_type == 'content':
+            from app.services.content_training_service import ContentTrainingService
+            
+            trainer = ContentTrainingService()
+            training_data = trainer.prepare_training_data(min_samples=1, validation_strategy='all')
+            
+            if training_data is None:
+                return jsonify({
+                    'success': True,
+                    'conflicts': [],
+                    'message': 'Analiz edilecek veri bulunamadı'
+                })
+            
+            conflicts = trainer.detect_feedback_conflicts(training_data)
+            
+            # Detaylı çelişki bilgileri
+            detailed_conflicts = []
+            for conflict in conflicts:
+                detailed_conflicts.append({
+                    'image_path': conflict['image_path'],
+                    'category': conflict['category'],
+                    'scores': conflict['scores'],
+                    'score_diff': max(conflict['scores']) - min(conflict['scores']),
+                    'feedback_types': conflict['feedback_types'],
+                    'feedback_ids': conflict['feedback_ids'],
+                    'severity': 'high' if max(conflict['scores']) - min(conflict['scores']) > 0.5 else 'medium'
+                })
+            
+            return jsonify({
+                'success': True,
+                'conflicts': detailed_conflicts,
+                'total_conflicts': len(detailed_conflicts),
+                'high_severity': len([c for c in detailed_conflicts if c['severity'] == 'high']),
+                'summary': {
+                    'categories_affected': len(set([c['category'] for c in detailed_conflicts])),
+                    'avg_score_diff': sum([c['score_diff'] for c in detailed_conflicts]) / len(detailed_conflicts) if detailed_conflicts else 0
+                }
+            })
+            
+        elif model_type == 'age':
+            return jsonify({
+                'success': True,
+                'message': 'Yaş modeli için çelişki analizi gerekli değildir. Kullanıcılar manuel olarak gerçek yaş değerlerini girdiği için çelişki oluşmaz.',
+                'conflicts': [],
+                'total_conflicts': 0,
+                'explanation': 'Yaş tahmini objektif bir değerdir ve kullanıcı feedback\'i sistem tahminini düzeltmek için kullanılır.'
+            })
+            
+        else:
+            return jsonify({
+                'success': False,
+                'error': f'Bilinmeyen model türü: {model_type}'
+            }), 400
+            
+    except Exception as e:
+        logger.error(f"Conflict analysis error: {str(e)}")
+        return jsonify({
+            'success': False,
+            'error': f'Çelişki analizi yapılamadı: {str(e)}'
+        }), 500
+
+def _run_content_training(trainer, training_data, params, session_id):
+    """
+    Background thread'de content model eğitimi çalıştırır
+    """
+    try:
+        # WebSocket ile progress gönder
+        socketio.emit('training_started', {
+            'session_id': session_id,
+            'model_type': 'content',
+            'total_samples': training_data['total_samples']
+        })
+        
+        # Session ID'yi params'a ekle
+        params['session_id'] = session_id
+        
+        # Eğitimi başlat
+        training_result = trainer.train_model(training_data, params)
+        
+        # Model versiyonunu kaydet
+        model_version = trainer.save_model_version(
+            training_result['model'], 
+            training_result
+        )
+        
+        # Başarı mesajı
+        socketio.emit('training_completed', {
+            'session_id': session_id,
+            'success': True,
+            'model_version': model_version.version_name,
+            'metrics': training_result['metrics'],
+            'training_samples': training_result['training_samples'],
+            'validation_samples': training_result['validation_samples'],
+            'conflicts_resolved': training_result['conflicts_detected']
+        })
+        
+    except Exception as e:
+        # Hata mesajı
+        socketio.emit('training_error', {
+            'session_id': session_id,
+            'error': str(e)
+        })
+        logger.error(f"Training thread error: {str(e)}")
+
+def _estimate_training_duration(samples, epochs):
+    """
+    Eğitim süresini tahmin eder (saniye cinsinden)
+    """
+    # Kabaca tahmin: batch başına 0.5 saniye
+    batch_size = 16
+    batches_per_epoch = max(1, samples // batch_size)
+    total_batches = batches_per_epoch * epochs
+    estimated_seconds = total_batches * 0.5
+    
+    return int(estimated_seconds) 

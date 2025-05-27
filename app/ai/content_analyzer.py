@@ -123,14 +123,20 @@ class ContentAnalyzer:
                     ]
                 }
             }
-            # Kategori text tokenları önceden hesapla (tek prompt)
+            # Kategori text tokenları önceden hesapla (tek prompt) - DEBUG FIX
             self.category_text_features = {}
-            for category, prompts in self.category_prompts.items():
-                text_input = self.tokenizer(prompts["positive"][0]).to("cuda" if torch.cuda.is_available() else "cpu")
-                with torch.no_grad():
-                    text_feature = self.clip_model.encode_text(text_input)
-                    text_feature = text_feature / text_feature.norm(dim=-1, keepdim=True)
-                    self.category_text_features[category] = text_feature[0]  # Tek vektör
+            try:
+                for category, prompts in self.category_prompts.items():
+                    logger.info(f"Text features hazırlanıyor: {category}")
+                    text_input = self.tokenizer(prompts["positive"][0]).to("cuda" if torch.cuda.is_available() else "cpu")
+                    with torch.no_grad():
+                        text_feature = self.clip_model.encode_text(text_input)
+                        text_feature = text_feature / text_feature.norm(dim=-1, keepdim=True)
+                        self.category_text_features[category] = text_feature[0]  # Tek vektör
+                logger.info(f"Text features hazırlandı: {list(self.category_text_features.keys())}")
+            except Exception as text_feature_error:
+                logger.warning(f"Text features hazırlanamadı: {text_feature_error}")
+                self.category_text_features = {}
             
             self.initialized = True
             logger.info("ContentAnalyzer - CLIP modeli başarıyla yüklendi")
@@ -334,34 +340,34 @@ class ContentAnalyzer:
                 # Orijinal prompt-based yaklaşım
                 for cat in categories:
                     pos_prompts = [f"Is there {p} in this frame?" for p in self.category_prompts[cat]["positive"]]
-                neg_prompts = [f"Is there {p} in this frame?" for p in self.category_prompts[cat]["negative"]]
-                all_prompts = pos_prompts + neg_prompts
-                text_inputs = self.tokenizer(all_prompts).to("cuda" if torch.cuda.is_available() else "cpu")
-                with torch.no_grad():
-                    text_features = self.clip_model.encode_text(text_inputs)
-                    text_features = text_features / text_features.norm(dim=-1, keepdim=True)
-                    similarities = (image_features @ text_features.T).squeeze(0).cpu().numpy()  # len = len(all_prompts)
-                
-                pos_score = float(np.mean(similarities[:len(pos_prompts)]))
-                neg_score = float(np.mean(similarities[len(pos_prompts):]))
-                fark = pos_score - neg_score
+                    neg_prompts = [f"Is there {p} in this frame?" for p in self.category_prompts[cat]["negative"]]
+                    all_prompts = pos_prompts + neg_prompts
+                    text_inputs = self.tokenizer(all_prompts).to("cuda" if torch.cuda.is_available() else "cpu")
+                    with torch.no_grad():
+                        text_features = self.clip_model.encode_text(text_inputs)
+                        text_features = text_features / text_features.norm(dim=-1, keepdim=True)
+                        similarities = (image_features @ text_features.T).squeeze(0).cpu().numpy()  # len = len(all_prompts)
+                    
+                    pos_score = float(np.mean(similarities[:len(pos_prompts)]))
+                    neg_score = float(np.mean(similarities[len(pos_prompts):]))
+                    fark = pos_score - neg_score
 
-                # --- START: MODIFIED SCORE CALCULATION ---
-                SQUASH_FACTOR = 3.5 
-                squashed_fark = math.tanh(fark * SQUASH_FACTOR)
-                nihai_skor = (squashed_fark + 1) / 2  # Normalize to 0-1 range
-                
-                # Detaylı log
-                logger.info(f"[CLIP_PROMPT_LOG] Category: {cat}")
-                for i, prompt in enumerate(pos_prompts):
-                    logger.info(f"  Prompt: {prompt}    Score: {similarities[i]:.4f}")
-                for i, prompt in enumerate(neg_prompts):
-                    logger.info(f"  Prompt: {prompt}    Score: {similarities[len(pos_prompts)+i]:.4f}")
-                logger.info(f"  Positive mean: {pos_score:.4f}, Negative mean: {neg_score:.4f}")
-                logger.info(f"  Original Fark: {fark:.4f}, Squashed Fark (tanh(fark*{SQUASH_FACTOR})): {squashed_fark:.4f}, Final Score: {nihai_skor:.4f}")
-                # --- END: MODIFIED SCORE CALCULATION ---
-                
-                final_scores[cat] = float(nihai_skor)
+                    # --- START: MODIFIED SCORE CALCULATION ---
+                    SQUASH_FACTOR = 3.5 
+                    squashed_fark = math.tanh(fark * SQUASH_FACTOR)
+                    nihai_skor = (squashed_fark + 1) / 2  # Normalize to 0-1 range
+                    
+                    # Detaylı log
+                    logger.info(f"[CLIP_PROMPT_LOG] Category: {cat}")
+                    for i, prompt in enumerate(pos_prompts):
+                        logger.info(f"  Prompt: {prompt}    Score: {similarities[i]:.4f}")
+                    for i, prompt in enumerate(neg_prompts):
+                        logger.info(f"  Prompt: {prompt}    Score: {similarities[len(pos_prompts)+i]:.4f}")
+                    logger.info(f"  Positive mean: {pos_score:.4f}, Negative mean: {neg_score:.4f}")
+                    logger.info(f"  Original Fark: {fark:.4f}, Squashed Fark (tanh(fark*{SQUASH_FACTOR})): {squashed_fark:.4f}, Final Score: {nihai_skor:.4f}")
+                    # --- END: MODIFIED SCORE CALCULATION ---
+                    
+                    final_scores[cat] = float(nihai_skor)
             
             # "safe" skorunu diğer risklerin ortalamasından türet
             risk_categories_for_safe_calculation = ['violence', 'adult_content', 'harassment', 'weapon', 'drug']

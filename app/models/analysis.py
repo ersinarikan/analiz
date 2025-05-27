@@ -29,6 +29,7 @@ class Analysis(db.Model):
     
     start_time = db.Column(db.DateTime, default=datetime.now)
     end_time = db.Column(db.DateTime, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
     
     frames_analyzed = db.Column(db.Integer, default=0)
     frames_per_second = db.Column(db.Float, default=1.0)

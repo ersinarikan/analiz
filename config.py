@@ -4,6 +4,9 @@ from dotenv import load_dotenv
 # .env dosyasını yükle
 load_dotenv()
 
+# Albumentations günceleme kontrolünü devre dışı bırak
+os.environ['NO_ALBUMENTATIONS_UPDATE'] = '1'
+
 # Model state'i import et (Flask debug mode bu dosyayı izleyecek)
 try:
     from app.utils.model_state import MODEL_STATE, LAST_UPDATE as MODEL_LAST_UPDATE

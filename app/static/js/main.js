@@ -566,29 +566,43 @@ function initializeEventListeners() {
         modal.show();
     });
     
-    // Yapay Zeka Eğitim Butonu
-    document.getElementById('trainModelBtn').addEventListener('click', () => {
-        const modal = new bootstrap.Modal(document.getElementById('trainModelModal'));
-        
-        // Modal açıldığında eğitim verisi istatistiklerini göster ve butonları sıfırla
-        modal._element.addEventListener('shown.bs.modal', () => {
-            if (window.TrainingStats) {
-                window.TrainingStats.displayTrainingStats('trainModelModal');
+    // Model Metrikleri modalı açıldığında Model Eğitimi tab'ında istatistikleri yükle
+    const modelMetricsModal = document.getElementById('modelMetricsModal');
+    if (modelMetricsModal) {
+        modelMetricsModal.addEventListener('shown.bs.modal', () => {
+            // Model Eğitimi tab'ı aktif hale geldiğinde istatistikleri yükle
+            const trainingTab = document.getElementById('model-training-tab');
+            if (trainingTab) {
+                trainingTab.addEventListener('shown.bs.tab', () => {
+                    refreshTrainingStats();
+                });
             }
+        });
+    }
+    
+    // Model türü seçildiğinde content model ayarlarını göster/gizle
+    const trainingModelType = document.getElementById('trainingModelType');
+    if (trainingModelType) {
+        trainingModelType.addEventListener('change', function() {
+            const contentSettings = document.getElementById('contentModelSettings');
+            const analyzeConflictsBtn = document.getElementById('analyzeConflictsBtn');
+            const conflictAnalysisInfo = document.getElementById('conflictAnalysisInfo');
             
-            // Modal açıldığında butonları ve durumları sıfırla
-            resetTrainingModal();
-        });
-        
-        // Modal kapandığında periyodik güncellemeyi durdur
-        modal._element.addEventListener('hidden.bs.modal', () => {
-            if (window.TrainingStats) {
-                window.TrainingStats.stopPeriodicUpdate();
+            if (this.value === 'content') {
+                // Content model seçildiğinde
+                if (contentSettings) contentSettings.style.display = 'block';
+                if (analyzeConflictsBtn) analyzeConflictsBtn.style.display = 'inline-block';
+                if (conflictAnalysisInfo) conflictAnalysisInfo.style.display = 'none';
+            } else {
+                // Age model seçildiğinde
+                if (contentSettings) contentSettings.style.display = 'none';
+                if (analyzeConflictsBtn) analyzeConflictsBtn.style.display = 'none';
+                if (conflictAnalysisInfo) conflictAnalysisInfo.style.display = 'block';
             }
         });
-        
-        modal.show();
-    });
+    }
+    
+
     
     // Model Yönetimi Butonu
     const modelManagementBtn = document.getElementById('modelManagementBtn');
@@ -650,11 +664,9 @@ function initializeEventListeners() {
     }
     
     // Eğitim Başlatma Butonu
-    document.getElementById('startTrainingBtn').addEventListener('click', startModelTraining);
+
     
-    // Model Sıfırlama Butonları
-    document.getElementById('resetContentModelBtn').addEventListener('click', () => resetModel('content'));
-    document.getElementById('resetAgeModelBtn').addEventListener('click', () => resetModel('age'));
+    // Model Sıfırlama Butonları - Kaldırıldı, Model Yönetimi modalında mevcut
     
     // Dosya kaldırma butonu için olay dinleyicisi
     document.getElementById('fileList').addEventListener('click', function(e) {
@@ -669,12 +681,26 @@ function initializeEventListeners() {
 }
 
 // Sayfa yüklendiğinde kuyruk durumunu periyodik olarak kontrol et
+let mainQueueStatusInterval = null;
+
 function startQueueStatusChecker() {
+    // Önceki interval varsa temizle
+    if (mainQueueStatusInterval) {
+        clearInterval(mainQueueStatusInterval);
+    }
+    
     // İlk kontrol
     checkQueueStatus();
     
     // 5 saniyede bir kontrol et
-    setInterval(checkQueueStatus, 5000);
+    mainQueueStatusInterval = setInterval(checkQueueStatus, 5000);
+}
+
+function stopQueueStatusChecker() {
+    if (mainQueueStatusInterval) {
+        clearInterval(mainQueueStatusInterval);
+        mainQueueStatusInterval = null;
+    }
 }
 
 // Kuyruk durumunu kontrol et
@@ -1187,7 +1213,8 @@ function checkAnalysisStatus(analysisId, fileId) {
         } else if (status === "failed") {
             // Analiz başarısız olduysa hata mesajı göster
             updateFileStatus(fileId, status, 0);
-            showError(`${fileNameFromId(fileId)} dosyası için analiz başarısız oldu: ${response.error || "Bilinmeyen hata"}`);
+            const errorMessage = response.error || response.message || "Bilinmeyen hata";
+            showError(`${fileNameFromId(fileId)} dosyası için analiz başarısız oldu: ${errorMessage}`);
         } else {
             // Diğer durumlar için (cancelled vb)
             updateFileStatus(fileId, status, progress);
@@ -2584,11 +2611,12 @@ function loadModelMetrics() {
 
 // İçerik analiz modeli metriklerini göster
 function displayContentModelMetrics(data) {
-    // Genel metrikler
-    document.querySelector('.content-accuracy').textContent = data.metrics.accuracy ? `${(data.metrics.accuracy * 100).toFixed(1)}%` : '-';
-    document.querySelector('.content-precision').textContent = data.metrics.precision ? `${(data.metrics.precision * 100).toFixed(1)}%` : '-';
-    document.querySelector('.content-recall').textContent = data.metrics.recall ? `${(data.metrics.recall * 100).toFixed(1)}%` : '-';
-    document.querySelector('.content-f1').textContent = data.metrics.f1 ? `${(data.metrics.f1 * 100).toFixed(1)}%` : '-';
+    // Genel metrikler - safety checks ekle
+    const metrics = data.metrics || {};
+    document.querySelector('.content-accuracy').textContent = metrics.accuracy ? `${(metrics.accuracy * 100).toFixed(1)}%` : '-';
+    document.querySelector('.content-precision').textContent = metrics.precision ? `${(metrics.precision * 100).toFixed(1)}%` : '-';
+    document.querySelector('.content-recall').textContent = metrics.recall ? `${(metrics.recall * 100).toFixed(1)}%` : '-';
+    document.querySelector('.content-f1').textContent = metrics.f1 ? `${(metrics.f1 * 100).toFixed(1)}%` : '-';
     
     // Kategori bazında metrikler
     const categoryMetricsTable = document.getElementById('contentCategoryMetrics');
@@ -2671,10 +2699,11 @@ function displayContentModelMetrics(data) {
 
 // Yaş analiz modeli metriklerini göster
 function displayAgeModelMetrics(data) {
-    // Genel metrikler
-    document.querySelector('.age-mae').textContent = data.metrics.mae ? `${data.metrics.mae.toFixed(1)} yaş` : '-';
-    document.querySelector('.age-accuracy').textContent = data.metrics.accuracy ? `${(data.metrics.accuracy * 100).toFixed(1)}%` : '-';
-    document.querySelector('.age-count').textContent = data.metrics.count ? data.metrics.count : '-';
+    // Genel metrikler - safety checks ekle
+    const metrics = data.metrics || {};
+    document.querySelector('.age-mae').textContent = metrics.mae ? `${metrics.mae.toFixed(1)} yaş` : '-';
+    document.querySelector('.age-accuracy').textContent = metrics.accuracy ? `${(metrics.accuracy * 100).toFixed(1)}%` : '-';
+    document.querySelector('.age-count').textContent = metrics.count ? metrics.count : '-';
     
     // Yaş dağılımı grafiği
     if (data.age_distribution) {
@@ -2970,203 +2999,7 @@ function confirmModelReset(modelType) {
     resetModel(modelType);
 }
 
-// Model eğitimini başlat
-function startModelTraining() {
-    // Eğitim modelini ve parametreleri al
-    const modelType = document.getElementById('modelType').value;
-    const epochCount = parseInt(document.getElementById('epochCount').value);
-    const batchSize = parseInt(document.getElementById('batchSize').value);
-    const learningRate = parseFloat(document.getElementById('learningRate').value);
-    
-    // Eğitim durumu bölümünü göster
-    document.querySelector('.training-info').style.display = 'block';
-    document.getElementById('trainingResultsSection').style.display = 'none';
-    
-    // Eğitim durumunu sıfırla
-    const progressBar = document.getElementById('trainingProgressBar');
-    progressBar.style.width = '0%';
-    progressBar.textContent = '0%';
-    progressBar.setAttribute('aria-valuenow', 0);
-    
-    // Durum metnini güncelle
-    document.getElementById('trainingStatusText').textContent = 'Eğitim hazırlanıyor...';
-    
-    // Eğitim butonunu devre dışı bırak
-    document.getElementById('startTrainingBtn').disabled = true;
-    
-    // Eğitim isteği gönder
-    fetch('/api/model/train', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-            model_type: modelType,
-            epochs: epochCount,
-            batch_size: batchSize,
-            learning_rate: learningRate
-        })
-    })
-    .then(response => {
-        if (!response.ok) {
-            throw new Error(`HTTP error! Status: ${response.status}`);
-        }
-        return response.json();
-    })
-    .then(data => {
-        console.log('Eğitim başlatıldı:', data);
-        document.getElementById('trainingStatusText').textContent = 'Eğitim başlatıldı. Bu işlem biraz zaman alabilir...';
-        
-        // Eğitim durumunu güncellemek için timer başlat
-        checkTrainingStatus(data.training_id);
-    })
-    .catch(error => {
-        console.error('Eğitim başlatma hatası:', error);
-        document.getElementById('trainingStatusText').textContent = `Eğitim başlatılamadı: ${error.message}`;
-        document.getElementById('startTrainingBtn').disabled = false;
-        showToast('Hata', `Eğitim başlatılırken hata oluştu: ${error.message}`, 'danger');
-    });
-}
 
-// Eğitim durumunu kontrol et
-function checkTrainingStatus(trainingId) {
-    fetch(`/api/model/training-status/${trainingId}`)
-    .then(response => {
-        if (!response.ok) {
-            throw new Error(`HTTP error! Status: ${response.status}`);
-        }
-        return response.json();
-    })
-    .then(data => {
-        // İlerlemeyi güncelle
-        const progressBar = document.getElementById('trainingProgressBar');
-        progressBar.style.width = `${data.progress}%`;
-        progressBar.textContent = `${data.progress}%`;
-        progressBar.setAttribute('aria-valuenow', data.progress);
-        
-        // Durum metnini güncelle
-        document.getElementById('trainingStatusText').textContent = data.status_message;
-        
-        if (data.status === 'completed') {
-            // Eğitim tamamlandı, sonuçları göster
-            displayTrainingResults(data.results);
-            document.getElementById('startTrainingBtn').disabled = false;
-        } else if (data.status === 'failed') {
-            // Eğitim başarısız oldu
-            document.getElementById('trainingStatusText').textContent = `Eğitim başarısız oldu: ${data.status_message}`;
-            document.getElementById('startTrainingBtn').disabled = false;
-            showToast('Hata', `Eğitim başarısız oldu: ${data.status_message}`, 'danger');
-        } else {
-            // Eğitim devam ediyor, tekrar kontrol et
-            setTimeout(() => {
-                checkTrainingStatus(trainingId);
-            }, 2000);
-        }
-    })
-    .catch(error => {
-        console.error('Eğitim durumu kontrolü hatası:', error);
-        document.getElementById('trainingStatusText').textContent = `Eğitim durumu kontrol edilemedi: ${error.message}`;
-        document.getElementById('startTrainingBtn').disabled = false;
-        showToast('Hata', `Eğitim durumu kontrol edilirken hata oluştu: ${error.message}`, 'danger');
-    });
-}
-
-// Eğitim sonuçlarını göster
-function displayTrainingResults(results) {
-    const resultsSection = document.getElementById('trainingResultsSection');
-    resultsSection.style.display = 'block';
-    
-    // Eğitim tamamlandığında "Eğitimi Başlat" butonunu gizle
-    const startTrainingBtn = document.getElementById('startTrainingBtn');
-    if (startTrainingBtn) {
-        startTrainingBtn.style.display = 'none';
-    }
-    
-    const resultsContainer = document.getElementById('trainingResults');
-    
-    if (results.model_type === 'content') {
-        // İçerik modeli sonuçları
-        resultsContainer.innerHTML = `
-            <div class="alert alert-success">
-                <strong>Eğitim Başarıyla Tamamlandı!</strong>
-            </div>
-            <div class="row">
-                <div class="col-md-6">
-                    <table class="table table-sm">
-                        <tr>
-                            <th>Eğitim Süresi:</th>
-                            <td>${formatDuration(results.duration)}</td>
-                        </tr>
-                        <tr>
-                            <th>Örnek Sayısı:</th>
-                            <td>${results.samples} (Eğitim: ${results.training_samples}, Doğrulama: ${results.validation_samples})</td>
-                        </tr>
-                        <tr>
-                            <th>Epoch Sayısı:</th>
-                            <td>${results.epochs}</td>
-                        </tr>
-                    </table>
-                </div>
-                <div class="col-md-6">
-                    <table class="table table-sm">
-                        <tr>
-                            <th>Doğruluk:</th>
-                            <td>${(results.metrics.accuracy * 100).toFixed(2)}%</td>
-                        </tr>
-                        <tr>
-                            <th>F1 Skoru:</th>
-                            <td>${(results.metrics.f1 * 100).toFixed(2)}%</td>
-                        </tr>
-                        <tr>
-                            <th>Hassasiyet:</th>
-                            <td>${(results.metrics.precision * 100).toFixed(2)}%</td>
-                        </tr>
-                    </table>
-                </div>
-            </div>
-        `;
-    } else {
-        // Yaş modeli sonuçları
-        resultsContainer.innerHTML = `
-            <div class="alert alert-success">
-                <strong>Eğitim Başarıyla Tamamlandı!</strong>
-            </div>
-            <div class="row">
-                <div class="col-md-6">
-                    <table class="table table-sm">
-                        <tr>
-                            <th>Eğitim Süresi:</th>
-                            <td>${formatDuration(results.duration)}</td>
-                        </tr>
-                        <tr>
-                            <th>Örnek Sayısı:</th>
-                            <td>${results.samples} (Eğitim: ${results.training_samples}, Doğrulama: ${results.validation_samples})</td>
-                        </tr>
-                        <tr>
-                            <th>Epoch Sayısı:</th>
-                            <td>${results.epochs}</td>
-                        </tr>
-                    </table>
-                </div>
-                <div class="col-md-6">
-                    <table class="table table-sm">
-                        <tr>
-                            <th>Ortalama Mutlak Hata (MAE):</th>
-                            <td>${results.metrics.mae.toFixed(2)} yaş</td>
-                        </tr>
-                        <tr>
-                            <th>±3 Yaş Başarı Oranı:</th>
-                            <td>${(results.metrics.accuracy * 100).toFixed(2)}%</td>
-                        </tr>
-                    </table>
-                </div>
-            </div>
-        `;
-    }
-    
-    // Metrikleri yenile
-    loadModelMetrics();
-}
 
 // Modeli sıfırla
 function resetModel(modelType) {
@@ -3275,7 +3108,7 @@ function startTrainingWithFeedback() {
 function setupTrainingButton() {
     const trainingBtn = document.getElementById('startTrainingBtn');
     if (trainingBtn) {
-        trainingBtn.removeEventListener('click', startModelTraining);
+
         trainingBtn.addEventListener('click', startTrainingWithFeedback);
     }
 }
@@ -3306,42 +3139,7 @@ function handleTrainingCompleted(data) {
     showToast('Başarılı', 'Model eğitimi başarıyla tamamlandı.', 'success');
 }
 
-// Eğitim modal'ını sıfırla
-function resetTrainingModal() {
-    // Eğitim butonunu göster ve aktif et
-    const startTrainingBtn = document.getElementById('startTrainingBtn');
-    if (startTrainingBtn) {
-        startTrainingBtn.style.display = 'block';
-        startTrainingBtn.disabled = false;
-        startTrainingBtn.innerHTML = '<i class="fas fa-play me-1"></i> Eğitimi Başlat';
-    }
-    
-    // Eğitim durumu bölümünü gizle
-    const trainingInfo = document.querySelector('.training-info');
-    if (trainingInfo) {
-        trainingInfo.style.display = 'none';
-    }
-    
-    // Eğitim sonuçları bölümünü gizle
-    const trainingResultsSection = document.getElementById('trainingResultsSection');
-    if (trainingResultsSection) {
-        trainingResultsSection.style.display = 'none';
-    }
-    
-    // İlerleme çubuğunu sıfırla
-    const progressBar = document.getElementById('trainingProgressBar');
-    if (progressBar) {
-        progressBar.style.width = '0%';
-        progressBar.textContent = '0%';
-        progressBar.setAttribute('aria-valuenow', 0);
-    }
-    
-    // Durum metnini sıfırla
-    const statusText = document.getElementById('trainingStatusText');
-    if (statusText) {
-        statusText.textContent = 'Hazırlanıyor...';
-    }
-}
+
 
 // Süre formatla
 function formatDuration(seconds) {
@@ -3823,6 +3621,9 @@ let modalQueueStatusInterval = null;
 function initializeModelManagementModal() {
     console.log('Initializing Model Management Modal...');
     
+    // Ana sayfa queue checker'ını durdur
+    stopQueueStatusChecker();
+    
     // Önce butonları aktif et (varsayılan olarak)
     const trainButtons = document.querySelectorAll('[onclick*="trainModelFromModal"]');
     const resetButtons = document.querySelectorAll('[onclick*="resetModelFromModal"]');
@@ -3848,6 +3649,9 @@ function cleanupModelManagementModal() {
         clearInterval(modalQueueStatusInterval);
         modalQueueStatusInterval = null;
     }
+    
+    // Ana sayfa queue checker'ını yeniden başlat
+    startQueueStatusChecker();
 }
 
 // Modal kuyruk durumu kontrolünü başlat
@@ -3861,28 +3665,17 @@ function startModalQueueStatusChecker() {
 
 // Modal kuyruk durumunu kontrol et
 function checkModalQueueStatus() {
-    // Hem kuyruk durumunu hem de yüklü dosya sayısını al
-    Promise.all([
-        fetch('/api/debug/queue-status').then(response => response.json()),
-        fetch('/api/debug/uploaded-files-count').then(response => response.json())
-    ])
-    .then(([queueData, uploadedFilesData]) => {
-        console.log('Modal - Backend queue data:', queueData);
-        console.log('Modal - Backend uploaded files data:', uploadedFilesData);
-        console.log('Modal - Frontend uploadedFiles array:', uploadedFiles);
-        console.log('Modal - Frontend uploadedFiles length:', uploadedFiles.length);
-        
-        // updateModalButtonsState(queueData, uploadedFilesData);
-        
-        // Frontend'deki gerçek duruma göre kontrol yap
+    // Sadece kuyruk durumunu al, dosya sayısını frontend'den kullan
+    fetch('/api/debug/queue-status')
+    .then(response => response.json())
+    .then(queueData => {
+        // Frontend'deki dosya sayısını kullan
         const frontendUploadedFiles = uploadedFiles.length;
-        const modifiedUploadedFilesData = {
-            ...uploadedFilesData,
-            uploaded_files_count: frontendUploadedFiles // Backend yerine frontend verisini kullan
+        const uploadedFilesData = {
+            uploaded_files_count: frontendUploadedFiles
         };
         
-        console.log('Modal - Using frontend file count:', frontendUploadedFiles);
-        updateModalButtonsState(queueData, modifiedUploadedFilesData);
+        updateModalButtonsState(queueData, uploadedFilesData);
     })
     .catch(error => {
         console.error('Modal kuyruk durumu kontrol hatası:', error);
@@ -4138,12 +3931,34 @@ function updateModalModelStats(modelType, stats) {
 // Modal'dan model eğitimi başlat
 function trainModelFromModal(modelType) {
     console.log(`Modal - Training ${modelType} model`);
-    // Ana sayfadaki train modal'ını aç
-    const trainModal = new bootstrap.Modal(document.getElementById('trainModelModal'));
-    trainModal.show();
+    // Model Metrikleri modalının Model Eğitimi tab'ına yönlendir
+    const modelMetricsModal = document.getElementById('modelMetricsModal');
+    const modal = new bootstrap.Modal(modelMetricsModal);
     
-    // Model tipini seç
-    document.getElementById('modelType').value = modelType;
+    // Modal'ı aç
+    modal.show();
+    
+    // Model Eğitimi tab'ını aktif yap
+    setTimeout(() => {
+        const trainingTab = document.getElementById('model-training-tab');
+        if (trainingTab) {
+            trainingTab.click();
+        }
+        
+        // Model tipini seç
+        const trainingModelType = document.getElementById('trainingModelType');
+        if (trainingModelType) {
+            trainingModelType.value = modelType;
+            
+            // Content model seçilmişse ayarları göster
+            if (modelType === 'content') {
+                const contentSettings = document.getElementById('contentModelSettings');
+                if (contentSettings) {
+                    contentSettings.style.display = 'block';
+                }
+            }
+        }
+    }, 300);
 }
 
 // Modal'dan model sıfırla
@@ -4449,4 +4264,505 @@ function hideModalTrainingStatus() {
     if (statusDiv) {
         statusDiv.style.display = 'none';
     }
+}
+
+// ===============================
+// WEB ARAYÜZÜ MODEL EĞİTİMİ
+// ===============================
+
+// Model türü değişiminde özel ayarları göster/gizle
+document.addEventListener('DOMContentLoaded', function() {
+    const trainingModelTypeSelect = document.getElementById('trainingModelType');
+    const contentModelSettings = document.getElementById('contentModelSettings');
+    
+    if (trainingModelTypeSelect) {
+        trainingModelTypeSelect.addEventListener('change', function() {
+            if (this.value === 'content') {
+                contentModelSettings.style.display = 'block';
+            } else {
+                contentModelSettings.style.display = 'none';
+            }
+        });
+        
+        // Sayfa yüklendiğinde de kontrol et
+        if (trainingModelTypeSelect.value === 'content') {
+            contentModelSettings.style.display = 'block';
+        }
+    }
+    
+    // Eğitim istatistiklerini yükle
+    refreshTrainingStats();
+});
+
+// Eğitim istatistiklerini yenile
+async function refreshTrainingStats() {
+    const container = document.getElementById('trainingStatsContainer');
+    const modelType = document.getElementById('trainingModelType')?.value || 'content';
+    
+    if (!container) return;
+    
+    try {
+        container.innerHTML = `
+            <div class="text-center">
+                <div class="spinner-border text-primary" role="status">
+                    <span class="visually-hidden">Yükleniyor...</span>
+                </div>
+            </div>
+        `;
+        
+        const response = await fetch(`/api/model/training-stats/${modelType}`);
+        const data = await response.json();
+        
+        if (data.success) {
+            const stats = data.stats;
+            
+            container.innerHTML = `
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <div class="card border-primary">
+                            <div class="card-body text-center">
+                                <h5 class="card-title text-primary">Toplam Feedback</h5>
+                                <h3 class="mb-0">${stats.total_feedbacks}</h3>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="card border-success">
+                            <div class="card-body text-center">
+                                <h5 class="card-title text-success">Eğitim Örneği</h5>
+                                <h3 class="mb-0">${stats.total_samples}</h3>
+                            </div>
+                        </div>
+                    </div>
+                    ${stats.conflicts_detected ? `
+                    <div class="col-md-6">
+                        <div class="card border-warning">
+                            <div class="card-body text-center">
+                                <h5 class="card-title text-warning">Çelişkiler</h5>
+                                <h3 class="mb-0">${stats.conflicts_detected}</h3>
+                            </div>
+                        </div>
+                    </div>
+                    ` : ''}
+                </div>
+                
+                ${stats.category_stats ? `
+                <div class="mt-3">
+                    <h6>Kategori Dağılımı:</h6>
+                    <div class="table-responsive">
+                        <table class="table table-sm table-bordered">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>Kategori</th>
+                                    <th>Pozitif</th>
+                                    <th>Negatif</th>
+                                    <th>Toplam</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${Object.entries(stats.category_stats).map(([category, data]) => `
+                                    <tr>
+                                        <td>${getCategoryDisplayName(category)}</td>
+                                        <td><span class="badge bg-danger">${data.positive || 0}</span></td>
+                                        <td><span class="badge bg-success">${data.negative || 0}</span></td>
+                                        <td><span class="badge bg-primary">${data.total || 0}</span></td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                ` : ''}
+                
+                ${stats.message ? `<div class="alert alert-info mt-3">${stats.message}</div>` : ''}
+            `;
+        } else {
+            container.innerHTML = `
+                <div class="alert alert-danger">
+                    <i class="fas fa-exclamation-triangle me-2"></i>
+                    ${data.error || 'İstatistikler yüklenemedi'}
+                </div>
+            `;
+        }
+    } catch (error) {
+        console.error('Training stats error:', error);
+        container.innerHTML = `
+            <div class="alert alert-danger">
+                <i class="fas fa-exclamation-triangle me-2"></i>
+                Bağlantı hatası: ${error.message}
+            </div>
+        `;
+    }
+}
+
+// Çelişki analizi yap
+async function analyzeConflicts() {
+    const container = document.getElementById('conflictAnalysisContainer');
+    const modelType = document.getElementById('trainingModelType')?.value || 'content';
+    
+    if (!container) return;
+    
+    try {
+        container.innerHTML = `
+            <div class="text-center">
+                <div class="spinner-border text-warning" role="status">
+                    <span class="visually-hidden">Analiz ediliyor...</span>
+                </div>
+                <p class="mt-2">Çelişkiler analiz ediliyor...</p>
+            </div>
+        `;
+        
+        const response = await fetch(`/api/model/analyze-conflicts/${modelType}`);
+        const data = await response.json();
+        
+        if (data.success) {
+            if (data.conflicts.length === 0) {
+                container.innerHTML = `
+                    <div class="alert alert-success">
+                        <i class="fas fa-check-circle me-2"></i>
+                        Herhangi bir çelişki tespit edilmedi!
+                    </div>
+                `;
+                return;
+            }
+            
+            const summary = data.summary;
+            container.innerHTML = `
+                <div class="alert alert-warning">
+                    <h6><i class="fas fa-exclamation-triangle me-2"></i>Çelişki Özeti</h6>
+                    <ul class="mb-0">
+                        <li>Toplam çelişki: <strong>${data.total_conflicts}</strong></li>
+                        <li>Yüksek şiddetli: <strong>${data.high_severity}</strong></li>
+                        <li>Etkilenen kategoriler: <strong>${summary.categories_affected}</strong></li>
+                        <li>Ortalama skor farkı: <strong>${summary.avg_score_diff.toFixed(2)}</strong></li>
+                    </ul>
+                </div>
+                
+                <div class="mt-3">
+                    <h6>Detaylı Çelişkiler (İlk 10):</h6>
+                    <div class="table-responsive">
+                        <table class="table table-sm table-bordered">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>Kategori</th>
+                                    <th>Skor Farkı</th>
+                                    <th>Min-Max Skorlar</th>
+                                    <th>Şiddet</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${data.conflicts.slice(0, 10).map(conflict => `
+                                    <tr>
+                                        <td>${getCategoryDisplayName(conflict.category)}</td>
+                                        <td>
+                                            <span class="badge ${conflict.severity === 'high' ? 'bg-danger' : 'bg-warning'}">
+                                                ${conflict.score_diff.toFixed(2)}
+                                            </span>
+                                        </td>
+                                        <td>
+                                            ${Math.min(...conflict.scores).toFixed(2)} - 
+                                            ${Math.max(...conflict.scores).toFixed(2)}
+                                        </td>
+                                        <td>
+                                            <span class="badge ${conflict.severity === 'high' ? 'bg-danger' : 'bg-warning'}">
+                                                ${conflict.severity.toUpperCase()}
+                                            </span>
+                                        </td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            `;
+        } else {
+            container.innerHTML = `
+                <div class="alert alert-danger">
+                    <i class="fas fa-exclamation-triangle me-2"></i>
+                    ${data.error || 'Çelişki analizi yapılamadı'}
+                </div>
+            `;
+        }
+    } catch (error) {
+        console.error('Conflict analysis error:', error);
+        container.innerHTML = `
+            <div class="alert alert-danger">
+                <i class="fas fa-exclamation-triangle me-2"></i>
+                Bağlantı hatası: ${error.message}
+            </div>
+        `;
+    }
+}
+
+// Web eğitimi başlat
+let currentTrainingSession = null;
+let trainingStartTime = null;
+
+async function startWebTraining() {
+    const startBtn = document.getElementById('startWebTrainingBtn');
+    const stopBtn = document.getElementById('stopWebTrainingBtn');
+    const statusDiv = document.getElementById('webTrainingStatus');
+    const progressDiv = document.getElementById('webTrainingProgress');
+    const resultsDiv = document.getElementById('webTrainingResults');
+    
+    // Parametreleri topla
+    const params = {
+        model_type: document.getElementById('trainingModelType')?.value || 'content',
+        epochs: parseInt(document.getElementById('trainingEpochs')?.value || 20),
+        batch_size: parseInt(document.getElementById('trainingBatchSize')?.value || 16),
+        learning_rate: parseFloat(document.getElementById('trainingLearningRate')?.value || 0.001),
+        patience: parseInt(document.getElementById('trainingPatience')?.value || 5),
+        training_mode: document.getElementById('trainingMode')?.value || 'regression',
+        validation_strategy: document.getElementById('validationStrategy')?.value || 'strict',
+        conflict_resolution: document.getElementById('conflictResolution')?.value || 'average'
+    };
+    
+    try {
+        // UI güncellemeleri
+        startBtn.style.display = 'none';
+        stopBtn.style.display = 'inline-block';
+        resultsDiv.style.display = 'none';
+        
+        // Status göster
+        statusDiv.style.display = 'block';
+        statusDiv.className = 'alert alert-info';
+        document.getElementById('webTrainingMessage').textContent = 'Eğitim başlatılıyor...';
+        
+        // API çağrısı
+        const response = await fetch('/api/model/train-web', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(params)
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            currentTrainingSession = data.session_id;
+            trainingStartTime = Date.now();
+            
+            // Progress göster
+            progressDiv.style.display = 'block';
+            document.getElementById('webTrainingMessage').textContent = 
+                `Eğitim başlatıldı! ${data.training_samples} örnek ile eğitim yapılacak.`;
+            
+            // WebSocket eventi dinle
+            setupTrainingWebSocketListeners(data.session_id);
+            
+        } else {
+            throw new Error(data.error || 'Eğitim başlatılamadı');
+        }
+        
+    } catch (error) {
+        console.error('Training start error:', error);
+        
+        // UI sıfırla
+        startBtn.style.display = 'inline-block';
+        stopBtn.style.display = 'none';
+        progressDiv.style.display = 'none';
+        
+        statusDiv.className = 'alert alert-danger';
+        document.getElementById('webTrainingMessage').textContent = `Hata: ${error.message}`;
+    }
+}
+
+// Eğitimi durdur
+function stopWebTraining() {
+    const startBtn = document.getElementById('startWebTrainingBtn');
+    const stopBtn = document.getElementById('stopWebTrainingBtn');
+    const statusDiv = document.getElementById('webTrainingStatus');
+    const progressDiv = document.getElementById('webTrainingProgress');
+    
+    // UI sıfırla
+    startBtn.style.display = 'inline-block';
+    stopBtn.style.display = 'none';
+    progressDiv.style.display = 'none';
+    
+    statusDiv.className = 'alert alert-warning';
+    document.getElementById('webTrainingMessage').textContent = 'Eğitim kullanıcı tarafından durduruldu.';
+    
+    currentTrainingSession = null;
+    trainingStartTime = null;
+    
+    // WebSocket cleanup burada olabilir
+}
+
+// WebSocket event listeners
+function setupTrainingWebSocketListeners(sessionId) {
+    // Training started
+    socket.off('training_started');
+    socket.on('training_started', (data) => {
+        if (data.session_id === sessionId) {
+            console.log('Training started:', data);
+            document.getElementById('webTrainingMessage').textContent = 
+                `Eğitim başladı (${data.total_samples} örnek)`;
+        }
+    });
+    
+    // Training progress
+    socket.off('training_progress');
+    socket.on('training_progress', (data) => {
+        if (data.session_id === sessionId) {
+            updateWebTrainingProgress(data);
+        }
+    });
+    
+    // Training completed
+    socket.off('training_completed');
+    socket.on('training_completed', (data) => {
+        if (data.session_id === sessionId) {
+            handleWebTrainingCompleted(data);
+        }
+    });
+    
+    // Training error
+    socket.off('training_error');
+    socket.on('training_error', (data) => {
+        if (data.session_id === sessionId) {
+            handleWebTrainingError(data);
+        }
+    });
+}
+
+// Eğitim progress güncelle
+function updateWebTrainingProgress(data) {
+    const progressBar = document.getElementById('webProgressBar');
+    const progressText = document.getElementById('webProgressText');
+    const currentEpoch = document.getElementById('webCurrentEpoch');
+    const currentLoss = document.getElementById('webCurrentLoss');
+    const currentMAE = document.getElementById('webCurrentMAE');
+    const currentR2 = document.getElementById('webCurrentR2');
+    const trainingDuration = document.getElementById('webTrainingDuration');
+    const trainingETA = document.getElementById('webTrainingETA');
+    
+    // Progress bar
+    const progress = Math.round((data.current_epoch / data.total_epochs) * 100);
+    progressBar.style.width = `${progress}%`;
+    progressText.textContent = `${progress}%`;
+    
+    // Metrics
+    currentEpoch.textContent = `${data.current_epoch}/${data.total_epochs}`;
+    currentLoss.textContent = data.current_loss ? data.current_loss.toFixed(4) : '-';
+    currentMAE.textContent = data.current_mae ? data.current_mae.toFixed(3) : '-';
+    currentR2.textContent = data.current_r2 ? data.current_r2.toFixed(3) : '-';
+    
+    // Time calculations
+    if (trainingStartTime) {
+        const elapsed = (Date.now() - trainingStartTime) / 1000;
+        trainingDuration.textContent = formatDuration(elapsed);
+        
+        if (data.current_epoch > 0) {
+            const avgTimePerEpoch = elapsed / data.current_epoch;
+            const remainingEpochs = data.total_epochs - data.current_epoch;
+            const eta = remainingEpochs * avgTimePerEpoch;
+            trainingETA.textContent = formatDuration(eta);
+        }
+    }
+}
+
+// Eğitim tamamlandı
+function handleWebTrainingCompleted(data) {
+    const startBtn = document.getElementById('startWebTrainingBtn');
+    const stopBtn = document.getElementById('stopWebTrainingBtn');
+    const statusDiv = document.getElementById('webTrainingStatus');
+    const progressDiv = document.getElementById('webTrainingProgress');
+    const resultsDiv = document.getElementById('webTrainingResults');
+    const metricsDiv = document.getElementById('webTrainingMetrics');
+    
+    // UI sıfırla
+    startBtn.style.display = 'inline-block';
+    stopBtn.style.display = 'none';
+    progressDiv.style.display = 'none';
+    
+    // Success mesajı
+    statusDiv.className = 'alert alert-success';
+    document.getElementById('webTrainingMessage').textContent = 
+        `Eğitim tamamlandı! Yeni model versiyonu: ${data.model_version}`;
+    
+    // Results göster
+    resultsDiv.style.display = 'block';
+    
+    const metrics = data.metrics;
+    metricsDiv.innerHTML = `
+        <div class="row">
+            <div class="col-md-3">
+                <div class="card border-success">
+                    <div class="card-body text-center">
+                        <h6 class="card-title">MAE</h6>
+                        <h5 class="text-success">${metrics.mae ? metrics.mae.toFixed(3) : '-'}</h5>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card border-info">
+                    <div class="card-body text-center">
+                        <h6 class="card-title">R² Score</h6>
+                        <h5 class="text-info">${metrics.r2_score ? metrics.r2_score.toFixed(3) : '-'}</h5>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card border-primary">
+                    <div class="card-body text-center">
+                        <h6 class="card-title">Eğitim Verisi</h6>
+                        <h5 class="text-primary">${data.training_samples}</h5>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card border-warning">
+                    <div class="card-body text-center">
+                        <h6 class="card-title">Çelişkiler</h6>
+                        <h5 class="text-warning">${data.conflicts_resolved || 0}</h5>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    currentTrainingSession = null;
+    trainingStartTime = null;
+    
+    // Model listesini yenile
+    setTimeout(() => {
+        refreshTrainingStats();
+        if (typeof loadModalModelVersions === 'function') {
+            loadModalModelVersions();
+        }
+    }, 2000);
+}
+
+// Eğitim hatası
+function handleWebTrainingError(data) {
+    const startBtn = document.getElementById('startWebTrainingBtn');
+    const stopBtn = document.getElementById('stopWebTrainingBtn');
+    const statusDiv = document.getElementById('webTrainingStatus');
+    const progressDiv = document.getElementById('webTrainingProgress');
+    
+    // UI sıfırla
+    startBtn.style.display = 'inline-block';
+    stopBtn.style.display = 'none';
+    progressDiv.style.display = 'none';
+    
+    // Error mesajı
+    statusDiv.className = 'alert alert-danger';
+    document.getElementById('webTrainingMessage').textContent = `Eğitim hatası: ${data.error}`;
+    
+    currentTrainingSession = null;
+    trainingStartTime = null;
+}
+
+// Kategori adlarını düzenle
+function getCategoryDisplayName(category) {
+    const names = {
+        'violence': 'Şiddet',
+        'adult_content': 'Yetişkin İçeriği', 
+        'harassment': 'Taciz',
+        'weapon': 'Silah',
+        'drug': 'Madde Kullanımı',
+        'safe': 'Güvenli'
+    };
+    return names[category] || category;
 }

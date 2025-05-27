@@ -89,9 +89,6 @@
                         <a class="nav-link" href="#" id="modelMetricsBtn"><i class="fas fa-chart-line me-1"></i> Model Metrikleri</a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link" href="#" id="trainModelBtn"><i class="fas fa-brain me-1"></i> Model Eğitimi</a>
-                    </li>
-                    <li class="nav-item">
                         <a class="nav-link" href="#" data-bs-toggle="modal" data-bs-target="#modelManagementModal" id="modelManagementBtn"><i class="fas fa-cogs me-1"></i> Model Yönetimi</a>
                     </li>
                     <li class="nav-item">
@@ -697,10 +694,12 @@
                                     </div>
 
                                     <div class="d-grid gap-2">
-                                        <button class="btn btn-success" onclick="trainModelFromModal('content')" disabled>
+                                        <button class="btn btn-success" onclick="trainModelFromModal('content')">
                                             <i class="fas fa-play me-2"></i>Yeni Eğitim Başlat
                                         </button>
-                                        <!-- Content model training is now supported -->
+                                        <button class="btn btn-warning" onclick="resetModelFromModal('content')">
+                                            <i class="fas fa-undo me-2"></i>Modeli Sıfırla
+                                        </button>
                                     </div>
                                 </div>
                             </div>
@@ -774,6 +773,9 @@
                         </li>
                         <li class="nav-item" role="presentation">
                             <button class="nav-link" id="age-metrics-tab" data-bs-toggle="tab" data-bs-target="#ageMetricsTab" type="button" role="tab" aria-controls="ageMetricsTab" aria-selected="false">Yaş Tahmin Modeli</button>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link" id="model-training-tab" data-bs-toggle="tab" data-bs-target="#modelTrainingTab" type="button" role="tab" aria-controls="modelTrainingTab" aria-selected="false">Model Eğitimi</button>
                         </li>
                     </ul>
                     <div class="tab-content mt-3" id="modelMetricsTabContent">
@@ -911,11 +913,6 @@
                                         <div class="card-header">
                                             <h5 class="mb-0">Yaş Dağılımı</h5>
                                         </div>
-                                        <div class="d-flex justify-content-end">
-                                            <button id="resetContentModelBtn" class="btn btn-danger">
-                                                <i class="fas fa-undo me-1"></i> Modeli Sıfırla
-                                            </button>
-                                        </div>
                                     </div>
                                 </div>
                                 
@@ -943,10 +940,227 @@
                                 </div>
                             </div>
                             
-                            <div class="d-flex justify-content-end">
-                                <button id="resetAgeModelBtn" class="btn btn-danger">
-                                    <i class="fas fa-undo me-1"></i> Modeli Sıfırla
-                                </button>
+
+                        </div>
+                        
+                        <!-- Model Eğitimi Sekmesi -->
+                        <div class="tab-pane fade" id="modelTrainingTab" role="tabpanel" aria-labelledby="model-training-tab">
+                            <!-- Eğitim Parametreleri -->
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <div class="card">
+                                        <div class="card-header">
+                                            <h5 class="mb-0">
+                                                <i class="fas fa-cogs me-2"></i>Eğitim Parametreleri
+                                            </h5>
+                                        </div>
+                                        <div class="card-body">
+                                            <form id="trainingParamsForm">
+                                                <div class="mb-3">
+                                                    <label class="form-label">Model Türü</label>
+                                                    <select class="form-select" id="trainingModelType">
+                                                        <option value="content">İçerik Analiz Modeli</option>
+                                                        <option value="age">Yaş Tahmin Modeli</option>
+                                                    </select>
+                                                </div>
+                                                
+                                                <div class="mb-3">
+                                                    <label class="form-label">Epoch Sayısı</label>
+                                                    <select class="form-select" id="trainingEpochs">
+                                                        <option value="10">10 (Hızlı)</option>
+                                                        <option value="20" selected>20 (Normal)</option>
+                                                        <option value="30">30 (Kapsamlı)</option>
+                                                        <option value="50">50 (Detaylı)</option>
+                                                    </select>
+                                                    <div class="form-text">Daha fazla epoch, daha iyi sonuçlar verir ama daha uzun sürer</div>
+                                                </div>
+                                                
+                                                <div class="mb-3">
+                                                    <label class="form-label">Batch Boyutu</label>
+                                                    <select class="form-select" id="trainingBatchSize">
+                                                        <option value="8">8 (Düşük RAM)</option>
+                                                        <option value="16" selected>16 (Normal)</option>
+                                                        <option value="32">32 (Yüksek RAM)</option>
+                                                        <option value="64">64 (Çok Yüksek RAM)</option>
+                                                    </select>
+                                                </div>
+                                                
+                                                <div class="mb-3">
+                                                    <label class="form-label">Öğrenme Oranı</label>
+                                                    <select class="form-select" id="trainingLearningRate">
+                                                        <option value="0.0001">0.0001 (Çok Yavaş)</option>
+                                                        <option value="0.001" selected>0.001 (Normal)</option>
+                                                        <option value="0.005">0.005 (Hızlı)</option>
+                                                        <option value="0.01">0.01 (Çok Hızlı)</option>
+                                                    </select>
+                                                </div>
+                                                
+                                                <!-- Content Model için özel ayarlar -->
+                                                <div id="contentModelSettings" style="display: none;">
+                                                    <div class="mb-3">
+                                                        <label class="form-label">Eğitim Modu</label>
+                                                        <select class="form-select" id="trainingMode">
+                                                            <option value="regression" selected>Regression (Skor Tahmini)</option>
+                                                            <option value="classification">Classification (Binary)</option>
+                                                        </select>
+                                                        <div class="form-text">Regression mode önerilen seçenektir</div>
+                                                    </div>
+                                                    
+                                                    <div class="mb-3">
+                                                        <label class="form-label">Validation Strategy</label>
+                                                        <select class="form-select" id="validationStrategy">
+                                                            <option value="strict" selected>Strict (Sadece kesin feedback'ler)</option>
+                                                            <option value="balanced">Balanced (Dengeli veri seti)</option>
+                                                            <option value="all">All (Tüm veriler)</option>
+                                                        </select>
+                                                    </div>
+                                                    
+                                                    <div class="mb-3">
+                                                        <label class="form-label">Çelişki Çözme</label>
+                                                        <select class="form-select" id="conflictResolution">
+                                                            <option value="average" selected>Average (Skorları ortala)</option>
+                                                            <option value="latest">Latest (En son feedback)</option>
+                                                            <option value="ignore">Ignore (Çelişkileri yoksay)</option>
+                                                        </select>
+                                                    </div>
+                                                </div>
+                                                
+                                                <div class="mb-3">
+                                                    <label class="form-label">Early Stopping Patience</label>
+                                                    <select class="form-select" id="trainingPatience">
+                                                        <option value="3">3 (Agresif)</option>
+                                                        <option value="5" selected>5 (Normal)</option>
+                                                        <option value="10">10 (Sabırlı)</option>
+                                                    </select>
+                                                    <div class="form-text">Kaç epoch boyunca iyileşme olmazsa dursun</div>
+                                                </div>
+                                            </form>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <div class="col-md-6">
+                                    <!-- Veri İstatistikleri -->
+                                    <div class="card">
+                                        <div class="card-header">
+                                            <h5 class="mb-0">
+                                                <i class="fas fa-database me-2"></i>Eğitim Verisi İstatistikleri
+                                            </h5>
+                                            <button class="btn btn-sm btn-outline-primary" onclick="refreshTrainingStats()">
+                                                <i class="fas fa-sync-alt me-1"></i>Yenile
+                                            </button>
+                                        </div>
+                                        <div class="card-body">
+                                            <div id="trainingStatsContainer">
+                                                <div class="text-center">
+                                                    <div class="spinner-border text-primary" role="status">
+                                                        <span class="visually-hidden">Yükleniyor...</span>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- Çelişki Analizi -->
+                                    <div class="card mt-3">
+                                        <div class="card-header d-flex justify-content-between align-items-center">
+                                            <h5 class="mb-0">
+                                                <i class="fas fa-exclamation-triangle me-2"></i>Çelişki Analizi
+                                            </h5>
+                                            <button class="btn btn-sm btn-outline-warning" id="analyzeConflictsBtn" onclick="analyzeConflicts()">
+                                                <i class="fas fa-search me-1"></i>Analiz Et
+                                            </button>
+                                        </div>
+                                        <div class="card-body">
+                                            <!-- Content model için çelişki analizi -->
+                                            <div id="conflictAnalysisContainer">
+                                                <p class="text-muted">Çelişki analizi yapmak için butona tıklayın.</p>
+                                            </div>
+                                            
+                                            <!-- Yaş modeli için açıklama -->
+                                            <div class="alert alert-info" id="conflictAnalysisInfo" style="display: none;">
+                                                <i class="fas fa-info-circle me-2"></i>
+                                                <strong>Yaş Modeli - Çelişki Analizi Gerekli Değil</strong><br>
+                                                Yaş modelinde çelişki analizi yapılmaz çünkü:
+                                                <ul class="mb-0 mt-2">
+                                                    <li>Kullanıcılar manuel olarak gerçek yaş değerlerini girir</li>
+                                                    <li>Sistem tahmini ile kullanıcı girişi arasındaki fark normal eğitim sürecidir</li>
+                                                    <li>Yaş objektif bir değerdir, subjektif değerlendirme yoktur</li>
+                                                </ul>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- Eğitim Durumu -->
+                            <div class="row mt-4">
+                                <div class="col-12">
+                                    <div class="card">
+                                        <div class="card-header d-flex justify-content-between align-items-center">
+                                            <h5 class="mb-0">
+                                                <i class="fas fa-chart-line me-2"></i>Eğitim Durumu
+                                            </h5>
+                                            <div>
+                                                <button class="btn btn-primary" onclick="startWebTraining()" id="startWebTrainingBtn">
+                                                    <i class="fas fa-play me-2"></i>Eğitimi Başlat
+                                                </button>
+                                                <button class="btn btn-danger" onclick="stopWebTraining()" id="stopWebTrainingBtn" style="display: none;">
+                                                    <i class="fas fa-stop me-2"></i>Durdur
+                                                </button>
+                                            </div>
+                                        </div>
+                                        <div class="card-body">
+                                            <div id="webTrainingStatus" class="alert alert-info" style="display: none;">
+                                                <i class="fas fa-info-circle me-2"></i>
+                                                <span id="webTrainingMessage">Eğitim durumu bekleniyor...</span>
+                                            </div>
+                                            
+                                            <div id="webTrainingProgress" style="display: none;">
+                                                <div class="progress mb-3">
+                                                    <div class="progress-bar progress-bar-striped progress-bar-animated" 
+                                                         role="progressbar" style="width: 0%" id="webProgressBar">
+                                                        <span id="webProgressText">0%</span>
+                                                    </div>
+                                                </div>
+                                                
+                                                <div class="row">
+                                                    <div class="col-md-2">
+                                                        <small class="text-muted">Epoch:</small>
+                                                        <div class="fw-bold" id="webCurrentEpoch">-</div>
+                                                    </div>
+                                                    <div class="col-md-2">
+                                                        <small class="text-muted">Loss:</small>
+                                                        <div class="fw-bold" id="webCurrentLoss">-</div>
+                                                    </div>
+                                                    <div class="col-md-2">
+                                                        <small class="text-muted">MAE:</small>
+                                                        <div class="fw-bold" id="webCurrentMAE">-</div>
+                                                    </div>
+                                                    <div class="col-md-2">
+                                                        <small class="text-muted">R²:</small>
+                                                        <div class="fw-bold" id="webCurrentR2">-</div>
+                                                    </div>
+                                                    <div class="col-md-2">
+                                                        <small class="text-muted">Süre:</small>
+                                                        <div class="fw-bold" id="webTrainingDuration">-</div>
+                                                    </div>
+                                                    <div class="col-md-2">
+                                                        <small class="text-muted">ETA:</small>
+                                                        <div class="fw-bold" id="webTrainingETA">-</div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            
+                                            <!-- Eğitim Sonuçları -->
+                                            <div id="webTrainingResults" style="display: none;">
+                                                <hr>
+                                                <h6><i class="fas fa-trophy me-2"></i>Eğitim Tamamlandı!</h6>
+                                                <div id="webTrainingMetrics"></div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -958,85 +1172,7 @@
         </div>
     </div>
     
-    <!-- Model Eğitim Modal -->
-    <div class="modal fade" id="trainModelModal" tabindex="-1" aria-labelledby="trainModelModalLabel" aria-hidden="true">
-        <div class="modal-dialog modal-lg">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title" id="trainModelModalLabel">
-                        <i class="fas fa-brain me-2"></i> Yapay Zeka Model Eğitimi
-                    </h5>
-                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
-                </div>
-                <div class="modal-body">
-                    <div class="alert alert-info">
-                        <i class="fas fa-info-circle me-2"></i> Model eğitimi, sistem tarafından toplanan ve etiketlenen verileri kullanarak yapay zeka modellerini güncelleyecektir. Bu işlem bilgisayar kaynağı kullanımına bağlı olarak birkaç dakika sürebilir.
-                    </div>
-                    
-                    <div class="mb-3">
-                        <label for="modelType" class="form-label">Eğitilecek Model:</label>
-                        <select class="form-select" id="modelType">
-                            <option value="content">İçerik Analiz Modeli (Henüz Desteklenmiyor)</option>
-                            <option value="age" selected>Yaş Tahmin Modeli</option>
-                        </select>
-                    </div>
-                    
-                    <div class="mb-3">
-                        <label for="epochCount" class="form-label">Epoch Sayısı:</label>
-                        <select class="form-select" id="epochCount">
-                            <option value="5">5 (Hızlı)</option>
-                            <option value="10" selected>10 (Normal)</option>
-                            <option value="20">20 (Kapsamlı)</option>
-                            <option value="50">50 (Detaylı)</option>
-                        </select>
-                        <div class="form-text">Daha fazla epoch, daha iyi eğitim sonuçları verebilir ancak daha uzun sürer.</div>
-                    </div>
-                    
-                    <div class="mb-3">
-                        <label for="batchSize" class="form-label">Batch Boyutu:</label>
-                        <select class="form-select" id="batchSize">
-                            <option value="8">8 (Düşük Bellek)</option>
-                            <option value="16" selected>16 (Normal)</option>
-                            <option value="32">32 (Yüksek Bellek)</option>
-                            <option value="64">64 (Çok Yüksek Bellek)</option>
-                        </select>
-                    </div>
-                    
-                    <div class="mb-3">
-                        <label for="learningRate" class="form-label">Öğrenme Hızı:</label>
-                        <select class="form-select" id="learningRate">
-                            <option value="0.0001">0.0001 (Çok Yavaş)</option>
-                            <option value="0.001" selected>0.001 (Normal)</option>
-                            <option value="0.01">0.01 (Hızlı)</option>
-                        </select>
-                    </div>
-                    
-                    <div class="training-info" style="display: none;">
-                        <div class="mb-3">
-                            <div class="d-flex justify-content-between align-items-center mb-2">
-                                <h6 class="mb-0">Eğitim İlerlemesi</h6>
-                                <div id="trainingStatusText">Hazırlanıyor...</div>
-                            </div>
-                            <div class="progress">
-                                <div id="trainingProgressBar" class="progress-bar" role="progressbar" style="width: 0%;" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">0%</div>
-                            </div>
-                        </div>
-                        
-                        <div id="trainingResultsSection" style="display: none;">
-                            <h6>Eğitim Sonuçları</h6>
-                            <div id="trainingResults"></div>
-                        </div>
-                    </div>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Kapat</button>
-                    <button type="button" class="btn btn-primary" id="startTrainingBtn">
-                        <i class="fas fa-play me-1"></i> Eğitimi Başlat
-                    </button>
-                </div>
-            </div>
-        </div>
-    </div>
+
     
     <!-- Resim Büyütme Modal -->
     <div class="modal fade" id="imageZoomModal" tabindex="-1" aria-labelledby="imageZoomModalLabel" aria-hidden="true">

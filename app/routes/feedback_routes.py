@@ -53,7 +53,9 @@ def submit_feedback():
             rating=data.get('rating'),
             comment=data.get('comment'),
             category_feedback=data.get('category_feedback', {}),
-            category_correct_values=data.get('category_correct_values', {})
+            category_correct_values=data.get('category_correct_values', {}),
+            feedback_type='content',  # Content feedback olarak işaretle
+            feedback_source='MANUAL_USER_CONTENT_CORRECTION'  # Web arayüzünden gelen feedback
         )
         
         db.session.add(feedback)

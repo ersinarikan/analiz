@@ -24,7 +24,6 @@ def create_app(config_name=None):
     Returns:
         Flask uygulaması
     """
-    print("!!! TEST: create_app fonksiyonu ÇALIŞIYOR !!!")
     app = Flask(__name__)
     
     # Konfigürasyonu yükle
@@ -116,8 +115,6 @@ def initialize_app(app):
         app: Flask uygulaması
     """
     with app.app_context():
-        print("!!! TEST: initialize_app fonksiyonu ÇALIŞIYOR !!!")
-        
         # Veritabanı başlatma (sadece yoksa oluştur, mevcut olanı silme)
         db_path = app.config.get('SQLALCHEMY_DATABASE_URI', '').replace('sqlite:///', '')
         if not os.path.isabs(db_path):
@@ -193,8 +190,8 @@ def cleanup_old_analysis_results(days_old=7):
         cutoff_date = datetime.utcnow() - timedelta(days=days_old)
         print(f"Eski analiz sonuçları temizleniyor: {cutoff_date} tarihinden eski olanlar")
         
-        # Eski analizleri bul
-        old_analyses = Analysis.query.filter(Analysis.created_at < cutoff_date).all()
+        # Eski analizleri bul (created_at yerine start_time kullan)
+        old_analyses = Analysis.query.filter(Analysis.start_time < cutoff_date).all()
         
         if not old_analyses:
             print("Temizlenecek eski analiz bulunamadı.")
