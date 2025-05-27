@@ -187,10 +187,8 @@ def cleanup_old_analysis_results(days_old=7):
     """
     try:
         from datetime import datetime, timedelta
-        from app.models.analysis import Analysis
+        from app.models.analysis import Analysis, ContentDetection, AgeEstimation
         from app.models.file import File
-        from app.models.content_detection import ContentDetection
-        from app.models.age_estimation import AgeEstimation
         
         cutoff_date = datetime.utcnow() - timedelta(days=days_old)
         print(f"Eski analiz sonuçları temizleniyor: {cutoff_date} tarihinden eski olanlar")
@@ -252,6 +250,8 @@ def cleanup_orphaned_files():
     Veritabanında kaydı olmayan yetim dosyaları temizler.
     """
     try:
+        from app.models.analysis import Analysis
+        
         processed_folder = current_app.config['PROCESSED_FOLDER']
         
         if not os.path.exists(processed_folder):

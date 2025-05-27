@@ -10,6 +10,7 @@ import platform
 import time
 import psutil
 import threading
+from datetime import datetime, timedelta
 
 from app.models.analysis import Analysis
 from app.services.analysis_service import AnalysisService
@@ -182,23 +183,39 @@ def uploaded_files_count():
     from app.models.analysis import Analysis
     
     try:
-        # Analizi tamamlanmamış dosyaları say
-        # (pending, processing, failed durumundaki analizlere sahip dosyalar + hiç analizi olmayan dosyalar)
+        # Son 24 saat içinde yüklenen dosyaları kontrol et
+        cutoff_time = datetime.utcnow() - timedelta(hours=24)
         
-        # Tüm dosyaları al
-        total_files = File.query.count()
+        # Son 24 saat içinde yüklenen dosyaları al
+        recent_files = File.query.filter(File.created_at >= cutoff_time).all()
+        recent_file_ids = [f.id for f in recent_files]
         
-        # Tamamlanmış analizlere sahip dosyaları say
-        completed_analyses = Analysis.query.filter_by(status='completed').all()
-        completed_file_ids = set(analysis.file_id for analysis in completed_analyses)
-        
-        # Yüklü ama henüz analizi tamamlanmamış dosya sayısı
-        uploaded_files_count = total_files - len(completed_file_ids)
+        # Bu dosyalardan tamamlanmış analizlere sahip olanları bul
+        if recent_file_ids:
+            completed_analyses = Analysis.query.filter(
+                Analysis.file_id.in_(recent_file_ids),
+                Analysis.status == 'completed'
+            ).all()
+            completed_file_ids = set(analysis.file_id for analysis in completed_analyses)
+            
+            # Aktif analizlere sahip dosyaları bul (processing, queued)
+            active_analyses = Analysis.query.filter(
+                Analysis.file_id.in_(recent_file_ids),
+                Analysis.status.in_(['processing', 'queued', 'pending'])
+            ).all()
+            active_file_ids = set(analysis.file_id for analysis in active_analyses)
+            
+            # Yüklü ama henüz analizi tamamlanmamış veya aktif analizi olan dosya sayısı
+            uploaded_files_count = len(active_file_ids)
+        else:
+            uploaded_files_count = 0
+            completed_file_ids = set()
         
         return jsonify({
             'uploaded_files_count': uploaded_files_count,
-            'total_files': total_files,
-            'completed_files': len(completed_file_ids)
+            'total_recent_files': len(recent_files),
+            'completed_files': len(completed_file_ids),
+            'cutoff_time': cutoff_time.isoformat()
         }), 200
         
     except Exception as e:

@@ -700,20 +700,85 @@ class AgeTrainingService:
         
         Args:
             feedback_ids: Kullanılan feedback ID'leri
-            model_version_name: Model versiyon adı
+            model_version_name: Hangi model versiyonunda kullanıldığı
+        """
+        logger.info(f"Marking {len(feedback_ids)} feedback records as used in training")
+        
+        for feedback_id in feedback_ids:
+            feedback = Feedback.query.get(feedback_id)
+            if feedback:
+                feedback.training_status = 'used_in_training'
+                feedback.used_in_model_version = model_version_name
+                feedback.training_used_at = datetime.now()
+        
+        db.session.commit()
+        logger.info("Feedback records marked as used")
+
+    def reset_to_base_model(self):
+        """
+        Yaş tahmin modelini base (ön eğitimli) modele sıfırlar
+        
+        Returns:
+            bool: Başarılı olup olmadığı
         """
         try:
-            updated_count = Feedback.query.filter(
-                Feedback.id.in_(feedback_ids)
-            ).update({
-                'training_status': 'used_in_training',
-                'used_in_model_version': model_version_name,
-                'training_used_at': datetime.now()
-            }, synchronize_session=False)
+            logger.info("Resetting age model to base model")
             
-            db.session.commit()
-            logger.info(f"Marked {updated_count} feedback records as used in training for model {model_version_name}")
+            # Aktif model dizinini kontrol et
+            active_dir = os.path.join(
+                current_app.config['MODELS_FOLDER'],
+                'age',
+                'custom_age_head',
+                'active_model'
+            )
+            
+            base_dir = os.path.join(
+                current_app.config['MODELS_FOLDER'],
+                'age',
+                'custom_age_head',
+                'base_model'
+            )
+            
+            # Base model dizini var mı kontrol et
+            if not os.path.exists(base_dir):
+                logger.error(f"Base model directory not found: {base_dir}")
+                # Buffalo model'i base olarak kullan
+                buffalo_dir = os.path.join(
+                    current_app.config['MODELS_FOLDER'],
+                    'age',
+                    'buffalo_l',
+                    'base_model'
+                )
+                if os.path.exists(buffalo_dir):
+                    base_dir = buffalo_dir
+                    logger.info(f"Using buffalo model as base: {buffalo_dir}")
+                else:
+                    logger.error("No base model found")
+                    return False
+            
+            # Eski sembolik linki veya dizini kaldır
+            if os.path.exists(active_dir):
+                if os.path.islink(active_dir):
+                    os.unlink(active_dir)
+                    logger.info("Removed existing symbolic link")
+                else:
+                    import shutil
+                    shutil.rmtree(active_dir)
+                    logger.info("Removed existing active model directory")
+            
+            # Base modeli aktif model olarak ayarla
+            if os.name == 'nt':  # Windows
+                # Windows'ta sembolik link yerine dizini kopyala
+                import shutil
+                shutil.copytree(base_dir, active_dir)
+                logger.info(f"Copied base model to active model (Windows)")
+            else:  # Linux/Mac
+                os.symlink(base_dir, active_dir)
+                logger.info(f"Created symbolic link from base model to active model")
+            
+            logger.info("Age model successfully reset to base model")
+            return True
             
         except Exception as e:
-            logger.error(f"Error marking training data as used: {str(e)}")
-            db.session.rollback() 
+            logger.error(f"Error resetting to base model: {str(e)}")
+            return False 

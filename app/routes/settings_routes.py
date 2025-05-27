@@ -2,6 +2,7 @@ import re
 import os
 from flask import Blueprint, request, jsonify, current_app
 from config import Config # config.py'''daki ana Config sınıfını import ediyoruz
+import datetime
 
 bp = Blueprint('settings_bp', __name__, url_prefix='/api')
 
@@ -32,6 +33,45 @@ FACTORY_DEFAULTS = {
     "MAX_LOST_FRAMES": 30,
     "EMBEDDING_DISTANCE_THRESHOLD": 0.4
 }
+
+def update_settings_state_file(params):
+    """
+    Settings state dosyasını günceller (Flask auto-reload için)
+    """
+    try:
+        state_file_path = os.path.join(os.path.dirname(__file__), '..', 'utils', 'settings_state.py')
+        
+        # Dosyayı oku
+        with open(state_file_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+        
+        # LAST_UPDATE satırını güncelle
+        timestamp = datetime.datetime.now().isoformat()
+        new_content = re.sub(
+            r'LAST_UPDATE = .*',
+            f'LAST_UPDATE = "{timestamp}"',
+            content
+        )
+        
+        # Settings state'i güncelle
+        for key, value in params.items():
+            key_lower = key.lower()
+            new_content = re.sub(
+                f"'{key_lower}': [^,\n]*",
+                f"'{key_lower}': {value}",
+                new_content
+            )
+        
+        # Dosyayı yaz
+        with open(state_file_path, 'w', encoding='utf-8') as f:
+            f.write(new_content)
+            
+        current_app.logger.info(f"Settings state dosyası güncellendi: {params}")
+        return True
+        
+    except Exception as e:
+        current_app.logger.error(f"Settings state dosyası güncellenirken hata: {str(e)}")
+        return False
 
 def update_config_file(params_to_update):
     try:
@@ -204,7 +244,15 @@ def set_analysis_params():
     
     if success:
         current_app.logger.info(f"Successfully updated app.config and config.py file. New app.config for relevant keys: {{k: current_app.config.get(k) for k in params_to_update_in_file}}")
-        return jsonify({"message": "Analysis parameters saved successfully."})
+        
+        # Settings state dosyasını güncelle (Flask auto-reload için)
+        update_settings_state_file(params_to_update_in_file)
+        
+        # Parametreler başarıyla kaydedildi
+        response_data = {"message": "Analysis parameters saved successfully."}
+        response = jsonify(response_data)
+        
+        return response, 200
     else:
         # Potentially revert app.config changes if file write fails? For simplicity, not doing it now.
         current_app.logger.error(f"Failed to save parameters to config.py: {message}. app.config might be out of sync with config.py.")

@@ -4,6 +4,20 @@ from dotenv import load_dotenv
 # .env dosyasını yükle
 load_dotenv()
 
+# Model state'i import et (Flask debug mode bu dosyayı izleyecek)
+try:
+    from app.utils.model_state import MODEL_STATE, LAST_UPDATE as MODEL_LAST_UPDATE
+except ImportError:
+    MODEL_STATE = {}
+    MODEL_LAST_UPDATE = None
+
+# Settings state'i import et (Flask debug mode bu dosyayı izleyecek)
+try:
+    from app.utils.settings_state import SETTINGS_STATE, LAST_UPDATE as SETTINGS_LAST_UPDATE
+except ImportError:
+    SETTINGS_STATE = {}
+    SETTINGS_LAST_UPDATE = None
+
 class Config:
     # Uygulama Ayarları
     SECRET_KEY = os.environ.get('SECRET_KEY') or 'guvenli-anahtar-buraya'
@@ -54,7 +68,7 @@ class Config:
     # VIDEO_FRAME_SAMPLING_RATE = 1 # Videolardan saniyede kaç kare analiz edileceği (KALDIRILDI)
 
     # Yeni Global Analiz Parametreleri (Kullanıcının resmindeki)
-    FACE_DETECTION_CONFIDENCE = 0.15 # (0.1 - 1.0)
+    FACE_DETECTION_CONFIDENCE = 0.2 # (0.1 - 1.0)
     TRACKING_RELIABILITY_THRESHOLD = 0.35 # (0.1 - 0.9)
     ID_CHANGE_THRESHOLD = 0.55 # (0.1 - 0.8)
     MAX_LOST_FRAMES = 30 # (5 - 300)

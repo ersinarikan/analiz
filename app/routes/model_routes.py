@@ -70,13 +70,57 @@ def reset_model_endpoint():
         success, message = reset_model(model_type)
         
         if success:
-            return jsonify({'message': message}), 200
+            return jsonify({'success': True, 'message': message}), 200
         else:
-            return jsonify({'error': message}), 500
+            return jsonify({'success': False, 'error': message}), 500
             
     except Exception as e:
         logger.error(f"Model sıfırlama hatası: {str(e)}")
-        return jsonify({'error': f'Model sıfırlanırken bir hata oluştu: {str(e)}'}), 500
+        return jsonify({'success': False, 'error': f'Model sıfırlanırken bir hata oluştu: {str(e)}'}), 500
+
+@bp.route('/reset/<model_type>', methods=['POST'])
+def reset_model_by_type(model_type):
+    """
+    Belirtilen model tipini sıfırlar (URL parametreli versiyon)
+    
+    Args:
+        model_type: Sıfırlanacak modelin tipi ('content' veya 'age')
+        
+    Returns:
+        JSON: İşlem sonucu
+    """
+    try:
+        if model_type not in ['content', 'age']:
+            return jsonify({'success': False, 'error': 'Geçersiz model tipi. Desteklenen tipler: content, age'}), 400
+            
+        success, message = reset_model(model_type)
+        
+        if success:
+            response_data = {
+                'success': True, 
+                'message': message
+            }
+            
+            # Yaş modeli sıfırlandığında sistem yeniden başlatılmalı
+            if model_type == 'age':
+                logger.info(f"{model_type} modeli sıfırlandı")
+                
+                # Model state dosyasını güncelle
+                from app.services.model_service import update_model_state_file
+                update_model_state_file(model_type, 0)  # 0 = base model
+                
+                response_data['restart_required'] = True
+                response = jsonify(response_data)
+                
+                return response, 200
+            else:
+                return jsonify(response_data), 200
+        else:
+            return jsonify({'success': False, 'error': message}), 500
+            
+    except Exception as e:
+        logger.error(f"Model sıfırlama hatası: {str(e)}")
+        return jsonify({'success': False, 'error': f'Model sıfırlanırken bir hata oluştu: {str(e)}'}), 500
 
 @bp.route('/train', methods=['POST'])
 def train_model():
@@ -204,21 +248,26 @@ def activate_model_version(version_id):
     Belirli bir model versiyonunu aktif hale getirir
     """
     result = model_service.activate_model_version(version_id)
-    return jsonify(result)
-
-@bp.route('/reset', methods=['POST'])
-def reset_model():
-    """
-    Modeli sıfırlar (ön eğitimli orijinal modele geri döner)
-    """
-    data = request.json
-    model_type = data.get('model_type')
     
-    if model_type not in ['content', 'age']:
-        return jsonify({'error': 'Geçersiz model tipi'}), 400
-    
-    result = model_service.reset_model(model_type)
-    return jsonify(result)
+    # Frontend'in beklediği formata uygun yanıt döndür
+    if 'success' in result:
+        if result['success']:
+            # Model başarıyla aktifleştirildi
+            logger.info(f"Model versiyonu {version_id} aktifleştirildi")
+            
+            # model_state.py güncellendiği için Flask otomatik restart yapacak
+            response = jsonify({
+                **result,
+                'message': 'Model başarıyla aktifleştirildi. Sistem otomatik olarak yeniden başlatılacak...',
+                'restart_required': True
+            })
+            
+            return response, 200
+        else:
+            return jsonify(result), 400
+    else:
+        # Eğer result dictionary'de success key'i yoksa ekle
+        return jsonify({'success': True, **result}), 200
 
 @bp.route('/train-with-feedback', methods=['POST'])
 def train_with_feedback():
@@ -334,4 +383,30 @@ def get_age_training_data_stats():
         
     except Exception as e:
         logger.error(f"Eğitim verisi istatistikleri alınırken hata: {str(e)}")
-        return jsonify({'error': str(e)}), 500 
+        return jsonify({'error': str(e)}), 500
+
+@bp.route('/delete-latest/<model_type>', methods=['DELETE'])
+def delete_latest_model_version(model_type):
+    """
+    Belirtilen model tipinin en son versiyonunu siler.
+    
+    Args:
+        model_type: Silinecek model tipi ('age' veya 'content')
+        
+    Returns:
+        JSON: İşlem sonucu
+    """
+    try:
+        if model_type not in ['content', 'age']:
+            return jsonify({'error': 'Geçersiz model tipi. Desteklenen tipler: content, age'}), 400
+        
+        result = model_service.delete_latest_version(model_type)
+        
+        if result['success']:
+            return jsonify(result), 200
+        else:
+            return jsonify(result), 400
+            
+    except Exception as e:
+        logger.error(f"Model versiyonu silme hatası: {str(e)}")
+        return jsonify({'error': f'Model versiyonu silinirken bir hata oluştu: {str(e)}'}), 500 

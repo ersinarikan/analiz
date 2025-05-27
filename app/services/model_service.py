@@ -218,39 +218,62 @@ def reset_model(model_type):
     if model_type not in ['content', 'age']:
         return False, "Geçersiz model tipi"
     
-    model_folder = os.path.join(current_app.config['MODELS_FOLDER'], f"{model_type}_model")
-    pretrained_folder = os.path.join(current_app.config['MODELS_FOLDER'], f"{model_type}_model")
-    
     try:
-        # Mevcut modeli tarih ve saat bilgisiyle yedekle
-        backup_folder = os.path.join(current_app.config['MODELS_FOLDER'], f"{model_type}_model_backup_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}")
-        
-        if os.path.exists(model_folder):
-            shutil.copytree(model_folder, backup_folder)
-            shutil.rmtree(model_folder)
-        
-        # Ön eğitimli modeli mevcut model klasörüne kopyala
-        if os.path.exists(pretrained_folder):
-            shutil.copytree(pretrained_folder, model_folder)
+        if model_type == 'age':
+            # Yaş modeli için özel reset işlemi
+            from app.services.age_training_service import AgeTrainingService
+            trainer = AgeTrainingService()
             
-            # Model konfigürasyonunu sıfırla ve yeni bilgileri kaydet
-            config_path = os.path.join(current_app.config['MODELS_FOLDER'], f"{model_type}_model_config.json")
+            # Tüm versiyonları pasif yap
+            from app.models.content import ModelVersion
+            db.session.query(ModelVersion).filter_by(
+                model_type='age',
+                is_active=True
+            ).update({'is_active': False})
+            db.session.commit()
             
-            config = {
-                "model_type": model_type,
-                "version": "pretrained",
-                "training_history": [],
-                "metrics": {},
-                "reset_date": datetime.datetime.now().isoformat(),
-                "is_pretrained": True
-            }
+            # Base modeli tekrar aktif et
+            success = trainer.reset_to_base_model()
             
-            with open(config_path, 'w') as f:
-                json.dump(config, f, indent=4)
-            
-            return True, f"{model_type.capitalize()} modeli başarıyla sıfırlandı"
+            if success:
+                return True, "Yaş tahmin modeli başarıyla sıfırlandı"
+            else:
+                return False, "Yaş tahmin modeli sıfırlanırken hata oluştu"
+                
         else:
-            return False, "Ön eğitimli model bulunamadı"
+            # İçerik modeli için standart reset işlemi
+            model_folder = os.path.join(current_app.config['MODELS_FOLDER'], f"{model_type}_model")
+            pretrained_folder = os.path.join(current_app.config['MODELS_FOLDER'], f"{model_type}_model_pretrained")
+            
+            # Mevcut modeli tarih ve saat bilgisiyle yedekle
+            backup_folder = os.path.join(current_app.config['MODELS_FOLDER'], f"{model_type}_model_backup_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}")
+            
+            if os.path.exists(model_folder):
+                shutil.copytree(model_folder, backup_folder)
+                shutil.rmtree(model_folder)
+            
+            # Ön eğitimli modeli mevcut model klasörüne kopyala
+            if os.path.exists(pretrained_folder):
+                shutil.copytree(pretrained_folder, model_folder)
+                
+                # Model konfigürasyonunu sıfırla ve yeni bilgileri kaydet
+                config_path = os.path.join(current_app.config['MODELS_FOLDER'], f"{model_type}_model_config.json")
+                
+                config = {
+                    "model_type": model_type,
+                    "version": "pretrained",
+                    "training_history": [],
+                    "metrics": {},
+                    "reset_date": datetime.datetime.now().isoformat(),
+                    "is_pretrained": True
+                }
+                
+                with open(config_path, 'w') as f:
+                    json.dump(config, f, indent=4)
+                
+                return True, f"{model_type.capitalize()} modeli başarıyla sıfırlandı"
+            else:
+                return False, "Ön eğitimli model bulunamadı"
     
     except Exception as e:
         current_app.logger.error(f"Model sıfırlama hatası: {str(e)}")
@@ -742,6 +765,45 @@ def get_model_versions(model_type):
     
     return versions
 
+def update_model_state_file(model_type, version_id):
+    """
+    Model state dosyasını günceller (Flask auto-reload için)
+    """
+    try:
+        import datetime
+        state_file_path = os.path.join(os.path.dirname(__file__), '..', 'utils', 'model_state.py')
+        
+        # Dosyayı oku
+        with open(state_file_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+        
+        # LAST_UPDATE satırını güncelle
+        import re
+        timestamp = datetime.datetime.now().isoformat()
+        new_content = re.sub(
+            r'LAST_UPDATE = .*',
+            f'LAST_UPDATE = "{timestamp}"',
+            content
+        )
+        
+        # Model state'i güncelle
+        new_content = re.sub(
+            f"'{model_type}': {{\s*'active_version': [^,]*,\s*'last_activation': [^}}]*}}",
+            f"'{model_type}': {{\n        'active_version': {version_id},\n        'last_activation': '{timestamp}'\n    }}",
+            new_content
+        )
+        
+        # Dosyayı yaz
+        with open(state_file_path, 'w', encoding='utf-8') as f:
+            f.write(new_content)
+            
+        logger.info(f"Model state dosyası güncellendi: {model_type} -> version {version_id}")
+        return True
+        
+    except Exception as e:
+        logger.error(f"Model state dosyası güncellenirken hata: {str(e)}")
+        return False
+
 def activate_model_version(version_id):
     """
     Belirli bir model versiyonunu aktif hale getirir
@@ -769,6 +831,9 @@ def activate_model_version(version_id):
         # Modeli yükle (uygulama tarafından kullanılmak üzere)
         load_specific_model(version.model_type, version.version)
         
+        # Model state dosyasını güncelle (Flask auto-reload için)
+        update_model_state_file(version.model_type, version_id)
+        
         return {
             "success": True,
             "version": version.version,
@@ -779,49 +844,6 @@ def activate_model_version(version_id):
         return {
             "success": False,
             "message": f"Model aktifleştirme hatası: {str(e)}"
-        }
-
-def reset_model(model_type):
-    """
-    Modeli sıfırlar (ön eğitimli orijinal modele geri döner)
-    """
-    try:
-        # Tüm aktif modelleri devre dışı bırak
-        db.session.query(ModelVersion).filter_by(
-            model_type=model_type,
-            is_active=True
-        ).update({ModelVersion.is_active: False})
-        
-        # Sıfır sürümlü bir model oluş (ön eğitimli model)
-        model_version = ModelVersion(
-            model_type=model_type,
-            version=0,
-            created_at=datetime.now(),
-            metrics={},
-            is_active=True,
-            training_samples=0,
-            validation_samples=0,
-            epochs=0,
-            file_path=f"models/{model_type}/pretrained",
-            weights_path=f"models/{model_type}/pretrained/weights.pth",
-            used_feedback_ids=[]
-        )
-        
-        db.session.add(model_version)
-        db.session.commit()
-        
-        # Ön eğitimli modeli yükle
-        load_pretrained_model(model_type)
-        
-        return {
-            "success": True,
-            "message": f"{model_type} modeli başarıyla sıfırlandı"
-        }
-    except Exception as e:
-        logging.error(f"Model sıfırlama hatası: {str(e)}")
-        return {
-            "success": False,
-            "message": f"Model sıfırlama hatası: {str(e)}"
         }
 
 def load_specific_model(model_type, version):
@@ -1028,4 +1050,75 @@ def get_model_version(model_name):
         'clip': 'ViT-L/14@336px'
     }
     
-    return model_versions.get(model_name, 'unknown') 
+    return model_versions.get(model_name, 'unknown')
+
+def delete_latest_version(model_type):
+    """
+    Belirtilen model tipinin en son versiyonunu siler.
+    
+    Args:
+        model_type: Silinecek model tipi ('age' veya 'content')
+        
+    Returns:
+        dict: İşlem sonucu - success (bool) ve message (str) içerir
+    """
+    try:
+        # En son versiyonu bul
+        latest_version = db.session.query(ModelVersion).filter_by(
+            model_type=model_type
+        ).order_by(ModelVersion.version.desc()).first()
+        
+        if not latest_version:
+            return {
+                "success": False,
+                "message": f"{model_type} tipinde hiç model versiyonu bulunamadı."
+            }
+        
+        # Base model (v0) silinmemeli
+        if latest_version.version == 0:
+            return {
+                "success": False,
+                "message": "Base model (v0) silinemez!"
+            }
+        
+        # Aktif model silinmemeli
+        if latest_version.is_active:
+            return {
+                "success": False,
+                "message": f"Aktif model versiyonu (v{latest_version.version}) silinemez! Önce başka bir versiyonu aktif yapın."
+            }
+        
+        logger.info(f"Silinecek versiyon: {model_type} v{latest_version.version} ({latest_version.version_name})")
+        
+        # Dosya sisteminden sil
+        if latest_version.file_path and os.path.exists(latest_version.file_path):
+            logger.info(f"Dosya sisteminden siliniyor: {latest_version.file_path}")
+            shutil.rmtree(latest_version.file_path)
+            logger.info("Dosyalar silindi")
+        else:
+            logger.warning(f"Dosya yolu bulunamadı veya zaten silinmiş: {latest_version.file_path}")
+        
+        # Veritabanından sil
+        version_info = {
+            "version": latest_version.version,
+            "version_name": latest_version.version_name,
+            "created_at": latest_version.created_at.isoformat() if latest_version.created_at else None
+        }
+        
+        db.session.delete(latest_version)
+        db.session.commit()
+        logger.info("Veritabanı kaydı silindi")
+        
+        return {
+            "success": True,
+            "message": f"Model versiyonu v{version_info['version']} ({version_info['version_name']}) başarıyla silindi.",
+            "deleted_version": version_info
+        }
+        
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Model versiyonu silme hatası: {str(e)}")
+        return {
+            "success": False,
+            "message": f"Silme işlemi sırasında hata oluştu: {str(e)}"
+        } 
