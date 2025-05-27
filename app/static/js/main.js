@@ -593,22 +593,59 @@ function initializeEventListeners() {
     // Model Yönetimi Butonu
     const modelManagementBtn = document.getElementById('modelManagementBtn');
     if (modelManagementBtn) {
+        // Modal element'i bir kez al
+        const modalElement = document.getElementById('modelManagementModal');
+        let modalInstance = null;
+        
+        // Event listener'ları sadece bir kez ekle
+        modalElement.addEventListener('shown.bs.modal', () => {
+            console.log('Model Management Modal açıldı');
+            initializeModelManagementModal();
+        });
+        
+        modalElement.addEventListener('hidden.bs.modal', () => {
+            console.log('Model Management Modal kapandı');
+            cleanupModelManagementModal();
+            
+            // Modal instance'ını temizle
+            if (modalInstance) {
+                modalInstance.dispose();
+                modalInstance = null;
+            }
+            
+            // Backdrop'ı zorla temizle
+            const backdrops = document.querySelectorAll('.modal-backdrop');
+            backdrops.forEach(backdrop => backdrop.remove());
+            
+            // Body'den modal class'larını temizle
+            document.body.classList.remove('modal-open');
+            document.body.style.overflow = '';
+            document.body.style.paddingRight = '';
+        });
+        
+        // Butona tıklandığında modal'ı aç
         modelManagementBtn.addEventListener('click', () => {
-            const modal = new bootstrap.Modal(document.getElementById('modelManagementModal'));
+            // Önceki instance varsa temizle
+            if (modalInstance) {
+                modalInstance.dispose();
+            }
             
-            // Modal açıldığında model yönetimi verilerini yükle
-            modal._element.addEventListener('shown.bs.modal', () => {
-                console.log('Model Management Modal açıldı');
-                initializeModelManagementModal();
+            // Eski backdrop'ları temizle
+            const backdrops = document.querySelectorAll('.modal-backdrop');
+            backdrops.forEach(backdrop => backdrop.remove());
+            
+            // Body'yi temizle
+            document.body.classList.remove('modal-open');
+            document.body.style.overflow = '';
+            document.body.style.paddingRight = '';
+            
+            // Yeni modal instance oluştur ve aç
+            modalInstance = new bootstrap.Modal(modalElement, {
+                backdrop: true,
+                keyboard: true
             });
             
-            // Modal kapandığında interval'ları temizle
-            modal._element.addEventListener('hidden.bs.modal', () => {
-                console.log('Model Management Modal kapandı');
-                cleanupModelManagementModal();
-            });
-            
-            modal.show();
+            modalInstance.show();
         });
     }
     
