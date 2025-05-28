@@ -174,41 +174,35 @@ class InsightFaceAgeEstimator:
             
         # CLIP modelini yükle
         try:
-            # logger.info("CLIP modeli yükleniyor (yaş tahmin güven skoru için ViT-H-14-378-quickgelu, pretrained: dfn5b)")
-            # device = "cuda" if torch.cuda.is_available() else "cpu"
             device = "cuda" if torch.cuda.is_available() and current_app.config.get('USE_GPU', True) else "cpu"
-            self.clip_device = device # clip_device'ı burada ayarla
+            self.clip_device = device
 
-            active_clip_model_path = current_app.config['OPENCLIP_MODEL_ACTIVE_PATH']
-            clip_model_name_from_config = current_app.config['OPENCLIP_MODEL_NAME'].split('_')[0] # örn: ViT-H-14-378-quickgelu
-            pretrained_weights_path = os.path.join(active_clip_model_path, 'open_clip_pytorch_model.bin')
+            # ÖNCELİKLE: Doğru pretrained DFN5B modelini yükle (yaş analizi için)
+            try:
+                logger.info("DFN5B CLIP modeli yükleniyor (yaş tahmini için, pretrained='dfn5b')...")
+                model, _, preprocess_val = open_clip.create_model_and_transforms(
+                    model_name="ViT-H-14-378-quickgelu",
+                    pretrained="dfn5b",  # Doğru pretrained tag
+                    device=self.clip_device,
+                    jit=False
+                )
+                
+                self.clip_model = model
+                self.clip_preprocess = preprocess_val
+                logger.info(f"✅ DFN5B CLIP modeli (yaş tahmini için) {self.clip_device} üzerinde başarıyla yüklendi")
+                
+            except Exception as dfn5b_error:
+                logger.warning(f"DFN5B pretrained model (yaş için) yüklenemedi: {dfn5b_error}")
+                # Fallback: CLIP olmadan devam et
+                self.clip_model = None
+                self.clip_preprocess = None
+                logger.warning("CLIP modeli olmadan güven skoru 0.5 olarak sabitlenecek")
 
-            if not os.path.exists(pretrained_weights_path):
-                logger.error(f"CLIP model ağırlık dosyası (yaş için) bulunamadı: {pretrained_weights_path}")
-                base_clip_model_path = current_app.config['OPENCLIP_MODEL_BASE_PATH']
-                pretrained_weights_path = os.path.join(base_clip_model_path, 'open_clip_pytorch_model.bin')
-                if not os.path.exists(pretrained_weights_path):
-                    logger.error(f"Fallback CLIP model ağırlık dosyası (yaş için) da bulunamadı: {pretrained_weights_path}")
-                    raise FileNotFoundError(f"CLIP model ağırlık dosyası (yaş için) ne aktif ne de base path'te bulunamadı: {pretrained_weights_path}")
-                logger.info(f"Aktif CLIP modeli (yaş için) bulunamadı, base modelden yüklenecek: {pretrained_weights_path}")
-            
-            logger.info(f"CLIP modeli (yaş için) yükleniyor (Model: {clip_model_name_from_config}, Ağırlıklar: {pretrained_weights_path})")
-
-            model, _, preprocess_val = open_clip.create_model_and_transforms(
-                model_name=clip_model_name_from_config, #"ViT-H-14-378-quickgelu",
-                pretrained=pretrained_weights_path, #"dfn5b",
-                device=self.clip_device,
-                jit=False
-            )
-            self.clip_model = model
-            self.clip_preprocess = preprocess_val
-            logger.info(f"CLIP modeli (yaş için {clip_model_name_from_config}, Ağırlıklar: {pretrained_weights_path}) {self.clip_device} üzerinde başarıyla yüklendi.")
-            # self.clip_device = device # Zaten yukarıda ayarlandı
-
-            # Tokenizer'ı yükle (OpenCLIP için)
-            logger.info("OpenCLIP tokenizer (ViT-H-14-378-quickgelu) yaş tahmini için yükleniyor...")
-            self.tokenizer = open_clip.get_tokenizer('ViT-H-14-378-quickgelu')
-            logger.info("OpenCLIP tokenizer (yaş tahmini) başarıyla yüklendi.")
+            # Tokenizer'ı yükle (OpenCLIP için) - sadece CLIP model başarılıysa
+            if self.clip_model is not None:
+                logger.info("OpenCLIP tokenizer (ViT-H-14-378-quickgelu) yaş tahmini için yükleniyor...")
+                self.tokenizer = open_clip.get_tokenizer('ViT-H-14-378-quickgelu')
+                logger.info("OpenCLIP tokenizer (yaş tahmini) başarıyla yüklendi.")
 
         except Exception as e:
             logger.error(f"CLIP modeli yüklenemedi: {str(e)}")

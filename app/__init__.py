@@ -1,5 +1,6 @@
 import os
 import shutil
+from datetime import datetime
 from flask import Flask, send_from_directory, current_app
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
@@ -7,12 +8,16 @@ from flask_cors import CORS
 from flask_socketio import SocketIO
 from config import config
 import logging
-from logging.handlers import RotatingFileHandler
+from logging.handlers import TimedRotatingFileHandler
+import threading
 
 # Global extensions
 db = SQLAlchemy()
 migrate = Migrate()
 socketio = SocketIO()
+
+# Thread-safe logging lock
+_log_lock = threading.Lock()
 
 def create_app(config_name=None):
     """
@@ -32,24 +37,47 @@ def create_app(config_name=None):
     
     app.config.from_object(config[config_name])
     
-    # Loglama her zaman aktif olacak şekilde düzenlendi
-    # Loglama için 'processed' klasörünün var olduğundan emin ol
-    logs_folder = os.path.join(app.config['PROCESSED_FOLDER'], 'logs')
-    os.makedirs(logs_folder, exist_ok=True)
-    log_file_path = os.path.join(logs_folder, 'app.log')
+    # Thread-safe loglama konfigürasyonu
+    with _log_lock:
+        # Loglama için 'processed' klasörünün var olduğundan emin ol
+        logs_folder = os.path.join(app.config['PROCESSED_FOLDER'], 'logs')
+        os.makedirs(logs_folder, exist_ok=True)
+        
+        # Tarih bazlı log dosyası kullan (rotation problemini önlemek için)
+        today_str = datetime.now().strftime('%Y%m%d')
+        log_file_path = os.path.join(logs_folder, f'app_{today_str}.log')
 
-    file_handler = RotatingFileHandler(log_file_path, maxBytes=1048576, backupCount=10)
-    file_handler.setFormatter(logging.Formatter(
-        '%(asctime)s %(levelname)s: %(message)s [in %(pathname)s:%(lineno)d]'
-    ))
-    file_handler.setLevel(logging.INFO)
-    # Önceki handler'ları temizle (tekrar eklemeyi önlemek için, özellikle debug modunda reloader ile)
-    for handler in app.logger.handlers[:]:
-        app.logger.removeHandler(handler)
-    app.logger.addHandler(file_handler)
+        # TimedRotatingFileHandler kullan (günlük rotation, daha güvenli)
+        file_handler = TimedRotatingFileHandler(
+            log_file_path, 
+            when='midnight', 
+            interval=1, 
+            backupCount=7,  # 7 günlük log sakla
+            encoding='utf-8'
+        )
+        file_handler.setFormatter(logging.Formatter(
+            '%(asctime)s %(levelname)s: %(message)s [in %(pathname)s:%(lineno)d]'
+        ))
+        file_handler.setLevel(logging.INFO)
+        
+        # Önceki handler'ları temizle (tekrar eklemeyi önlemek için)
+        for handler in app.logger.handlers[:]:
+            app.logger.removeHandler(handler)
+        app.logger.addHandler(file_handler)
 
-    app.logger.setLevel(logging.INFO)
-    app.logger.info('Uygulama başlatılıyor - Dosya loglama her zaman aktif')
+        app.logger.setLevel(logging.INFO)
+        app.logger.info('Uygulama başlatılıyor - Thread-safe dosya loglama aktif')
+    
+    # Werkzeug HTTP request loglarını kapat (terminalde görünmesin)
+    if not app.config.get('SHOW_HTTP_LOGS', False):
+        werkzeug_logger = logging.getLogger('werkzeug')
+        werkzeug_logger.setLevel(logging.ERROR)
+        
+        # SocketIO loglarını da azalt
+        socketio_logger = logging.getLogger('socketio')
+        socketio_logger.setLevel(logging.WARNING)
+        engineio_logger = logging.getLogger('engineio')
+        engineio_logger.setLevel(logging.WARNING)
     
     # CORS yapılandırması
     CORS(app)
@@ -69,6 +97,7 @@ def create_app(config_name=None):
     from app.routes.debug_routes import bp as debug_bp
     from app.routes.settings_routes import bp as settings_bp
     from app.routes.model_management_routes import model_management_bp
+    from app.routes.clip_training_routes import clip_training_bp
     
     app.register_blueprint(main_bp)
     app.register_blueprint(file_bp)
@@ -78,6 +107,7 @@ def create_app(config_name=None):
     app.register_blueprint(debug_bp)
     app.register_blueprint(settings_bp)
     app.register_blueprint(model_management_bp)
+    app.register_blueprint(clip_training_bp)
     
     # NumPy JSON serializer middleware'i kaydet
     from app.middleware import register_json_middleware
@@ -143,6 +173,9 @@ def initialize_app(app):
         # Eski analiz sonuçlarını temizle (7 günden eski olanları)
         cleanup_old_analysis_results(days_old=7)
         
+        # Model versiyonlarını senkronize et (VT oluşturulduktan sonra)
+        sync_model_versions_on_startup()
+        
         # Analiz kuyruğu servisini başlat
         from app.services.queue_service import start_processor
         print("Analiz kuyruğu servisi başlatılıyor...")
@@ -186,6 +219,7 @@ def cleanup_old_analysis_results(days_old=7):
         from datetime import datetime, timedelta
         from app.models.analysis import Analysis, ContentDetection, AgeEstimation
         from app.models.file import File
+        from app.models.clip_training import CLIPTrainingSession  # CLIP training model import
         
         cutoff_date = datetime.utcnow() - timedelta(days=days_old)
         print(f"Eski analiz sonuçları temizleniyor: {cutoff_date} tarihinden eski olanlar")
@@ -280,6 +314,242 @@ def cleanup_orphaned_files():
         
     except Exception as e:
         print(f"Yetim dosya temizliği sırasında hata: {e}")
+
+def sync_model_versions_on_startup():
+    """
+    Uygulama başlangıcında model versiyonlarını senkronize eder.
+    Dosya sistemindeki v1, v2 gibi versiyonları veritabanına kaydeder.
+    """
+    try:
+        print("🔄 Model versiyonları senkronize ediliyor...")
+        
+        # Age model versiyonlarını senkronize et
+        sync_age_model_versions_startup()
+        
+        # CLIP model versiyonlarını senkronize et
+        sync_clip_model_versions_startup()
+        
+        print("✅ Model versiyonları başarıyla senkronize edildi!")
+        
+    except Exception as e:
+        print(f"❌ Model senkronizasyon hatası: {e}")
+        import traceback
+        traceback.print_exc()
+
+def sync_age_model_versions_startup():
+    """Yaş modeli versiyonlarını startup'ta senkronize eder"""
+    try:
+        from app.models.content import ModelVersion
+        import json
+        
+        # Dosya sistemindeki versiyonları kontrol et
+        versions_dir = os.path.join('storage', 'models', 'age', 'custom_age_head', 'versions')
+        
+        if not os.path.exists(versions_dir):
+            print("📊 Yaş modeli versiyonlar klasörü bulunamadı, atlanıyor...")
+            return
+        
+        version_folders = [d for d in os.listdir(versions_dir) 
+                          if os.path.isdir(os.path.join(versions_dir, d)) and d.startswith('v')]
+        
+        if not version_folders:
+            print("📊 Yaş modeli versiyonu bulunamadı")
+            return
+            
+        print(f"📊 {len(version_folders)} yaş modeli versiyonu bulundu: {version_folders}")
+        
+        for version_folder in version_folders:
+            version_path = os.path.join(versions_dir, version_folder)
+            training_details_path = os.path.join(version_path, 'training_details.json')
+            model_path = os.path.join(version_path, 'model.pth')
+            
+            # Bu versiyon veritabanında var mı kontrol et
+            existing = ModelVersion.query.filter_by(
+                model_type='age',
+                version_name=version_folder
+            ).first()
+            
+            if existing:
+                print(f"   ✓ {version_folder} zaten veritabanında mevcut")
+                continue
+            
+            # Eğitim detaylarını oku
+            if os.path.exists(training_details_path):
+                with open(training_details_path, 'r') as f:
+                    training_details = json.load(f)
+                
+                # Versiyon numarasını belirle
+                if version_folder.startswith('v') and '_' in version_folder:
+                    base_version = int(version_folder.split('_')[0][1:])
+                    version_num = base_version + 1
+                elif version_folder.startswith('v'):
+                    base_version = int(version_folder[1:])
+                    version_num = base_version + 1
+                else:
+                    version_num = 2
+                
+                # Yeni model versiyonu oluştur
+                model_version = ModelVersion(
+                    model_type='age',
+                    version=version_num,
+                    version_name=version_folder,
+                    file_path=version_path,
+                    weights_path=model_path,
+                    metrics=training_details.get('metrics', {}),
+                    training_samples=training_details.get('training_samples', 0),
+                    validation_samples=training_details.get('validation_samples', 0),
+                    epochs=len(training_details.get('history', {}).get('train_loss', [])),
+                    is_active=False,
+                    created_at=datetime.fromisoformat(training_details.get('training_date', datetime.now().isoformat())),
+                    used_feedback_ids=[]
+                )
+                
+                db.session.add(model_version)
+                print(f"   + {version_folder} veritabanına eklendi")
+            else:
+                print(f"   ⚠ {version_folder} için training_details.json bulunamadı")
+        
+        # En son versiyonu aktif yap
+        if version_folders:
+            latest_version = max(version_folders, key=lambda x: os.path.getctime(os.path.join(versions_dir, x)))
+            latest_model = ModelVersion.query.filter_by(
+                model_type='age',
+                version_name=latest_version
+            ).first()
+            
+            if latest_model:
+                ModelVersion.query.filter_by(model_type='age', is_active=True).update({'is_active': False})
+                latest_model.is_active = True
+                print(f"   🎯 {latest_version} aktif olarak ayarlandı")
+        
+        db.session.commit()
+        
+    except Exception as e:
+        print(f"❌ Yaş modeli senkronizasyon hatası: {e}")
+
+def sync_clip_model_versions_startup():
+    """CLIP modeli versiyonlarını startup'ta senkronize eder"""
+    try:
+        from app.models.clip_training import CLIPTrainingSession
+        import json
+        
+        # Base model kaydını kontrol et ve ekle
+        base_model = CLIPTrainingSession.query.filter_by(
+            version_name='base_openclip'
+        ).first()
+        
+        if not base_model:
+            # Base OpenCLIP model kaydını oluştur
+            base_session = CLIPTrainingSession(
+                version_name='base_openclip',
+                feedback_count=0,
+                training_start=datetime(2025, 1, 1),  # Sabit tarih
+                training_end=datetime(2025, 1, 1),
+                status='completed',
+                model_path='storage/models/clip/ViT-H-14-378-quickgelu_dfn5b/active_model',
+                is_active=True,  # Base model aktif olarak başlasın
+                is_successful=True,
+                created_at=datetime(2025, 1, 1)
+            )
+            
+            # Base model parametrelerini ayarla
+            base_session.set_training_params({
+                'model_type': 'ViT-H-14-378-quickgelu',
+                'pretrained': 'dfn5b',
+                'description': 'Base OpenCLIP model - pre-trained'
+            })
+            
+            base_session.set_performance_metrics({
+                'description': 'Pre-trained OpenCLIP model',
+                'model_size': 'ViT-H-14-378-quickgelu'
+            })
+            
+            db.session.add(base_session)
+            print("   + Base OpenCLIP model kaydı oluşturuldu")
+        else:
+            print("   ✓ Base OpenCLIP model zaten veritabanında mevcut")
+        
+        # Dosya sistemindeki versiyonları kontrol et
+        versions_dir = os.path.join('storage', 'models', 'clip', 'versions')
+        
+        if not os.path.exists(versions_dir):
+            print("🤖 CLIP versiyonlar klasörü bulunamadı, sadece base model kullanılacak")
+            db.session.commit()
+            return
+        
+        version_folders = [d for d in os.listdir(versions_dir) 
+                          if os.path.isdir(os.path.join(versions_dir, d)) and d.startswith('v')]
+        
+        if not version_folders:
+            print("🤖 Fine-tuned CLIP versiyonu bulunamadı, sadece base model kullanılacak")
+            db.session.commit()
+            return
+            
+        print(f"🤖 {len(version_folders)} fine-tuned CLIP versiyonu bulundu: {version_folders}")
+        
+        for version_folder in version_folders:
+            version_path = os.path.join(versions_dir, version_folder)
+            metadata_path = os.path.join(version_path, 'metadata.json')
+            model_path = os.path.join(version_path, 'pytorch_model.bin')
+            
+            # Bu versiyon veritabanında var mı kontrol et
+            existing = CLIPTrainingSession.query.filter_by(
+                version_name=version_folder
+            ).first()
+            
+            if existing:
+                print(f"   ✓ {version_folder} zaten veritabanında mevcut")
+                continue
+            
+            # Metadata dosyasını oku
+            if os.path.exists(metadata_path):
+                with open(metadata_path, 'r') as f:
+                    metadata = json.load(f)
+                
+                # Yeni CLIP training session oluştur
+                training_session = CLIPTrainingSession(
+                    version_name=version_folder,
+                    feedback_count=metadata.get('feedback_count', 0),
+                    training_start=datetime.fromisoformat(metadata.get('training_start', datetime.now().isoformat())),
+                    training_end=datetime.fromisoformat(metadata.get('training_end', datetime.now().isoformat())),
+                    status='completed',
+                    model_path=model_path,
+                    is_active=False,
+                    is_successful=True,
+                    created_at=datetime.fromisoformat(metadata.get('created_at', datetime.now().isoformat()))
+                )
+                
+                # Training parametrelerini ayarla
+                if 'training_params' in metadata:
+                    training_session.set_training_params(metadata['training_params'])
+                
+                # Performance metriklerini ayarla
+                if 'performance_metrics' in metadata:
+                    training_session.set_performance_metrics(metadata['performance_metrics'])
+                
+                db.session.add(training_session)
+                print(f"   + {version_folder} veritabanına eklendi")
+            else:
+                print(f"   ⚠ {version_folder} için metadata.json bulunamadı")
+        
+        # En son fine-tuned versiyonu aktif yap (varsa)
+        if version_folders:
+            latest_version = max(version_folders, key=lambda x: os.path.getctime(os.path.join(versions_dir, x)))
+            latest_session = CLIPTrainingSession.query.filter_by(
+                version_name=latest_version
+            ).first()
+            
+            if latest_session:
+                # Tüm versiyonları pasif yap (base model dahil)
+                CLIPTrainingSession.query.update({'is_active': False})
+                # En son fine-tuned versiyonu aktif yap
+                latest_session.is_active = True
+                print(f"   🎯 {latest_version} aktif olarak ayarlandı (base model yerine)")
+        
+        db.session.commit()
+        
+    except Exception as e:
+        print(f"❌ CLIP senkronizasyon hatası: {e}")
 
 def register_global_routes(app):
     @app.route('/processed/<path:filename>')

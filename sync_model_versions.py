@@ -131,5 +131,115 @@ def sync_age_model_versions():
             mae_info = f"MAE: {v.metrics.get('mae', 'N/A')}" if 'mae' in v.metrics else v.metrics.get('description', 'Base Model')
             print(f"- {v.version_name} (v{v.version}) - {status} - {mae_info}")
 
+def sync_clip_model_versions():
+    """CLIP modeli versiyonlarını senkronize eder"""
+    app = create_app()
+    
+    with app.app_context():
+        from app.models.clip_training import CLIPTrainingSession
+        
+        # Mevcut veritabanı kayıtlarını kontrol et
+        existing_sessions = CLIPTrainingSession.query.all()
+        print(f"Veritabanında mevcut {len(existing_sessions)} CLIP training session'ı bulundu")
+        
+        # Dosya sistemindeki versiyonları kontrol et
+        versions_dir = os.path.join('storage', 'models', 'clip', 'versions')
+        
+        if not os.path.exists(versions_dir):
+            print(f"CLIP versiyonlar klasörü bulunamadı: {versions_dir}")
+            return
+        
+        version_folders = [d for d in os.listdir(versions_dir) 
+                          if os.path.isdir(os.path.join(versions_dir, d)) and d.startswith('v')]
+        print(f"Dosya sisteminde {len(version_folders)} CLIP versiyon klasörü bulundu: {version_folders}")
+        
+        for version_folder in version_folders:
+            version_path = os.path.join(versions_dir, version_folder)
+            metadata_path = os.path.join(version_path, 'metadata.json')
+            model_path = os.path.join(version_path, 'pytorch_model.bin')
+            
+            # Metadata dosyasını oku
+            if os.path.exists(metadata_path):
+                with open(metadata_path, 'r') as f:
+                    metadata = json.load(f)
+                
+                # Bu versiyon veritabanında var mı kontrol et
+                existing = CLIPTrainingSession.query.filter_by(
+                    version_name=version_folder
+                ).first()
+                
+                if existing:
+                    print(f"CLIP versiyon {version_folder} zaten veritabanında mevcut")
+                    continue
+                
+                # Yeni CLIP training session oluştur
+                training_session = CLIPTrainingSession(
+                    version_name=version_folder,
+                    feedback_count=metadata.get('feedback_count', 0),
+                    training_start=datetime.fromisoformat(metadata.get('training_start', datetime.now().isoformat())),
+                    training_end=datetime.fromisoformat(metadata.get('training_end', datetime.now().isoformat())),
+                    status='completed',
+                    model_path=model_path,
+                    is_active=False,  # Başlangıçta aktif değil
+                    is_successful=True,
+                    created_at=datetime.fromisoformat(metadata.get('created_at', datetime.now().isoformat()))
+                )
+                
+                # Training parametrelerini ayarla
+                if 'training_params' in metadata:
+                    training_session.set_training_params(metadata['training_params'])
+                
+                # Performance metriklerini ayarla
+                if 'performance_metrics' in metadata:
+                    training_session.set_performance_metrics(metadata['performance_metrics'])
+                
+                db.session.add(training_session)
+                print(f"CLIP versiyon {version_folder} veritabanına eklendi")
+            else:
+                print(f"CLIP metadata bulunamadı: {metadata_path}")
+        
+        # En son versiyonu aktif yap
+        if version_folders:
+            latest_version = max(version_folders, key=lambda x: os.path.getctime(os.path.join(versions_dir, x)))
+            latest_session = CLIPTrainingSession.query.filter_by(
+                version_name=latest_version
+            ).first()
+            
+            if latest_session:
+                # Diğer tüm versiyonları pasif yap
+                CLIPTrainingSession.query.update({'is_active': False})
+                
+                # En son versiyonu aktif yap
+                latest_session.is_active = True
+                print(f"En son CLIP versiyon {latest_version} aktif olarak ayarlandı")
+        
+        db.session.commit()
+        print("CLIP senkronizasyon tamamlandı!")
+        
+        # Sonuçları göster
+        final_sessions = CLIPTrainingSession.query.order_by(CLIPTrainingSession.created_at).all()
+        print(f"\nSonuç: Veritabanında {len(final_sessions)} CLIP training session'ı:")
+        for s in final_sessions:
+            status = "AKTİF" if s.is_active else "Pasif"
+            print(f"- {s.version_name} (ID: {s.id}) - {status} - {s.feedback_count} feedback")
+
+def sync_all_model_versions():
+    """Tüm model versiyonlarını senkronize eder"""
+    print("🔄 Model versiyonları senkronize ediliyor...")
+    
+    try:
+        print("\n📊 Yaş modeli versiyonları senkronize ediliyor...")
+        sync_age_model_versions()
+        
+        print("\n🤖 CLIP modeli versiyonları senkronize ediliyor...")
+        sync_clip_model_versions()
+        
+        print("\n✅ Tüm model versiyonları başarıyla senkronize edildi!")
+        
+    except Exception as e:
+        print(f"❌ Senkronizasyon hatası: {e}")
+        import traceback
+        traceback.print_exc()
+
 if __name__ == "__main__":
-    sync_age_model_versions() 
+    sync_all_model_versions() 

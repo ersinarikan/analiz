@@ -23,3 +23,10 @@ def model_management():
     Model yönetimi sayfası.
     """
     return render_template('model_management.html') 
+
+@bp.route('/clip-monitoring')
+def clip_monitoring():
+    """
+    CLIP Training Monitoring Dashboard.
+    """
+    return render_template('clip_monitoring.html') 

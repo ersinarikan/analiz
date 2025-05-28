@@ -12,6 +12,13 @@ import psutil
 import threading
 from datetime import datetime, timedelta
 
+# TensorFlow uyarılarını bastır
+import warnings
+warnings.filterwarnings('ignore', category=DeprecationWarning)
+import tensorflow as tf
+# Güncel TensorFlow 2.x logging API'si kullan
+tf.get_logger().setLevel('ERROR')
+
 from app.models.analysis import Analysis
 from app.services.analysis_service import AnalysisService
 from app.services.queue_service import get_queue_status

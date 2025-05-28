@@ -941,8 +941,8 @@
                             </div>
                             
 
-                        </div>
-                        
+    </div>
+    
                         <!-- Model Eğitimi Sekmesi -->
                         <div class="tab-pane fade" id="modelTrainingTab" role="tabpanel" aria-labelledby="model-training-tab">
                             <!-- Eğitim Parametreleri -->
@@ -952,59 +952,59 @@
                                         <div class="card-header">
                                             <h5 class="mb-0">
                                                 <i class="fas fa-cogs me-2"></i>Eğitim Parametreleri
-                                            </h5>
-                                        </div>
+                    </h5>
+                </div>
                                         <div class="card-body">
                                             <form id="trainingParamsForm">
-                                                <div class="mb-3">
+                    <div class="mb-3">
                                                     <label class="form-label">Model Türü</label>
                                                     <select class="form-select" id="trainingModelType">
                                                         <option value="content">İçerik Analiz Modeli</option>
                                                         <option value="age">Yaş Tahmin Modeli</option>
-                                                    </select>
-                                                </div>
-                                                
-                                                <div class="mb-3">
+                        </select>
+                    </div>
+                    
+                    <div class="mb-3">
                                                     <label class="form-label">Epoch Sayısı</label>
                                                     <select class="form-select" id="trainingEpochs">
                                                         <option value="10">10 (Hızlı)</option>
                                                         <option value="20" selected>20 (Normal)</option>
                                                         <option value="30">30 (Kapsamlı)</option>
-                                                        <option value="50">50 (Detaylı)</option>
-                                                    </select>
+                            <option value="50">50 (Detaylı)</option>
+                        </select>
                                                     <div class="form-text">Daha fazla epoch, daha iyi sonuçlar verir ama daha uzun sürer</div>
-                                                </div>
-                                                
-                                                <div class="mb-3">
+                    </div>
+                    
+                    <div class="mb-3">
                                                     <label class="form-label">Batch Boyutu</label>
                                                     <select class="form-select" id="trainingBatchSize">
                                                         <option value="8">8 (Düşük RAM)</option>
-                                                        <option value="16" selected>16 (Normal)</option>
+                            <option value="16" selected>16 (Normal)</option>
                                                         <option value="32">32 (Yüksek RAM)</option>
                                                         <option value="64">64 (Çok Yüksek RAM)</option>
-                                                    </select>
-                                                </div>
-                                                
-                                                <div class="mb-3">
+                        </select>
+                    </div>
+                    
+                    <div class="mb-3">
                                                     <label class="form-label">Öğrenme Oranı</label>
                                                     <select class="form-select" id="trainingLearningRate">
-                                                        <option value="0.0001">0.0001 (Çok Yavaş)</option>
-                                                        <option value="0.001" selected>0.001 (Normal)</option>
+                            <option value="0.0001">0.0001 (Çok Yavaş)</option>
+                            <option value="0.001" selected>0.001 (Normal)</option>
                                                         <option value="0.005">0.005 (Hızlı)</option>
                                                         <option value="0.01">0.01 (Çok Hızlı)</option>
-                                                    </select>
-                                                </div>
-                                                
+                        </select>
+                    </div>
+                    
                                                 <!-- Content Model için özel ayarlar -->
                                                 <div id="contentModelSettings" style="display: none;">
-                                                    <div class="mb-3">
+                        <div class="mb-3">
                                                         <label class="form-label">Eğitim Modu</label>
                                                         <select class="form-select" id="trainingMode">
                                                             <option value="regression" selected>Regression (Skor Tahmini)</option>
                                                             <option value="classification">Classification (Binary)</option>
                                                         </select>
                                                         <div class="form-text">Regression mode önerilen seçenektir</div>
-                                                    </div>
+                            </div>
                                                     
                                                     <div class="mb-3">
                                                         <label class="form-label">Validation Strategy</label>
@@ -1022,9 +1022,9 @@
                                                             <option value="latest">Latest (En son feedback)</option>
                                                             <option value="ignore">Ignore (Çelişkileri yoksay)</option>
                                                         </select>
-                                                    </div>
-                                                </div>
-                                                
+                            </div>
+                        </div>
+                        
                                                 <div class="mb-3">
                                                     <label class="form-label">Early Stopping Patience</label>
                                                     <select class="form-select" id="trainingPatience">

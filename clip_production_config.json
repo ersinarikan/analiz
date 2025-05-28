@@ -1,0 +1,40 @@
+{
+  "CLIP_TRAINING": {
+    "DEFAULT_PARAMS": {
+      "learning_rate": 1e-05,
+      "batch_size": 16,
+      "epochs": 10,
+      "train_split": 0.8,
+      "min_feedback_count": 100
+    },
+    "CATEGORIES": [
+      "violence",
+      "adult_content",
+      "harassment",
+      "weapon",
+      "drug"
+    ],
+    "MODEL_SETTINGS": {
+      "model_name": "ViT-H-14-378-quickgelu",
+      "pretrained": "dfn5b",
+      "device": "auto"
+    },
+    "STORAGE": {
+      "models_path": "storage/models/clip",
+      "versions_path": "storage/models/clip/versions",
+      "backup_path": "storage/models/clip/backups",
+      "logs_path": "storage/processed/logs"
+    },
+    "TRAINING": {
+      "max_concurrent_sessions": 1,
+      "auto_cleanup_failed": true,
+      "checkpoint_frequency": 1,
+      "early_stopping_patience": 3
+    }
+  },
+  "DEPLOYMENT": {
+    "version": "1.0.0",
+    "deployed_at": "2025-05-28T02:36:03.544892",
+    "environment": "production"
+  }
+}

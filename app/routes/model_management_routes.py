@@ -20,6 +20,48 @@ def get_model_stats_route(model_type):
         logger.error(f"/{model_type}/stats endpoint hatası: {str(e)}", exc_info=True)
         return jsonify({"error": f"İstatistikler alınırken sunucu hatası: {str(e)}"}), 500
 
+@model_management_bp.route('/versions/<string:model_type>', methods=['GET'])
+def get_model_versions_route(model_type):
+    """ Belirtilen model tipi için versiyonları döndürür. """
+    if model_type not in ['content', 'age']:
+        return jsonify({"error": "Invalid model type"}), 400
+    try:
+        versions_data = model_service.get_model_versions(model_type)
+        if versions_data.get('success', False):
+            return jsonify(versions_data), 200
+        else:
+            return jsonify({"error": versions_data.get('error', 'Bilinmeyen hata')}), 500
+    except Exception as e:
+        logger.error(f"/{model_type}/versions endpoint hatası: {str(e)}", exc_info=True)
+        return jsonify({"error": f"Versiyonlar alınırken sunucu hatası: {str(e)}"}), 500
+
+@model_management_bp.route('/metrics/<string:model_type>', methods=['GET'])
+def get_model_metrics_route(model_type):
+    """ Belirtilen model tipi için metrikleri döndürür. """
+    if model_type not in ['content', 'age']:
+        return jsonify({"error": "Invalid model type"}), 400
+    try:
+        stats = model_service.get_model_dashboard_stats(model_type)
+        if stats is None:
+            return jsonify({"error": f"{model_type} için metrikler bulunamadı."}), 404
+        return jsonify(stats), 200
+    except Exception as e:
+        logger.error(f"/{model_type}/metrics endpoint hatası: {str(e)}", exc_info=True)
+        return jsonify({"error": f"Metrikler alınırken sunucu hatası: {str(e)}"}), 500
+
+@model_management_bp.route('/activate/<int:version_id>', methods=['POST'])
+def activate_model_version_route(version_id):
+    """ Belirtilen versiyon ID'sine sahip modeli aktifleştirir. """
+    try:
+        result = model_service.activate_model_version(version_id)
+        if result['success']:
+            return jsonify(result), 200
+        else:
+            return jsonify({"error": result.get('message', 'Bilinmeyen hata')}), 500
+    except Exception as e:
+        logger.error(f"/activate/{version_id} endpoint hatası: {str(e)}", exc_info=True)
+        return jsonify({"error": f"Model aktivasyonunda sunucu hatası: {str(e)}"}), 500
+
 @model_management_bp.route('/train/<string:model_type>', methods=['POST'])
 def train_model_route(model_type):
     """ Belirtilen model tipini geri bildirimlerle eğitir. """
@@ -69,4 +111,21 @@ def reset_model_route(model_type):
             return jsonify({"error": message}), 500
     except Exception as e:
         logger.error(f"/{model_type}/reset endpoint hatası: {str(e)}", exc_info=True)
-        return jsonify({"error": f"Model sıfırlanırken sunucu hatası: {str(e)}"}), 500 
+        return jsonify({"error": f"Model sıfırlanırken sunucu hatası: {str(e)}"}), 500
+
+@model_management_bp.route('/reload-content-analyzer', methods=['POST'])
+def reload_content_analyzer():
+    """ContentAnalyzer'ı yeniden yükler"""
+    try:
+        from app.ai.content_analyzer import ContentAnalyzer
+        ContentAnalyzer.reset_instance()
+        
+        # Yeni instance oluştur
+        analyzer = ContentAnalyzer()
+        if analyzer.initialized:
+            return jsonify({"message": "ContentAnalyzer başarıyla yeniden yüklendi"}), 200
+        else:
+            return jsonify({"error": "ContentAnalyzer yeniden yükleme başarısız"}), 500
+    except Exception as e:
+        logger.error(f"ContentAnalyzer yeniden yükleme hatası: {str(e)}")
+        return jsonify({"error": f"Yeniden yükleme hatası: {str(e)}"}), 500 

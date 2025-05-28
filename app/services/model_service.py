@@ -4,7 +4,14 @@ import json
 import datetime
 import logging
 import numpy as np
+
+# TensorFlow uyarılarını bastır
+import warnings
+warnings.filterwarnings('ignore', category=DeprecationWarning)
 import tensorflow as tf
+# Güncel TensorFlow 2.x logging API'si kullan
+tf.get_logger().setLevel('ERROR')
+
 from flask import current_app
 from app import db
 from app.models.feedback import Feedback
@@ -14,10 +21,96 @@ from app.models.content import ModelVersion
 from app.services import db_service
 import time
 
+# Yaş modeli için torch ve CustomAgeHead import'ları
+import torch
+from app.ai.insightface_age_estimator import CustomAgeHead
+
 logger = logging.getLogger(__name__)
 
 # model_cache sözlüğü - bir kez yüklenen modelleri önbelleğe alır
 _model_cache = {}
+
+def load_age_model(model_path):
+    """
+    Belirtilen yoldan yaş tahmin modelini yükler (CustomAgeHead)
+    
+    Args:
+        model_path: Model dosyasının tam yolu (.pth dosyası)
+        
+    Returns:
+        Yüklenen CustomAgeHead modeli veya None
+    """
+    try:
+        device = torch.device("cuda" if torch.cuda.is_available() and current_app.config.get('USE_GPU', True) else "cpu")
+        
+        logger.info(f"Yaş modeli yükleniyor: {model_path}")
+        
+        if not os.path.exists(model_path):
+            logger.error(f"Model dosyası bulunamadı: {model_path}")
+            return None
+            
+        # Model checkpoint'ini yükle
+        checkpoint = torch.load(model_path, map_location='cpu', weights_only=True)
+        
+        # Model konfigürasyonunu al
+        if 'model_config' in checkpoint:
+            model_config = checkpoint['model_config']
+            model = CustomAgeHead(
+                input_size=model_config['input_dim'],
+                hidden_dims=model_config['hidden_dims'],
+                output_dim=model_config['output_dim']
+            )
+        else:
+            # Varsayılan konfigürasyon
+            model = CustomAgeHead(input_size=512, hidden_dims=[256, 128], output_dim=1)
+        
+        # Model ağırlıklarını yükle
+        if 'model_state_dict' in checkpoint:
+            model.load_state_dict(checkpoint['model_state_dict'])
+        else:
+            # Eski formatta kaydedilmiş olabilir
+            model.load_state_dict(checkpoint)
+        
+        model.eval()  # Evaluation moduna geç
+        model.to(device)
+        
+        logger.info(f"Yaş modeli başarıyla yüklendi: {model_path}")
+        return model
+        
+    except Exception as e:
+        logger.error(f"Yaş modeli yüklenirken hata: {str(e)}")
+        return None
+
+def load_content_model(model_path):
+    """
+    Belirtilen yoldan içerik analiz modelini yükler (CLIP tabanlı)
+    
+    Args:
+        model_path: Model dosyasının tam yolu
+        
+    Returns:
+        Yüklenen içerik modeli veya None
+    """
+    try:
+        logger.info(f"İçerik modeli yükleniyor: {model_path}")
+        
+        if not os.path.exists(model_path):
+            logger.error(f"Model dosyası bulunamadı: {model_path}")
+            return None
+            
+        # ContentAnalyzer'ın CLIP tabanlı modelini yükle
+        content_analyzer = ContentAnalyzer()
+        
+        if content_analyzer.initialized:
+            logger.info(f"İçerik analiz modeli başarıyla yüklendi: {model_path}")
+            return content_analyzer
+        else:
+            logger.error(f"İçerik analiz modeli yüklenemedi: {model_path}")
+            return None
+            
+    except Exception as e:
+        logger.error(f"İçerik modeli yüklenirken hata: {str(e)}")
+        return None
 
 def get_model_stats(model_type='all'):
     """Model performans istatistiklerini döndürür. Belirtilen model tipine göre istatistikleri filtreler."""
@@ -240,11 +333,94 @@ def reset_model(model_type):
             else:
                 return False, "Yaş tahmin modeli sıfırlanırken hata oluştu"
                 
+        elif model_type == 'content':
+            # CLIP İçerik modeli için özel reset işlemi
+            from app.models.clip_training import CLIPTrainingSession
+            from app.models.content import ModelVersion
+            
+            # Tüm content model versiyonlarını pasif yap
+            db.session.query(ModelVersion).filter_by(
+                model_type='content',
+                is_active=True
+            ).update({'is_active': False})
+            
+            # Tüm CLIP training sessions'ları pasif yap
+            db.session.query(CLIPTrainingSession).update({'is_active': False})
+            
+            # Base OpenCLIP modelini aktif yap
+            base_session = CLIPTrainingSession.query.filter_by(
+                version_name='base_openclip'
+            ).first()
+            
+            # Base session yoksa oluştur
+            if not base_session:
+                base_session = CLIPTrainingSession(
+                    version_name='base_openclip',
+                    session_name='Base OpenCLIP Model',
+                    status='completed',
+                    is_active=True,
+                    created_at=datetime.datetime.now(),
+                    model_path=current_app.config['OPENCLIP_MODEL_BASE_PATH'],
+                    training_data={
+                        'total_pairs': 0,
+                        'train_pairs': 0,
+                        'val_pairs': 0
+                    },
+                    performance_metrics={
+                        'type': 'base_model',
+                        'description': 'Original pretrained OpenCLIP model'
+                    }
+                )
+                db.session.add(base_session)
+            else:
+                base_session.is_active = True
+            
+            db.session.commit()
+            
+            # Active model klasörünü base model ile güncelle
+            active_model_path = current_app.config['OPENCLIP_MODEL_ACTIVE_PATH']
+            base_model_path = current_app.config['OPENCLIP_MODEL_BASE_PATH']
+            
+            # Base model var mı kontrol et
+            if not os.path.exists(base_model_path):
+                return False, "Base OpenCLIP modeli bulunamadı"
+            
+            # Mevcut active model'i backup'la
+            backup_path = os.path.join(
+                current_app.config['MODELS_FOLDER'], 
+                'clip', 
+                'backups', 
+                f"active_backup_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            )
+            
+            if os.path.exists(active_model_path):
+                os.makedirs(os.path.dirname(backup_path), exist_ok=True)
+                shutil.copytree(active_model_path, backup_path)
+                shutil.rmtree(active_model_path)
+            
+            # Base model'i active olarak kopyala
+            shutil.copytree(base_model_path, active_model_path)
+            
+            # Active model metadata'sını güncelle
+            metadata = {
+                'reset_date': datetime.datetime.now().isoformat(),
+                'source': 'base_model',
+                'backup_path': backup_path if os.path.exists(backup_path) else None,
+                'model_type': 'base_openclip',
+                'session_id': base_session.id,
+                'version_name': 'base_openclip'
+            }
+            
+            metadata_path = os.path.join(active_model_path, 'version_info.json')
+            with open(metadata_path, 'w') as f:
+                json.dump(metadata, f, indent=4)
+            
+            return True, "İçerik analiz modeli başarıyla base OpenCLIP modeline sıfırlandı"
         else:
-            # İçerik modeli için standart reset işlemi
+            # Diğer model tipleri için standart reset işlemi
             model_folder = os.path.join(current_app.config['MODELS_FOLDER'], f"{model_type}_model")
             pretrained_folder = os.path.join(current_app.config['MODELS_FOLDER'], f"{model_type}_model_pretrained")
-            
+    
             # Mevcut modeli tarih ve saat bilgisiyle yedekle
             backup_folder = os.path.join(current_app.config['MODELS_FOLDER'], f"{model_type}_model_backup_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}")
             
@@ -844,24 +1020,52 @@ def get_age_model_versions():
         base_model_path = current_app.config['AGE_MODEL_BASE_PATH']
         base_model_exists = os.path.exists(os.path.join(base_model_path, 'age_model.h5'))
         
+        # Versiyonları hazırla
+        versions_list = []
+        
+        # Eğer hiç eğitilmiş model yoksa veya aktif versiyon belirlenmemişse, base model aktiftir
+        has_active_custom_version = any(v.is_active for v in db_versions)
+        base_is_active = not has_active_custom_version and active_version is None
+        
+        # Base model'i her zaman ilk versiyon olarak ekle
+        if base_model_exists:
+            versions_list.append({
+                'id': 0,  # Base model için özel ID
+                'version': 0,
+                'version_name': 'base_model',
+                'created_at': None,  # Base model için yaratılma tarihi yok
+                'is_active': base_is_active,
+                'training_samples': 0,
+                'validation_samples': 0,
+                'epochs': 0,
+                'metrics': {
+                    'type': 'base_pretrained',
+                    'description': 'InsightFace Buffalo-L önceden eğitilmiş model',
+                    'mae': 39.51  # Temel model için sabit MAE değeri
+                },
+                'model_type': 'age'
+            })
+        
+        # Veritabanındaki custom versiyonları ekle
+        for v in db_versions:
+            versions_list.append({
+                'id': getattr(v, 'id', 0),
+                'version': getattr(v, 'version', 0),
+                'version_name': getattr(v, 'version_name', 'unknown'),
+                'created_at': getattr(v, 'created_at', None).isoformat() if getattr(v, 'created_at', None) else None,
+                'is_active': getattr(v, 'is_active', False) or (getattr(v, 'version_name', '') == active_version),
+                'training_samples': getattr(v, 'training_samples', 0),
+                'validation_samples': getattr(v, 'validation_samples', 0),
+                'epochs': getattr(v, 'epochs', 0),
+                'metrics': getattr(v, 'metrics', {}),
+                'model_type': 'age'
+            })
+        
         return {
             'success': True,
-            'versions': [
-                {
-                    'id': getattr(v, 'id', 0),
-                    'version': getattr(v, 'version', 0),
-                    'version_name': getattr(v, 'version_name', 'unknown'),
-                    'created_at': getattr(v, 'created_at', None).isoformat() if getattr(v, 'created_at', None) else None,
-                    'is_active': getattr(v, 'is_active', False) or (getattr(v, 'version_name', '') == active_version),
-                    'training_samples': getattr(v, 'training_samples', 0),
-                    'validation_samples': getattr(v, 'validation_samples', 0),
-                    'epochs': getattr(v, 'epochs', 0),
-                    'metrics': getattr(v, 'metrics', {}),
-                    'model_type': 'age'
-                } for v in db_versions
-            ],
+            'versions': versions_list,
             'physical_versions': physical_versions,
-            'active_version': active_version,
+            'active_version': active_version if active_version else ('base_model' if base_is_active else None),
             'base_model_exists': base_model_exists,
             'versions_path': versions_path,
             'active_path': active_model_path,
@@ -912,8 +1116,7 @@ def get_content_model_versions():
         active_version = None
         
         if os.path.exists(active_model_path):
-            # active_model klasöründeki symlink veya referansı kontrol et
-            # Şimdilik version_info.json varsa onu oku
+            # active_model klasöründeki version_info.json varsa onu oku
             active_info_path = os.path.join(active_model_path, 'version_info.json')
             if os.path.exists(active_info_path):
                 try:
@@ -927,24 +1130,51 @@ def get_content_model_versions():
         base_model_path = current_app.config['OPENCLIP_MODEL_BASE_PATH']
         base_model_exists = os.path.exists(os.path.join(base_model_path, 'open_clip_pytorch_model.bin'))
         
+        # Versiyonları hazırla
+        versions_list = []
+        
+        # Eğer hiç eğitilmiş model yoksa veya aktif versiyon belirlenmemişse, base model aktiftir
+        has_active_custom_version = any(v.is_active for v in db_versions)
+        base_is_active = not has_active_custom_version and active_version is None
+        
+        # Base OpenCLIP modelini her zaman ilk versiyon olarak ekle
+        if base_model_exists:
+            versions_list.append({
+                'id': 0,  # Base model için özel ID
+                'version': 0,
+                'version_name': 'base_openclip',
+                'created_at': None,  # Base model için yaratılma tarihi yok
+                'is_active': base_is_active,
+                'training_samples': 0,
+                'validation_samples': 0,
+                'epochs': 0,
+                'metrics': {
+                    'type': 'base_pretrained',
+                    'description': 'OpenCLIP ViT-H/14 önceden eğitilmiş model'
+                },
+                'model_type': 'content'
+            })
+        
+        # Veritabanındaki custom versiyonları ekle
+        for v in db_versions:
+            versions_list.append({
+                'id': getattr(v, 'id', 0),
+                'version': getattr(v, 'version', 0),
+                'version_name': getattr(v, 'version_name', 'unknown'),
+                'created_at': getattr(v, 'created_at', None).isoformat() if getattr(v, 'created_at', None) else None,
+                'is_active': getattr(v, 'is_active', False) or (getattr(v, 'version_name', '') == active_version),
+                'training_samples': getattr(v, 'training_samples', 0),
+                'validation_samples': getattr(v, 'validation_samples', 0),
+                'epochs': getattr(v, 'epochs', 0),
+                'metrics': getattr(v, 'metrics', {}),
+                'model_type': 'content'
+            })
+        
         return {
             'success': True,
-            'versions': [
-                {
-                    'id': getattr(v, 'id', 0),
-                    'version': getattr(v, 'version', 0),
-                    'version_name': getattr(v, 'version_name', 'unknown'),
-                    'created_at': getattr(v, 'created_at', None).isoformat() if getattr(v, 'created_at', None) else None,
-                    'is_active': getattr(v, 'is_active', False) or (getattr(v, 'version_name', '') == active_version),
-                    'training_samples': getattr(v, 'training_samples', 0),
-                    'validation_samples': getattr(v, 'validation_samples', 0),
-                    'epochs': getattr(v, 'epochs', 0),
-                    'metrics': getattr(v, 'metrics', {}),
-                    'model_type': 'content'
-                } for v in db_versions
-            ],
+            'versions': versions_list,
             'physical_versions': physical_versions,
-            'active_version': active_version,
+            'active_version': active_version if active_version else ('base_openclip' if base_is_active else None),
             'base_model_exists': base_model_exists,
             'versions_path': versions_path,
             'active_path': active_model_path,
@@ -1243,7 +1473,7 @@ def get_model_version(model_name):
         'clip': 'ViT-L/14@336px'
     }
     
-    return model_versions.get(model_name, 'unknown')
+    return model_versions.get(model_name, 'unknown') 
 
 def delete_latest_version(model_type):
     """
@@ -1314,4 +1544,60 @@ def delete_latest_version(model_type):
         return {
             "success": False,
             "message": f"Silme işlemi sırasında hata oluştu: {str(e)}"
-        } 
+        }
+
+def get_model_dashboard_stats(model_type):
+    """
+    Model dashboard için istatistikleri getirir
+    
+    Args:
+        model_type: 'age' veya 'content'
+        
+    Returns:
+        dict: Model dashboard istatistikleri
+    """
+    try:
+        if model_type == 'age':
+            return _get_age_model_stats()
+        elif model_type == 'content':
+            return _get_content_model_stats()
+        else:
+            logger.error(f"Geçersiz model tipi: {model_type}")
+            return None
+            
+    except Exception as e:
+        logger.error(f"Model dashboard istatistikleri alınırken hata: {str(e)}")
+        return None
+
+def load_specific_model_by_version_id(model_type, version_id):
+    """
+    Belirli versiyon ID'si ile modeli yükler ve aktif yapar
+    
+    Args:
+        model_type: Model tipi ('age' veya 'content')
+        version_id: Aktif yapılacak versiyon ID'si
+        
+    Returns:
+        tuple: (success, message)
+    """
+    try:
+        # Versiyonu bul
+        version = db.session.query(ModelVersion).filter_by(id=version_id).first()
+        
+        if not version:
+            return False, "Belirtilen model versiyonu bulunamadı"
+        
+        if version.model_type != model_type:
+            return False, "Model tipi uyuşmuyor"
+        
+        # Activate model version fonksiyonunu kullan
+        result = activate_model_version(version_id)
+        
+        if result['success']:
+            return True, f"{model_type} modeli v{result['version']} başarıyla aktifleştirildi"
+        else:
+            return False, result.get('message', 'Bilinmeyen hata')
+            
+    except Exception as e:
+        logger.error(f"Model versiyon yükleme hatası: {str(e)}")
+        return False, f"Model yükleme hatası: {str(e)}" 

@@ -4,6 +4,13 @@ from dotenv import load_dotenv
 # .env dosyasını yükle
 load_dotenv()
 
+# TensorFlow uyarılarını bastır (tüm modüller için geçerli)
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # 0=ALL, 1=INFO, 2=WARNING, 3=ERROR
+os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'  # oneDNN uyarılarını kapat
+
+# Ultralytics uyarılarını bastır
+os.environ['YOLO_VERBOSE'] = 'False'
+
 # Albumentations günceleme kontrolünü devre dışı bırak
 os.environ['NO_ALBUMENTATIONS_UPDATE'] = '1'
 
@@ -25,6 +32,9 @@ class Config:
     # Uygulama Ayarları
     SECRET_KEY = os.environ.get('SECRET_KEY') or 'guvenli-anahtar-buraya'
     DEBUG = os.environ.get('DEBUG', 'False').lower() in ('true', '1', 't')
+    
+    # Logging Ayarları
+    SHOW_HTTP_LOGS = os.environ.get('SHOW_HTTP_LOGS', 'False').lower() in ('true', '1', 't')
     
     # Veritabanı Ayarları
     SQLALCHEMY_DATABASE_URI = os.environ.get('DATABASE_URL') or 'sqlite:///wsanaliz.db'
@@ -85,11 +95,11 @@ class Config:
     # VIDEO_FRAME_SAMPLING_RATE = 1 # Videolardan saniyede kaç kare analiz edileceği (KALDIRILDI)
 
     # Yeni Global Analiz Parametreleri (Kullanıcının resmindeki)
-    FACE_DETECTION_CONFIDENCE = 0.2 # (0.1 - 1.0)
-    TRACKING_RELIABILITY_THRESHOLD = 0.35 # (0.1 - 0.9)
-    ID_CHANGE_THRESHOLD = 0.55 # (0.1 - 0.8)
+    FACE_DETECTION_CONFIDENCE = 0.5 # (0.1 - 1.0)
+    TRACKING_RELIABILITY_THRESHOLD = 0.5 # (0.1 - 0.9)
+    ID_CHANGE_THRESHOLD = 0.45 # (0.1 - 0.8)
     MAX_LOST_FRAMES = 30 # (5 - 300)
-    EMBEDDING_DISTANCE_THRESHOLD = 0.45 # (0.1 - 0.8)
+    EMBEDDING_DISTANCE_THRESHOLD = 0.4 # (0.1 - 0.8)
 
     # Görüntü işleme
     CLIP_ADULT_THRESHOLD = 0.6 # Örnek eşik değeri, ihtiyaca göre ayarlayın
@@ -115,10 +125,11 @@ class DevelopmentConfig(Config):
 
 class TestingConfig(Config):
     TESTING = True
-    SQLALCHEMY_DATABASE_URI = 'sqlite:///wsanaliz_test.db'
+    SQLALCHEMY_DATABASE_URI = 'sqlite:///wsanaliz_dev.db'  # Aynı DB kullan
 
 class ProductionConfig(Config):
     DEBUG = False
+    SQLALCHEMY_DATABASE_URI = 'sqlite:///wsanaliz_dev.db'  # Aynı DB kullan
     
 config = {
     'development': DevelopmentConfig,

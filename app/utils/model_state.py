@@ -4,8 +4,8 @@
 
 MODEL_STATE = {
     'age': {
-        'active_version': 4,
-        'last_activation': '2025-05-27T18:09:14.403369'
+        'active_version': 0,
+        'last_activation': '2025-05-28T14:12:20.002540'
     },
     'content': {
         'active_version': None,
@@ -15,4 +15,4 @@ MODEL_STATE = {
 
 # Bu satır Flask'ın dosya değişikliklerini algılaması için
 # Her model aktivasyonunda timestamp güncellenir
-LAST_UPDATE = "2025-05-27T18:09:14.403369"
+LAST_UPDATE = "2025-05-28T14:12:20.002540"

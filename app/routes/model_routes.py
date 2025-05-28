@@ -369,7 +369,7 @@ def get_age_training_data_stats():
         
     except Exception as e:
         logger.error(f"Eğitim verisi istatistikleri alınırken hata: {str(e)}")
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': str(e)}), 500 
 
 @bp.route('/delete-latest/<model_type>', methods=['DELETE'])
 def delete_latest_model_version(model_type):

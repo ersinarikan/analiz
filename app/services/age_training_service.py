@@ -741,30 +741,37 @@ class AgeTrainingService:
             
             # Base model dizini var mı kontrol et
             if not os.path.exists(base_dir):
-                logger.error(f"Base model directory not found: {base_dir}")
-                # Buffalo model'i base olarak kullan
-                buffalo_dir = os.path.join(
+                logger.error(f"Custom age head base model directory not found: {base_dir}")
+                logger.error("Custom age head base model is required for reset operation")
+                logger.error("Buffalo_L model cannot be used as fallback for custom age head")
+                return False
+            
+            # Önceki aktif modeli yedekle
+            if os.path.exists(active_dir):
+                backup_dir = os.path.join(
                     current_app.config['MODELS_FOLDER'],
                     'age',
-                    'buffalo_l',
-                    'base_model'
+                    'custom_age_head',
+                    'backups',
+                    f"active_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
                 )
-                if os.path.exists(buffalo_dir):
-                    base_dir = buffalo_dir
-                    logger.info(f"Using buffalo model as base: {buffalo_dir}")
-                else:
-                    logger.error("No base model found")
-                    return False
-            
-            # Eski sembolik linki veya dizini kaldır
-            if os.path.exists(active_dir):
+                
                 if os.path.islink(active_dir):
+                    # Sembolik link ise, hedef dizini yedekle
+                    target_dir = os.readlink(active_dir)
+                    if os.path.exists(target_dir):
+                        import shutil
+                        os.makedirs(os.path.dirname(backup_dir), exist_ok=True)
+                        shutil.copytree(target_dir, backup_dir)
+                        logger.info(f"Backed up symbolic link target to: {backup_dir}")
                     os.unlink(active_dir)
                     logger.info("Removed existing symbolic link")
                 else:
+                    # Dizin ise, tüm dizini yedekle
                     import shutil
-                    shutil.rmtree(active_dir)
-                    logger.info("Removed existing active model directory")
+                    os.makedirs(os.path.dirname(backup_dir), exist_ok=True)
+                    shutil.move(active_dir, backup_dir)
+                    logger.info(f"Backed up active model directory to: {backup_dir}")
             
             # Base modeli aktif model olarak ayarla
             if os.name == 'nt':  # Windows

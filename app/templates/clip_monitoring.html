@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>CLIP Training Monitoring Dashboard</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; background: #f5f5f5; }
+        .container { max-width: 1200px; margin: 0 auto; }
+        .card { background: white; padding: 20px; margin: 10px 0; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .status-good { color: #28a745; }
+        .status-warning { color: #ffc107; }
+        .status-error { color: #dc3545; }
+        .metric { display: inline-block; margin: 10px 20px 10px 0; }
+        .metric-value { font-size: 24px; font-weight: bold; }
+        .metric-label { font-size: 12px; color: #666; }
+        .refresh-btn { background: #007bff; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🤖 CLIP Training Monitoring Dashboard</h1>
+        
+        <div class="card">
+            <h3>System Status</h3>
+            <div id="system-status">Loading...</div>
+            <button class="refresh-btn" onclick="refreshData()">Refresh</button>
+        </div>
+        
+        <div class="card">
+            <h3>Training Statistics</h3>
+            <div id="training-stats">Loading...</div>
+        </div>
+        
+        <div class="card">
+            <h3>Active Sessions</h3>
+            <div id="active-sessions">Loading...</div>
+        </div>
+        
+        <div class="card">
+            <h3>Model Versions</h3>
+            <div id="model-versions">Loading...</div>
+        </div>
+    </div>
+    
+    <script>
+        async function fetchData(endpoint) {
+            try {
+                const response = await fetch(`/api/clip-training/${endpoint}`);
+                return await response.json();
+            } catch (error) {
+                return { error: error.message };
+            }
+        }
+        
+        async function refreshData() {
+            // System status
+            const stats = await fetchData('statistics');
+            document.getElementById('system-status').innerHTML = stats.success ? 
+                `<span class="status-good">✅ System Online</span>` : 
+                `<span class="status-error">❌ System Error</span>`;
+            
+            // Training statistics
+            if (stats.success) {
+                const data = stats.data;
+                document.getElementById('training-stats').innerHTML = `
+                    <div class="metric">
+                        <div class="metric-value">${data.total_feedbacks}</div>
+                        <div class="metric-label">Total Feedbacks</div>
+                    </div>
+                    <div class="metric">
+                        <div class="metric-value">${data.manual_feedbacks}</div>
+                        <div class="metric-label">Manual Feedbacks</div>
+                    </div>
+                    <div class="metric">
+                        <div class="metric-value">${data.ready_for_training ? 'Yes' : 'No'}</div>
+                        <div class="metric-label">Ready for Training</div>
+                    </div>
+                `;
+            }
+            
+            // Active sessions
+            const sessions = await fetchData('sessions');
+            if (sessions.success) {
+                const activeSessions = sessions.data.sessions.filter(s => s.status === 'training');
+                document.getElementById('active-sessions').innerHTML = activeSessions.length > 0 ?
+                    activeSessions.map(s => `<div>Session ${s.id}: ${s.version_name} (${s.status})</div>`).join('') :
+                    '<div>No active training sessions</div>';
+            }
+            
+            // Model versions
+            const versions = await fetchData('versions');
+            if (versions.success) {
+                document.getElementById('model-versions').innerHTML = 
+                    versions.data.versions.map(v => 
+                        `<div>${v.name} (${v.type}) ${v.is_active ? '- Active' : ''}</div>`
+                    ).join('');
+            }
+        }
+        
+        // Auto refresh every 30 seconds
+        setInterval(refreshData, 30000);
+        
+        // Initial load
+        refreshData();
+    </script>
+</body>
+</html>

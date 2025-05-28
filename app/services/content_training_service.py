@@ -578,13 +578,33 @@ class ContentTrainingService:
             )
             os.makedirs(version_path, exist_ok=True)
             
-            # Base CLIP modelini kopyala
-            base_model_path = os.path.join(
-                current_app.config['OPENCLIP_MODEL_BASE_PATH'],
-                'open_clip_pytorch_model.bin'
-            )
-            version_model_path = os.path.join(version_path, 'open_clip_pytorch_model.bin')
-            shutil.copy2(base_model_path, version_model_path)
+            # Base CLIP modelini doğru şekilde kaydet (HuggingFace checkpoint sorununu atla)
+            try:
+                # Option 1: Doğru pretrained modelini kaydet
+                logger.info("Doğru DFN5B CLIP modeli kaydediliyor...")
+                import open_clip
+                
+                temp_model, _, _ = open_clip.create_model_and_transforms(
+                    model_name="ViT-H-14-378-quickgelu",
+                    pretrained="dfn5b",  # Doğru pretrained
+                    device='cpu'
+                )
+                
+                # Doğru OpenCLIP state_dict'i kaydet
+                version_model_path = os.path.join(version_path, 'open_clip_pytorch_model.bin')
+                torch.save(temp_model.state_dict(), version_model_path)
+                logger.info(f"✅ Doğru CLIP modeli kaydedildi: {version_model_path}")
+                
+            except Exception as clip_save_error:
+                logger.error(f"CLIP model kaydetme hatası: {clip_save_error}")
+                # Fallback: Base dosyayı kopyala (eski davranış)
+                base_model_path = os.path.join(
+                    current_app.config['OPENCLIP_MODEL_BASE_PATH'],
+                    'open_clip_pytorch_model.bin'
+                )
+                version_model_path = os.path.join(version_path, 'open_clip_pytorch_model.bin')
+                shutil.copy2(base_model_path, version_model_path)
+                logger.warning("⚠️ Base model kopyalandı - bu HuggingFace formatında olabilir")
             
             # Classification head'i kaydet
             classifier_path = os.path.join(version_path, 'classification_head.pth')

@@ -172,15 +172,22 @@ body {
 
 /* Progress Bar Styles */
 .progress {
-    height: 10px;
-    border-radius: 5px;
-    margin-bottom: 10px;
+    background-color: rgba(0, 0, 0, 0.05);
+    border-radius: 8px;
     overflow: hidden;
-    background-color: #e9ecef;
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.1);
 }
 
 .progress-bar {
-    background: linear-gradient(to right, var(--primary-color), var(--success-color));
+    transition: width 0.8s ease-in-out;
+    background: linear-gradient(45deg, transparent 25%, rgba(255,255,255,0.2) 25%, rgba(255,255,255,0.2) 50%, transparent 50%, transparent 75%, rgba(255,255,255,0.2) 75%);
+    background-size: 20px 20px;
+    animation: progress-shine 2s linear infinite;
+}
+
+@keyframes progress-shine {
+    0% { background-position: -20px 0; }
+    100% { background-position: 20px 0; }
 }
 
 .progress-sm {
@@ -255,25 +262,31 @@ body {
 
 /* Analysis Results Styles */
 .risk-score {
-    font-size: 1.2rem;
-    font-weight: 700;
+    font-size: 0.85rem;
+    font-weight: 600;
     padding: 4px 10px;
     border-radius: 20px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    font-size: 0.75rem;
 }
 
 .risk-level-high {
     color: white;
     background-color: var(--danger-color);
+    box-shadow: 0 2px 4px rgba(220, 53, 69, 0.3);
 }
 
 .risk-level-medium {
     color: white;
     background-color: var(--warning-color);
+    box-shadow: 0 2px 4px rgba(255, 193, 7, 0.3);
 }
 
 .risk-level-low {
     color: white;
     background-color: var(--success-color);
+    box-shadow: 0 2px 4px rgba(25, 135, 84, 0.3);
 }
 
 .detection-item {

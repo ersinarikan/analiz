@@ -660,11 +660,11 @@ function initializeEventListeners() {
             });
             
             modalInstance.show();
-        });
+    });
     }
     
     // Eğitim Başlatma Butonu
-
+    
     
     // Model Sıfırlama Butonları - Kaldırıldı, Model Yönetimi modalında mevcut
     
@@ -1726,28 +1726,37 @@ function displayAnalysisResults(fileId, results) {
             let riskClass = '';
             
             if (category === 'safe') {
-                // Güvenli kategori için farklı risk yorumlaması
-                if (score >= 60) { // Değişiklik: 70 -> 60
+                // Güvenli kategori için farklı risk yorumlaması (0-100 aralığı)
+                if (score >= 80) { 
                     riskLevel = 'Yüksek Güven';
                     riskClass = 'risk-level-low'; // Yeşil renk
-                } else if (score >= 40) { // Değişiklik: 30 -> 40
+                } else if (score >= 50) { 
                     riskLevel = 'Orta Güven';
                     riskClass = 'risk-level-medium'; // Sarı renk
-                } else { // Değişiklik: Alt sınır 30'dan 40'a çekildi, burası < 40 oldu
+                } else { 
                     riskLevel = 'Düşük Güven';
                     riskClass = 'risk-level-high'; // Kırmızı renk
                 }
             } else {
-                // Diğer kategoriler için normal risk yorumlaması
-                if (score >= 60) { // Değişiklik: 70 -> 60
-                    riskLevel = 'Yüksek Risk';
-                    riskClass = 'risk-level-high';
-                } else if (score >= 40) { // Değişiklik: 30 -> 40
-                    riskLevel = 'Orta Risk';
-                    riskClass = 'risk-level-medium';
-                } else { // Değişiklik: Alt sınır 30'dan 40'a çekildi, burası < 40 oldu
+                // Diğer kategoriler için yeni risk seviyesi sistemi (0-100 aralığı)
+                if (score < 20) {
+                    riskLevel = 'Çok Düşük Risk';
+                    riskClass = 'risk-level-low';
+                } else if (score < 35) {
                     riskLevel = 'Düşük Risk';
                     riskClass = 'risk-level-low';
+                } else if (score < 55) {
+                    riskLevel = 'Belirsiz';
+                    riskClass = 'risk-level-medium';
+                } else if (score < 70) {
+                    riskLevel = 'Orta Risk';
+                    riskClass = 'risk-level-medium';
+                } else if (score < 85) {
+                    riskLevel = 'Yüksek Risk';
+                    riskClass = 'risk-level-high';
+                } else {
+                    riskLevel = 'Çok Yüksek Risk';
+                    riskClass = 'risk-level-high fw-bold';
                 }
             }
             
@@ -1757,8 +1766,14 @@ function displayAnalysisResults(fileId, results) {
             // Kategori rengini belirle
             let progressBarClass = '';
             if (category === 'safe') {
-                // Güvenli kategorisi için yeşil ton kullan, değer yükseldikçe daha koyu yeşil
-                progressBarClass = score >= 70 ? 'bg-success' : score >= 30 ? 'bg-info' : 'bg-warning';
+                // Güvenli kategorisi için: yüksek skor = yeşil, düşük skor = kırmızı
+                if (score >= 80) {
+                    progressBarClass = 'bg-success'; // Yeşil - yüksek güven
+                } else if (score >= 50) {
+                    progressBarClass = 'bg-warning'; // Sarı - orta güven  
+                } else {
+                    progressBarClass = 'bg-danger'; // Kırmızı - düşük güven
+                }
             } else {
                 // Diğer kategoriler için risk arttıkça kırmızılaşan renk
                 progressBarClass = riskClass === 'risk-level-high' ? 'bg-danger' : 
@@ -1769,23 +1784,23 @@ function displayAnalysisResults(fileId, results) {
             const confidenceScore = hasConfidenceScores ? (confidenceScores[category] || 0) : 0;
             const showConfidence = hasConfidenceScores && confidenceScore > 0;
             
-            // Skor elementi HTML'i - güven skoru varsa ekle
+            // Skor elementi HTML'i - sadece görsel bar ve risk seviyesi
             scoreElement.innerHTML = `
-                <div class="d-flex justify-content-between align-items-center">
-                    <span>${categoryName} ${/*isSuspicious ? '<i class="fas fa-question-circle text-warning" title="Bu kategori skoru tutarsız olabilir"></i>' : ''*/''}</span>
-                    <span class="risk-score ${riskClass}">${score.toFixed(0)}% - ${riskLevel}</span>
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <span class="fw-medium">${categoryName}</span>
+                    <span class="risk-score ${riskClass}">${riskLevel}</span>
                 </div>
-                <div class="progress mb-1">
+                <div class="progress mb-1" style="height: 12px; border-radius: 6px;">
                     <div class="progress-bar ${progressBarClass}" 
                          role="progressbar" style="width: ${score}%" 
                          aria-valuenow="${score}" aria-valuemin="0" aria-valuemax="100"></div>
                 </div>
                 ${showConfidence ? `
                 <div class="d-flex justify-content-between align-items-center small text-muted">
-                    <span>Güven Skoru:</span>
-                    <span>${(confidenceScore * 100).toFixed(0)}%</span>
+                    <span>Güven Seviyesi:</span>
+                    <span class="fw-medium">${confidenceScore > 0.8 ? 'Yüksek' : confidenceScore > 0.5 ? 'Orta' : 'Düşük'}</span>
                 </div>
-                <div class="progress" style="height: 4px;">
+                <div class="progress" style="height: 4px; border-radius: 2px;">
                     <div class="progress-bar bg-info" 
                          role="progressbar" style="width: ${confidenceScore * 100}%" 
                          aria-valuenow="${confidenceScore * 100}" aria-valuemin="0" aria-valuemax="100"></div>
@@ -3830,7 +3845,7 @@ function displayModalVersions(modelType, versions) {
 
     // Versiyonları sırala (en yeni en başta)
     const sortedVersions = versions.sort((a, b) => b.version - a.version);
-    
+
     let html = '';
     sortedVersions.forEach((version, index) => {
         const badgeClass = version.is_active ? 'bg-success' : 'bg-secondary';
@@ -3944,8 +3959,8 @@ function trainModelFromModal(modelType) {
         if (trainingTab) {
             trainingTab.click();
         }
-        
-        // Model tipini seç
+    
+    // Model tipini seç
         const trainingModelType = document.getElementById('trainingModelType');
         if (trainingModelType) {
             trainingModelType.value = modelType;
@@ -4010,8 +4025,8 @@ function resetModelFromModal(modelType) {
                     
                     // Model versiyonlarını ve istatistikleri yenile
                     setTimeout(() => {
-                        loadModalModelVersions();
-                        loadModalModelStats();
+                loadModalModelVersions();
+                loadModalModelStats();
                         hideModalTrainingStatus();
                         if (settingsSaveLoader) {
                             settingsSaveLoader.style.display = 'none';
@@ -4095,7 +4110,7 @@ function activateVersionFromModal(versionId) {
                 
                 // Model versiyonlarını ve istatistikleri yenile
                 setTimeout(() => {
-                    loadModalModelVersions();
+            loadModalModelVersions();
                     loadModalModelStats();
                     hideModalTrainingStatus();
                     if (settingsSaveLoader) {
