@@ -1,26 +1,45 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+WSANALIZ JSON Encoder
+====================
+
+Bu modül NumPy array'leri ve diğer özel veri tiplerini JSON'a 
+serileştirmek için özel encoder sınıfları içerir.
+"""
+
 import json
 import numpy as np
+from datetime import datetime
 
 class NumPyJSONEncoder(json.JSONEncoder):
-    """NumPy türlerini standart Python türlerine dönüştüren özel JSON kodlayıcı."""
+    """
+    NumPy array'leri ve datetime nesnelerini JSON'a dönüştüren özel encoder.
+    
+    Bu encoder şu veri tiplerini destekler:
+    - NumPy array'leri → Python listeleri
+    - NumPy scalar değerleri → Python primitive tipleri  
+    - datetime nesneleri → ISO format string
+    """
     
     def default(self, obj):
-        if isinstance(obj, (np.integer, np.int8, np.int16, np.int32, np.int64)):
-            return int(obj)
-        elif isinstance(obj, (np.floating, np.float16, np.float32, np.float64)):
-            return float(obj)
-        elif isinstance(obj, np.ndarray):
+        """
+        Varsayılan JSON encoder'ının desteklemediği tipleri dönüştürür
+        
+        Args:
+            obj: Serileştirilecek nesne
+            
+        Returns:
+            JSON serileştirilebilir nesne
+        """
+        if isinstance(obj, np.ndarray):
             return obj.tolist()
-        elif isinstance(obj, np.bool_):
-            return bool(obj)
-        elif isinstance(obj, (complex, np.complex128, np.complex64)):
-            return {'real': obj.real, 'imag': obj.imag}
-        elif hasattr(obj, 'dtype') and hasattr(obj, 'item'):
-            # Genel NumPy skaler tipi için item() metodunu kullan
+        elif isinstance(obj, np.generic):
             return obj.item()
-        elif hasattr(obj, 'to_dict'):
-            return obj.to_dict()
-        return super(NumPyJSONEncoder, self).default(obj)
+        elif isinstance(obj, datetime):
+            return obj.isoformat()
+        
+        return super().default(obj)
 
 def json_dumps_numpy(obj):
     """NumPy dizilerini içeren nesneleri JSON'a dönüştürür."""

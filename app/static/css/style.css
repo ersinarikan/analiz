@@ -1,36 +1,61 @@
-/* Main Layout Styles */
+/*
+ * WSANALIZ Frontend Stil Dosyası
+ * ===============================
+ * 
+ * Bu dosya WSANALIZ web uygulamasının tüm görsel stil tanımlarını içerir.
+ * Modern, responsive ve kullanıcı dostu bir arayüz sağlar.
+ * 
+ * Ana Bileşenler:
+ * - Layout ve Grid Sistemi
+ * - Navbar ve Navigasyon
+ * - Dosya Yükleme Arayüzü
+ * - Analiz Sonuçları Görüntüleme
+ * - Modal ve Form Stilleri
+ * - Progress Bar ve Loading Animasyonları
+ * - Responsive Tasarım (Mobile-First)
+ * 
+ * Renk Paleti:
+ * - Primary: #4361ee (Mavi)
+ * - Secondary: #3f37c9 (Mor)
+ * - Success: #4cc9f0 (Açık Mavi)
+ * - Danger: #f72585 (Pembe/Kırmızı)
+ * - Warning: #f8961e (Turuncu)
+ */
+
+/* CSS Değişkenleri - Merkezi Renk ve Stil Tanımları */
 :root {
-    --primary-color: #4361ee;
-    --secondary-color: #3f37c9;
-    --success-color: #4cc9f0;
-    --danger-color: #f72585;
-    --warning-color: #f8961e;
-    --light-color: #f8f9fa;
-    --dark-color: #212529;
-    --gray-color: #6c757d;
-    --border-radius: 10px;
-    --box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-    --transition: all 0.3s ease;
+    --primary-color: #4361ee;      /* Ana mavi renk */
+    --secondary-color: #3f37c9;    /* İkincil mor renk */
+    --success-color: #4cc9f0;      /* Başarı rengi (açık mavi) */
+    --danger-color: #f72585;       /* Hata/tehlike rengi */
+    --warning-color: #f8961e;      /* Uyarı rengi (turuncu) */
+    --light-color: #f8f9fa;        /* Açık gri arka plan */
+    --dark-color: #212529;         /* Koyu metin rengi */
+    --gray-color: #6c757d;         /* Orta gri renk */
+    --border-radius: 10px;         /* Varsayılan köşe yuvarlaklığı */
+    --box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);  /* Varsayılan gölge efekti */
+    --transition: all 0.3s ease;   /* Varsayılan geçiş animasyonu */
 }
 
+/* Genel Body ve Layout Stilleri */
 body {
-    font-family: 'Poppins', 'Roboto', sans-serif;
-    background-color: #f8f9fa;
-    color: var(--dark-color);
-    line-height: 1.6;
+    font-family: 'Poppins', 'Roboto', sans-serif;  /* Modern font ailesi */
+    background-color: #f8f9fa;  /* Açık gri arka plan */
+    color: var(--dark-color);   /* Koyu metin rengi */
+    line-height: 1.6;           /* Okunabilirlik için satır yüksekliği */
 }
 
 .container-fluid {
-    padding: 20px;
-    max-width: 1400px;
-    margin: 0 auto;
+    padding: 20px;              /* İç boşluk */
+    max-width: 1400px;          /* Maksimum genişlik */
+    margin: 0 auto;             /* Ortalama */
 }
 
-/* Header Styles */
+/* Üst Navbar Stilleri */
 .navbar {
-    background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
-    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
-    padding: 15px 0;
+    background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));  /* Gradient arka plan */
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);  /* Alt gölge */
+    padding: 15px 0;            /* Dikey padding */
 }
 
 .navbar-brand {

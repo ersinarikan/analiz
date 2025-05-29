@@ -1,3 +1,14 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+WSANALIZ Middleware
+==================
+
+Bu modül Flask uygulamasının middleware bileşenlerini içerir.
+İstek/yanıt işleme, JSON serialization ve diğer ara katman işlemleri
+burada tanımlanır.
+"""
+
 from flask import Flask, jsonify, current_app
 import numpy as np
 from functools import wraps
@@ -7,13 +18,43 @@ from app.json_encoder import NumPyJSONEncoder
 
 def register_json_middleware(app: Flask):
     """
-    Flask uygulamasına JSON serialization middleware'i kaydeder.
-    NumPy dizilerini ve diğer özel tipleri otomatik olarak dönüştürür.
+    Flask uygulamasına JSON middleware'ini kaydeder.
+    
+    Bu middleware NumPy türlerini otomatik olarak JSON'a dönüştürür
+    ve API yanıtlarında tutarlı format sağlar.
     
     Args:
         app: Flask uygulaması
     """
-    # Flask'ın varsayılan JSON encoder'ını özel encoder ile değiştir
+    
+    @app.before_request
+    def before_request():
+        """
+        Her istek öncesi çalışan middleware.
+        İstek loglaması ve güvenlik kontrolleri burada yapılabilir.
+        """
+        pass
+    
+    @app.after_request  
+    def after_request(response):
+        """
+        Her yanıt sonrası çalışan middleware.
+        CORS başlıkları ve yanıt loglaması burada yapılır.
+        
+        Args:
+            response: Flask yanıt nesnesi
+            
+        Returns:
+            İşlenmiş yanıt nesnesi
+        """
+        # CORS başlıklarını ekle
+        response.headers.add('Access-Control-Allow-Origin', '*')
+        response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
+        response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
+        
+        return response
+    
+    # Flask'ın JSON encoder'ını NumPy destekli encoder ile değiştir
     app.json_encoder = NumPyJSONEncoder
     
     # jsonify fonksiyonunu override et
