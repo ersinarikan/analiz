@@ -19,7 +19,8 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, mean_absolute_error
 import pickle
 
-logger = logging.getLogger(__name__)
+# Root logger'ı kullan (terminalde görünmesi için)
+logger = logging.getLogger('app.content_training')
 
 class ContentTrainingService:
     """OpenCLIP modeli için fine-tuning servisi - Geliştirilmiş Feedback Sistemi"""

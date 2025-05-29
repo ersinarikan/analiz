@@ -2870,7 +2870,8 @@ function displayAgeModelMetrics(data) {
 function displayModelVersions(modelType, versions) {
     const container = document.getElementById(`${modelType}VersionsContainer`);
     if (!container) {
-        console.error(`${modelType}VersionsContainer bulunamadı`);
+        // Ana sayfada bu container olmayabilir, sadece model yönetimi sayfasında olur
+        // Bu durumda sessizce çık, hata verme
         return;
     }
     
@@ -4346,7 +4347,7 @@ async function refreshTrainingStats() {
                             <div class="card border-primary">
                                 <div class="card-body text-center">
                                     <h5 class="card-title text-primary">Manuel Feedbacks</h5>
-                                    <h3 class="mb-0">${stats.manual_feedbacks || 0}</h3>
+                                    <h3 class="mb-0">${stats.manual_samples || 0}</h3>
                                     <small class="text-muted">Kullanıcı düzeltmeleri</small>
                                 </div>
                             </div>
@@ -4355,7 +4356,7 @@ async function refreshTrainingStats() {
                             <div class="card border-info">
                                 <div class="card-body text-center">
                                     <h5 class="card-title text-info">Otomatik Feedbacks</h5>
-                                    <h3 class="mb-0">${stats.pseudo_feedbacks || 0}</h3>
+                                    <h3 class="mb-0">${stats.pseudo_samples || 0}</h3>
                                     <small class="text-muted">Sistem etiketleri</small>
                                 </div>
                             </div>
@@ -4735,28 +4736,66 @@ function updateWebTrainingProgress(data) {
     const trainingDuration = document.getElementById('webTrainingDuration');
     const trainingETA = document.getElementById('webTrainingETA');
     
-    // Progress bar
-    const progress = Math.round((data.current_epoch / data.total_epochs) * 100);
-    progressBar.style.width = `${progress}%`;
-    progressText.textContent = `${progress}%`;
+    console.log('Training progress update:', data);
     
-    // Metrics
-    currentEpoch.textContent = `${data.current_epoch}/${data.total_epochs}`;
-    currentLoss.textContent = data.current_loss ? data.current_loss.toFixed(4) : '-';
-    currentMAE.textContent = data.current_mae ? data.current_mae.toFixed(3) : '-';
-    currentR2.textContent = data.current_r2 ? data.current_r2.toFixed(3) : '-';
+    // Progress bar güncelleme
+    const progress = Math.round(data.progress || 0);
+    if (progressBar) {
+        progressBar.style.width = `${progress}%`;
+        progressBar.setAttribute('aria-valuenow', progress);
+    }
+    if (progressText) {
+        progressText.textContent = `${progress}%`;
+    }
     
-    // Time calculations
+    // Epoch bilgisi
+    if (currentEpoch && data.epoch && data.total_epochs) {
+        currentEpoch.textContent = `${data.epoch}/${data.total_epochs}`;
+    }
+    
+    // Metrics güncelleme (model tipine göre)
+    if (data.metrics) {
+        // Yaş modeli için
+        if (data.metrics.val_loss && currentLoss) {
+            currentLoss.textContent = data.metrics.val_loss.toFixed(4);
+        }
+        if (data.metrics.val_mae && currentMAE) {
+            currentMAE.textContent = data.metrics.val_mae.toFixed(3);
+        }
+        
+        // Content modeli için de destekle
+        if (data.metrics.current_loss && currentLoss) {
+            currentLoss.textContent = data.metrics.current_loss.toFixed(4);
+        }
+        if (data.metrics.current_mae && currentMAE) {
+            currentMAE.textContent = data.metrics.current_mae.toFixed(3);
+        }
+        if (data.metrics.current_r2 && currentR2) {
+            currentR2.textContent = data.metrics.current_r2.toFixed(3);
+        }
+    }
+    
+    // Süre hesaplamaları
     if (trainingStartTime) {
         const elapsed = (Date.now() - trainingStartTime) / 1000;
-        trainingDuration.textContent = formatDuration(elapsed);
-        
-        if (data.current_epoch > 0) {
-            const avgTimePerEpoch = elapsed / data.current_epoch;
-            const remainingEpochs = data.total_epochs - data.current_epoch;
-            const eta = remainingEpochs * avgTimePerEpoch;
-            trainingETA.textContent = formatDuration(eta);
+        if (trainingDuration) {
+            trainingDuration.textContent = formatDuration(elapsed);
         }
+        
+        if (data.epoch && data.total_epochs && data.epoch > 0) {
+            const avgTimePerEpoch = elapsed / data.epoch;
+            const remainingEpochs = data.total_epochs - data.epoch;
+            const eta = remainingEpochs * avgTimePerEpoch;
+            if (trainingETA) {
+                trainingETA.textContent = formatDuration(eta);
+            }
+        }
+    }
+    
+    // Durum mesajını güncelle
+    const statusMessage = document.getElementById('webTrainingMessage');
+    if (statusMessage && data.epoch && data.total_epochs) {
+        statusMessage.textContent = `Eğitim devam ediyor... Epoch ${data.epoch}/${data.total_epochs} (${progress}%)`;
     }
 }
 
@@ -4783,53 +4822,111 @@ function handleWebTrainingCompleted(data) {
     resultsDiv.style.display = 'block';
     
     const metrics = data.metrics;
-    metricsDiv.innerHTML = `
-        <div class="row">
-            <div class="col-md-3">
-                <div class="card border-success">
-                    <div class="card-body text-center">
-                        <h6 class="card-title">MAE</h6>
-                        <h5 class="text-success">${metrics.mae ? metrics.mae.toFixed(3) : '-'}</h5>
+    
+    // Model tipine göre farklı metrik display
+    if (data.model_type === 'age') {
+        // Yaş modeli metrikleri
+        metricsDiv.innerHTML = `
+            <div class="row">
+                <div class="col-md-3">
+                    <div class="card border-primary">
+                        <div class="card-body text-center">
+                            <h6 class="card-title">MAE (Ortalama Hata)</h6>
+                            <h5 class="text-primary">${metrics.mae ? metrics.mae.toFixed(2) : '-'} yaş</h5>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="card border-success">
+                        <div class="card-body text-center">
+                            <h6 class="card-title">±3 Yaş Doğruluğu</h6>
+                            <h5 class="text-success">${metrics.within_3_years ? (metrics.within_3_years * 100).toFixed(1) : '-'}%</h5>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="card border-info">
+                        <div class="card-body text-center">
+                            <h6 class="card-title">±5 Yaş Doğruluğu</h6>
+                            <h5 class="text-info">${metrics.within_5_years ? (metrics.within_5_years * 100).toFixed(1) : '-'}%</h5>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="card border-warning">
+                        <div class="card-body text-center">
+                            <h6 class="card-title">RMSE</h6>
+                            <h5 class="text-warning">${metrics.rmse ? metrics.rmse.toFixed(2) : '-'} yaş</h5>
+                        </div>
                     </div>
                 </div>
             </div>
-            <div class="col-md-3">
-                <div class="card border-info">
-                    <div class="card-body text-center">
-                        <h6 class="card-title">R² Score</h6>
-                        <h5 class="text-info">${metrics.r2_score ? metrics.r2_score.toFixed(3) : '-'}</h5>
+            <div class="row mt-3">
+                <div class="col-md-6">
+                    <div class="card border-secondary">
+                        <div class="card-body text-center">
+                            <h6 class="card-title">Eğitim Örnekleri</h6>
+                            <h5 class="text-secondary">${metrics.training_samples || data.training_samples || '-'}</h5>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="card border-secondary">
+                        <div class="card-body text-center">
+                            <h6 class="card-title">Doğrulama Örnekleri</h6>
+                            <h5 class="text-secondary">${metrics.validation_samples || data.validation_samples || '-'}</h5>
+                        </div>
                     </div>
                 </div>
             </div>
-            <div class="col-md-3">
-                <div class="card border-primary">
-                    <div class="card-body text-center">
-                        <h6 class="card-title">Eğitim Verisi</h6>
-                        <h5 class="text-primary">${data.training_samples}</h5>
+        `;
+    } else {
+        // Content modeli metrikleri (mevcut kod)
+        metricsDiv.innerHTML = `
+            <div class="row">
+                <div class="col-md-3">
+                    <div class="card border-success">
+                        <div class="card-body text-center">
+                            <h6 class="card-title">Accuracy</h6>
+                            <h5 class="text-success">${metrics.accuracy ? (metrics.accuracy * 100).toFixed(1) : '-'}%</h5>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="card border-info">
+                        <div class="card-body text-center">
+                            <h6 class="card-title">Loss</h6>
+                            <h5 class="text-info">${metrics.loss ? metrics.loss.toFixed(4) : '-'}</h5>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="card border-warning">
+                        <div class="card-body text-center">
+                            <h6 class="card-title">F1 Score</h6>
+                            <h5 class="text-warning">${metrics.f1_score ? metrics.f1_score.toFixed(3) : '-'}</h5>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="card border-primary">
+                        <div class="card-body text-center">
+                            <h6 class="card-title">Çelişki Çözüldü</h6>
+                            <h5 class="text-primary">${data.conflicts_resolved || '-'}</h5>
+                        </div>
                     </div>
                 </div>
             </div>
-            <div class="col-md-3">
-                <div class="card border-warning">
-                    <div class="card-body text-center">
-                        <h6 class="card-title">Çelişkiler</h6>
-                        <h5 class="text-warning">${data.conflicts_resolved || 0}</h5>
-                    </div>
-                </div>
-            </div>
-        </div>
-    `;
+        `;
+    }
     
     currentTrainingSession = null;
     trainingStartTime = null;
     
-    // Model listesini yenile
+    // Model versiyonlarını yenile
     setTimeout(() => {
         refreshTrainingStats();
-        if (typeof loadModalModelVersions === 'function') {
-            loadModalModelVersions();
-        }
-    }, 2000);
+    }, 1000);
 }
 
 // Eğitim hatası

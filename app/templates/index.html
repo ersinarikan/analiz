@@ -21,6 +21,9 @@
     <!-- Custom CSS -->
     <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
     
+    <!-- Help Documentation CSS -->
+    <link href="{{ url_for('static', filename='css/help.css') }}" rel="stylesheet">
+    
     <!-- Model Management Modal CSS -->
     <style>
         .model-card {
@@ -93,6 +96,11 @@
                     </li>
                     <li class="nav-item">
                         <a class="nav-link" href="#" data-bs-toggle="modal" data-bs-target="#analysisParamsModal" id="openAnalysisParamsModalBtn"><i class="fas fa-cog me-1"></i> Analiz Parametreleri</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#" data-bs-toggle="modal" data-bs-target="#helpModal" id="helpBtn">
+                            <i class="fas fa-question-circle me-1"></i> Yardım
+                        </a>
                     </li>
                 </ul>
             </div>
@@ -1172,7 +1180,63 @@
         </div>
     </div>
     
-
+    <!-- Yardım ve Dokümantasyon Modal -->
+    <div class="modal fade help-modal" id="helpModal" tabindex="-1" aria-labelledby="helpModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-xl">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="helpModalLabel">
+                        <i class="fas fa-question-circle me-2"></i>WS Analiz - Kullanıcı Dokümantasyonu
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="row">
+                        <!-- Sol Menü -->
+                        <div class="col-md-3">
+                            <div class="nav flex-column nav-pills help-nav" id="v-pills-tab" role="tablist" aria-orientation="vertical">
+                                <button class="nav-link active" id="v-pills-overview-tab" data-bs-toggle="pill" data-bs-target="#v-pills-overview" type="button" role="tab">
+                                    <i class="fas fa-home me-2"></i>Genel Bakış
+                                </button>
+                                <button class="nav-link" id="v-pills-upload-tab" data-bs-toggle="pill" data-bs-target="#v-pills-upload" type="button" role="tab">
+                                    <i class="fas fa-upload me-2"></i>Dosya Yükleme
+                                </button>
+                                <button class="nav-link" id="v-pills-analysis-tab" data-bs-toggle="pill" data-bs-target="#v-pills-analysis" type="button" role="tab">
+                                    <i class="fas fa-search me-2"></i>Analiz İşlemleri
+                                </button>
+                                <button class="nav-link" id="v-pills-params-tab" data-bs-toggle="pill" data-bs-target="#v-pills-params" type="button" role="tab">
+                                    <i class="fas fa-cog me-2"></i>Analiz Parametreleri
+                                </button>
+                                <button class="nav-link" id="v-pills-results-tab" data-bs-toggle="pill" data-bs-target="#v-pills-results" type="button" role="tab">
+                                    <i class="fas fa-chart-bar me-2"></i>Sonuçlar
+                                </button>
+                                <button class="nav-link" id="v-pills-models-tab" data-bs-toggle="pill" data-bs-target="#v-pills-models" type="button" role="tab">
+                                    <i class="fas fa-brain me-2"></i>Model Yönetimi
+                                </button>
+                                <button class="nav-link" id="v-pills-training-tab" data-bs-toggle="pill" data-bs-target="#v-pills-training" type="button" role="tab">
+                                    <i class="fas fa-graduation-cap me-2"></i>Model Eğitimi
+                                </button>
+                                <button class="nav-link" id="v-pills-feedback-tab" data-bs-toggle="pill" data-bs-target="#v-pills-feedback" type="button" role="tab">
+                                    <i class="fas fa-comment-alt me-2"></i>Geri Bildirim
+                                </button>
+                                <button class="nav-link" id="v-pills-faq-tab" data-bs-toggle="pill" data-bs-target="#v-pills-faq" type="button" role="tab">
+                                    <i class="fas fa-question me-2"></i>S.S.S.
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <!-- İçerik Alanı - Detaylı yardım içeriği -->
+                        <div class="col-md-9">
+                            {% include 'help_content.html' %}
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Kapat</button>
+                </div>
+            </div>
+        </div>
+    </div>
     
     <!-- Resim Büyütme Modal -->
     <div class="modal fade" id="imageZoomModal" tabindex="-1" aria-labelledby="imageZoomModalLabel" aria-hidden="true">

@@ -8,7 +8,6 @@ from flask_cors import CORS
 from flask_socketio import SocketIO
 from config import config
 import logging
-from logging.handlers import TimedRotatingFileHandler
 import threading
 
 # Global extensions
@@ -47,26 +46,48 @@ def create_app(config_name=None):
         today_str = datetime.now().strftime('%Y%m%d')
         log_file_path = os.path.join(logs_folder, f'app_{today_str}.log')
 
-        # TimedRotatingFileHandler kullan (günlük rotation, daha güvenli)
-        file_handler = TimedRotatingFileHandler(
-            log_file_path, 
-            when='midnight', 
-            interval=1, 
-            backupCount=7,  # 7 günlük log sakla
-            encoding='utf-8'
-        )
-        file_handler.setFormatter(logging.Formatter(
-            '%(asctime)s %(levelname)s: %(message)s [in %(pathname)s:%(lineno)d]'
-        ))
-        file_handler.setLevel(logging.INFO)
-        
-        # Önceki handler'ları temizle (tekrar eklemeyi önlemek için)
-        for handler in app.logger.handlers[:]:
-            app.logger.removeHandler(handler)
-        app.logger.addHandler(file_handler)
+        # Basit FileHandler kullan (rotation problemini önlemek için)
+        try:
+            file_handler = logging.FileHandler(
+                log_file_path, 
+                mode='a',  # Append mode
+                encoding='utf-8'
+            )
+            file_handler.setFormatter(logging.Formatter(
+                '%(asctime)s %(levelname)s: %(message)s [in %(pathname)s:%(lineno)d]'
+            ))
+            file_handler.setLevel(logging.INFO)
+            
+            # Console handler da ekle (terminalde görmek için)
+            console_handler = logging.StreamHandler()
+            console_handler.setFormatter(logging.Formatter(
+                '%(asctime)s %(levelname)s: %(message)s'
+            ))
+            console_handler.setLevel(logging.INFO)
+            
+            # Önceki handler'ları temizle (tekrar eklemeyi önlemek için)
+            for handler in app.logger.handlers[:]:
+                app.logger.removeHandler(handler)
+            app.logger.addHandler(file_handler)
+            app.logger.addHandler(console_handler)
 
-        app.logger.setLevel(logging.INFO)
-        app.logger.info('Uygulama başlatılıyor - Thread-safe dosya loglama aktif')
+            app.logger.setLevel(logging.INFO)
+            app.logger.info('Uygulama başlatılıyor - Dosya ve console loglama aktif')
+            
+        except Exception as log_error:
+            # Log dosyası açılamazsa, sadece console logging kullan
+            print(f"Log dosyası açılamadı: {log_error}")
+            console_handler = logging.StreamHandler()
+            console_handler.setFormatter(logging.Formatter(
+                '%(asctime)s %(levelname)s: %(message)s'
+            ))
+            console_handler.setLevel(logging.INFO)
+            
+            for handler in app.logger.handlers[:]:
+                app.logger.removeHandler(handler)
+            app.logger.addHandler(console_handler)
+            app.logger.setLevel(logging.INFO)
+            app.logger.info('Console loglama aktif (dosya loglama başarısız)')
     
     # Werkzeug HTTP request loglarını kapat (terminalde görünmesin)
     if not app.config.get('SHOW_HTTP_LOGS', False):

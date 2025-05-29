@@ -228,3 +228,11 @@ def uploaded_files_count():
     except Exception as e:
         logger.error(f"Yüklü dosya sayısı alınırken hata: {str(e)}")
         return jsonify({'error': f'Yüklü dosya sayısı alınırken bir hata oluştu: {str(e)}'}), 500
+
+@bp.route('/health')
+def health_check():
+    """Sağlık kontrolü endpoint'i"""
+    return jsonify({
+        'status': 'healthy',
+        'message': 'Debug routes are working'
+    })

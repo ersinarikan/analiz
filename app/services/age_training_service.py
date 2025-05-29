@@ -14,7 +14,8 @@ from app.models.feedback import Feedback
 from app.models.content import ModelVersion
 from app.ai.insightface_age_estimator import CustomAgeHead
 
-logger = logging.getLogger(__name__)
+# Root logger'ı kullan (terminalde görünmesi için)
+logger = logging.getLogger('app.age_training')
 
 class AgeTrainingService:
     """Custom Age modelini geri bildirimlerle eğiten servis"""
@@ -281,6 +282,18 @@ class AgeTrainingService:
                        f"Train Loss: {avg_train_loss:.4f}, "
                        f"Val Loss: {avg_val_loss:.4f}, "
                        f"Val MAE: {avg_val_mae:.2f}")
+            
+            # Progress callback çağır (eğer varsa)
+            if 'progress_callback' in params and callable(params['progress_callback']):
+                try:
+                    current_metrics = {
+                        'train_loss': avg_train_loss,
+                        'val_loss': avg_val_loss,
+                        'val_mae': avg_val_mae
+                    }
+                    params['progress_callback'](epoch + 1, params['epochs'], current_metrics)
+                except Exception as e:
+                    logger.warning(f"Progress callback error: {str(e)}")
             
             # Early stopping
             if avg_val_loss < best_val_loss:

@@ -11,7 +11,8 @@ from app.models.feedback import Feedback
 from app import db, socketio
 
 bp = Blueprint('model', __name__, url_prefix='/api/model')
-logger = logging.getLogger(__name__)
+# Root logger'ı kullan (terminalde görünmesi için)
+logger = logging.getLogger('app.model_routes')
 
 @bp.route('/metrics/<model_type>', methods=['GET'])
 def get_metrics(model_type):
@@ -400,24 +401,30 @@ def delete_latest_model_version(model_type):
 @bp.route('/train-web', methods=['POST'])
 def train_model_web():
     """
-    Web arayüzünden model eğitimi başlatır
+    Web arayüzünden model eğitimi başlatır (her iki model türü için)
+    
+    Request body:
+    {
+        "model_type": "content" | "age",
+        "epochs": 20,
+        "batch_size": 16,
+        "learning_rate": 0.001,
+        "patience": 5,
+        ... diğer parametreler
+    }
     """
     try:
-        data = request.json
-        
+        data = request.get_json()
         model_type = data.get('model_type', 'content')
-        params = {
-            'epochs': int(data.get('epochs', 20)),
-            'batch_size': int(data.get('batch_size', 16)),
-            'learning_rate': float(data.get('learning_rate', 0.001)),
-            'patience': int(data.get('patience', 5)),
-            'regression_mode': data.get('training_mode', 'regression') == 'regression',
-            'validation_strategy': data.get('validation_strategy', 'strict'),
-            'conflict_resolution': data.get('conflict_resolution', 'average'),
-            'min_samples': int(data.get('min_samples', 50))
-        }
         
-        logger.info(f"Web training request: model_type={model_type}, params={params}")
+        # Parametreleri hazırla
+        params = {
+            'epochs': data.get('epochs', 20),
+            'batch_size': data.get('batch_size', 16),
+            'learning_rate': data.get('learning_rate', 0.001),
+            'patience': data.get('patience', 5),
+            'min_samples': data.get('min_samples', 50)
+        }
         
         if model_type == 'content':
             # Content model training
@@ -428,7 +435,7 @@ def train_model_web():
             # Veriyi hazırla
             training_data = trainer.prepare_training_data(
                 min_samples=params['min_samples'],
-                validation_strategy=params['validation_strategy']
+                validation_strategy=params.get('validation_strategy', 'strict')
             )
             
             if training_data is None:
@@ -444,7 +451,7 @@ def train_model_web():
             from threading import Thread
             training_thread = Thread(
                 target=_run_content_training,
-                args=(trainer, training_data, params, training_session_id)
+                args=(trainer, training_data, params, training_session_id, current_app._get_current_object())
             )
             training_thread.daemon = True
             training_thread.start()
@@ -458,24 +465,210 @@ def train_model_web():
             })
             
         elif model_type == 'age':
-            # Age model training (mevcut sistem)
-            return jsonify({
-                'success': False,
-                'error': 'Yaş modeli eğitimi henüz web arayüzünde desteklenmiyor.'
-            }), 400
+            # Age model training - Artık destekleniyor!
+            from app.services.age_training_service import AgeTrainingService
             
+            trainer = AgeTrainingService()
+            
+            # Veriyi hazırla
+            training_data = trainer.prepare_training_data(min_samples=10)
+            
+            if training_data is None:
+                return jsonify({
+                    'success': False,
+                    'error': 'Yeterli yaş eğitim verisi bulunamadı. En az 10 geri bildirim gerekli.'
+                }), 400
+            
+            # WebSocket ile progress tracking için session ID oluştur
+            training_session_id = str(uuid.uuid4())
+            
+            # Background task olarak eğitimi başlat
+            from threading import Thread
+            training_thread = Thread(
+                target=_run_age_training,
+                args=(trainer, training_data, params, training_session_id, current_app._get_current_object())
+            )
+            training_thread.daemon = True
+            training_thread.start()
+            
+            return jsonify({
+                'success': True,
+                'message': 'Yaş modeli eğitimi başlatıldı',
+                'session_id': training_session_id,
+                'training_samples': len(training_data['embeddings']),
+                'estimated_duration': _estimate_training_duration(len(training_data['embeddings']), params['epochs'])
+            })
+        
         else:
             return jsonify({
                 'success': False,
-                'error': f'Bilinmeyen model türü: {model_type}'
+                'error': f'Desteklenmeyen model türü: {model_type}'
             }), 400
             
     except Exception as e:
-        logger.error(f"Web training error: {str(e)}")
+        logger.error(f"Web eğitimi başlatma hatası: {str(e)}")
         return jsonify({
             'success': False,
             'error': f'Eğitim başlatılamadı: {str(e)}'
         }), 500
+
+def _run_content_training(trainer, training_data, params, session_id, app):
+    """
+    Background thread'de content model eğitimi çalıştırır
+    """
+    # Flask app context'ini background thread'e taşı
+    with app.app_context():
+        try:
+            # WebSocket ile progress gönder
+            socketio.emit('training_started', {
+                'session_id': session_id,
+                'model_type': 'content',
+                'total_samples': training_data['total_samples']
+            })
+            
+            # Session ID'yi params'a ekle
+            params['session_id'] = session_id
+            
+            # Eğitimi başlat
+            training_result = trainer.train_model(training_data, params)
+            
+            # Model versiyonunu kaydet
+            model_version = trainer.save_model_version(
+                training_result['model'], 
+                training_result
+            )
+            
+            # Başarı mesajı
+            socketio.emit('training_completed', {
+                'session_id': session_id,
+                'success': True,
+                'model_version': model_version.version_name,
+                'metrics': training_result['metrics'],
+                'training_samples': training_result['training_samples'],
+                'validation_samples': training_result['validation_samples'],
+                'conflicts_resolved': training_result['conflicts_detected']
+            })
+            
+        except Exception as e:
+            # Hata mesajı
+            socketio.emit('training_error', {
+                'session_id': session_id,
+                'error': str(e)
+            })
+            logger.error(f"Training thread error: {str(e)}")
+
+def _run_age_training(trainer, training_data, params, session_id, app):
+    """
+    Yaş modeli eğitimini arka planda çalıştırır
+    
+    Args:
+        trainer: AgeTrainingService instance
+        training_data: Hazırlanmış eğitim verisi  
+        params: Eğitim parametreleri
+        session_id: WebSocket session ID
+        app: Flask app instance
+    """
+    # Flask app context'ini background thread'e taşı
+    with app.app_context():
+        try:
+            logger.info(f"Yaş modeli eğitimi başlatıldı: session_id={session_id}")
+            
+            # WebSocket ile eğitim başlatıldığını bildir
+            socketio.emit('training_started', {
+                'session_id': session_id,
+                'model_type': 'age',
+                'total_samples': len(training_data['embeddings'])
+            })
+            
+            # Eğitim parametrelerini hazırla
+            training_params = {
+                'epochs': params.get('epochs', 50),
+                'batch_size': params.get('batch_size', 32),
+                'learning_rate': params.get('learning_rate', 0.001),
+                'hidden_dims': params.get('hidden_dims', [256, 128]),
+                'test_size': 0.2,
+                'early_stopping_patience': params.get('patience', 10)
+            }
+            
+            logger.info(f"Eğitim parametreleri: {training_params}")
+            
+            # İlerleme callback fonksiyonu
+            def progress_callback(epoch, total_epochs, metrics=None):
+                progress_percent = (epoch / total_epochs) * 100
+                socketio.emit('training_progress', {
+                    'session_id': session_id,
+                    'progress': progress_percent,
+                    'epoch': epoch,
+                    'total_epochs': total_epochs,
+                    'metrics': metrics
+                })
+                logger.info(f"Eğitim ilerlemesi: Epoch {epoch}/{total_epochs} ({progress_percent:.1f}%)")
+            
+            # Parametrelere callback ekle
+            training_params['progress_callback'] = progress_callback
+            
+            # Modeli eğit
+            logger.info("Model eğitimi başlatılıyor...")
+            result = trainer.train_model(training_data, training_params)
+            
+            # Model versiyonunu kaydet
+            logger.info("Model versiyonu kaydediliyor...")
+            model_version = trainer.save_model_version(result['model'], result)
+            
+            # Başarı durumunda WebSocket event gönder
+            final_metrics = {
+                'mae': result['metrics']['mae'],
+                'rmse': result['metrics']['rmse'], 
+                'within_3_years': result['metrics']['within_3_years'],
+                'within_5_years': result['metrics']['within_5_years'],
+                'training_samples': result['training_samples'],
+                'validation_samples': result['validation_samples']
+            }
+            
+            socketio.emit('training_completed', {
+                'session_id': session_id,
+                'success': True,
+                'model_type': 'age',
+                'model_version': model_version.version_name,
+                'metrics': final_metrics
+            })
+            
+            logger.info(f"Yaş modeli eğitimi tamamlandı: {model_version.version_name}")
+            
+        except Exception as e:
+            logger.error(f"Yaş modeli eğitimi hatası: {str(e)}", exc_info=True)
+            
+            # Hata durumunda WebSocket event gönder
+            socketio.emit('training_error', {
+                'session_id': session_id,
+                'error': str(e),
+                'model_type': 'age'
+            })
+            
+            # Re-raise the exception for logging
+            raise
+
+def _estimate_training_duration(samples, epochs):
+    """
+    Eğitim süresini tahmin eder
+    
+    Args:
+        samples: Eğitim örnek sayısı
+        epochs: Epoch sayısı
+        
+    Returns:
+        str: Tahmini süre (readable format)
+    """
+    # Basit tahmin - gerçek değerler deneyime göre ayarlanmalı
+    seconds_per_sample_per_epoch = 0.1  # Saniye
+    total_seconds = samples * epochs * seconds_per_sample_per_epoch
+    
+    if total_seconds < 60:
+        return f"{int(total_seconds)} saniye"
+    elif total_seconds < 3600:
+        return f"{int(total_seconds / 60)} dakika"
+    else:
+        return f"{int(total_seconds / 3600)} saat {int((total_seconds % 3600) / 60)} dakika"
 
 @bp.route('/training-stats/<model_type>', methods=['GET'])
 def get_training_stats(model_type):
@@ -515,64 +708,57 @@ def get_training_stats(model_type):
             })
             
         elif model_type == 'age':
-            # Age model stats - daha detaylı
-            manual_feedbacks = Feedback.query.filter(
-                Feedback.feedback_source == 'MANUAL_USER',
-                Feedback.feedback_type == 'age'
-            ).all()
+            # Age model stats - AgeTrainingService kullan
+            from app.services.age_training_service import AgeTrainingService
             
-            pseudo_feedbacks = Feedback.query.filter(
-                Feedback.feedback_source == 'PSEUDO_BUFFALO_HIGH_CONF',  # Spesifik source
-                Feedback.feedback_type == 'age_pseudo'
-            ).all()
+            trainer = AgeTrainingService()
+            training_data = trainer.prepare_training_data(min_samples=1)
             
-            total_feedbacks = len(manual_feedbacks) + len(pseudo_feedbacks)
+            if training_data is None:
+                return jsonify({
+                    'success': True,
+                    'stats': {
+                        'total_feedbacks': 0,
+                        'total_samples': 0,
+                        'manual_samples': 0,
+                        'pseudo_samples': 0,
+                        'age_range': None,
+                        'mean_age': None,
+                        'message': 'Henüz yaş eğitim verisi bulunmuyor'
+                    }
+                })
             
-            # Çelişki çözümlemeli eğitim örnek sayısı hesaplama
-            # Aynı person_id için hem manual hem pseudo varsa, manuel öncelikli
-            unique_persons = set()
-            for feedback in manual_feedbacks:
-                if feedback.person_id:
-                    unique_persons.add(feedback.person_id)
+            manual_count = training_data['sources'].count('manual')
+            pseudo_count = training_data['sources'].count('pseudo')
+            ages = training_data['ages']
             
-            # Pseudo feedbacks'ten sadece manual'i olmayan person_id'leri say
-            additional_persons = 0
-            for feedback in pseudo_feedbacks:
-                if feedback.person_id and feedback.person_id not in unique_persons:
-                    unique_persons.add(feedback.person_id)
-                    additional_persons += 1
-            
-            training_samples = len(unique_persons)
-            
-            stats = {
-                'total_feedbacks': total_feedbacks,
-                'manual_feedbacks': len(manual_feedbacks),
-                'pseudo_feedbacks': len(pseudo_feedbacks),
-                'total_samples': training_samples,
-                'age_distribution': {},
-                'manual_vs_pseudo': {
-                    'manual_only': len([f for f in manual_feedbacks if f.person_id not in [p.person_id for p in pseudo_feedbacks if p.person_id]]),
-                    'pseudo_only': additional_persons,
-                    'both_available': len(manual_feedbacks) - len([f for f in manual_feedbacks if f.person_id not in [p.person_id for p in pseudo_feedbacks if p.person_id]])
-                }
-            }
-            
-            # Yaş dağılımı hesapla
-            for feedback in manual_feedbacks + pseudo_feedbacks:
-                age = feedback.corrected_age or feedback.pseudo_label_original_age
-                if age:
-                    age_group = f"{(age // 10) * 10}s"
-                    stats['age_distribution'][age_group] = stats['age_distribution'].get(age_group, 0) + 1
+            # Yaş dağılımını hesapla
+            age_distribution = {}
+            for age in ages:
+                age_group = f"{(int(age) // 10) * 10}s"
+                age_distribution[age_group] = age_distribution.get(age_group, 0) + 1
             
             return jsonify({
                 'success': True,
-                'stats': stats
+                'stats': {
+                    'total_feedbacks': len(training_data['feedback_ids']),
+                    'total_samples': len(training_data['embeddings']),
+                    'manual_samples': manual_count,
+                    'pseudo_samples': pseudo_count,
+                    'age_range': {
+                        'min': float(ages.min()),
+                        'max': float(ages.max())
+                    },
+                    'mean_age': float(ages.mean()),
+                    'std_age': float(ages.std()),
+                    'age_distribution': age_distribution
+                }
             })
             
         else:
             return jsonify({
                 'success': False,
-                'error': f'Bilinmeyen model türü: {model_type}'
+                'error': f'Desteklenmeyen model türü: {model_type}'
             }), 400
             
     except Exception as e:
@@ -580,126 +766,4 @@ def get_training_stats(model_type):
         return jsonify({
             'success': False,
             'error': f'İstatistikler alınamadı: {str(e)}'
-        }), 500
-
-@bp.route('/analyze-conflicts/<model_type>', methods=['GET'])
-def analyze_conflicts(model_type):
-    """
-    Feedback çelişkilerini analiz eder (sadece content modeli için)
-    """
-    try:
-        if model_type == 'content':
-            from app.services.content_training_service import ContentTrainingService
-            
-            trainer = ContentTrainingService()
-            training_data = trainer.prepare_training_data(min_samples=1, validation_strategy='all')
-            
-            if training_data is None:
-                return jsonify({
-                    'success': True,
-                    'conflicts': [],
-                    'message': 'Analiz edilecek veri bulunamadı'
-                })
-            
-            conflicts = trainer.detect_feedback_conflicts(training_data)
-            
-            # Detaylı çelişki bilgileri
-            detailed_conflicts = []
-            for conflict in conflicts:
-                detailed_conflicts.append({
-                    'image_path': conflict['image_path'],
-                    'category': conflict['category'],
-                    'scores': conflict['scores'],
-                    'score_diff': max(conflict['scores']) - min(conflict['scores']),
-                    'feedback_types': conflict['feedback_types'],
-                    'feedback_ids': conflict['feedback_ids'],
-                    'severity': 'high' if max(conflict['scores']) - min(conflict['scores']) > 0.5 else 'medium'
-                })
-            
-            return jsonify({
-                'success': True,
-                'conflicts': detailed_conflicts,
-                'total_conflicts': len(detailed_conflicts),
-                'high_severity': len([c for c in detailed_conflicts if c['severity'] == 'high']),
-                'summary': {
-                    'categories_affected': len(set([c['category'] for c in detailed_conflicts])),
-                    'avg_score_diff': sum([c['score_diff'] for c in detailed_conflicts]) / len(detailed_conflicts) if detailed_conflicts else 0
-                }
-            })
-            
-        elif model_type == 'age':
-            return jsonify({
-                'success': True,
-                'message': 'Yaş modeli için çelişki analizi gerekli değildir. Kullanıcılar manuel olarak gerçek yaş değerlerini girdiği için çelişki oluşmaz.',
-                'conflicts': [],
-                'total_conflicts': 0,
-                'explanation': 'Yaş tahmini objektif bir değerdir ve kullanıcı feedback\'i sistem tahminini düzeltmek için kullanılır.'
-            })
-            
-        else:
-            return jsonify({
-                'success': False,
-                'error': f'Bilinmeyen model türü: {model_type}'
-            }), 400
-            
-    except Exception as e:
-        logger.error(f"Conflict analysis error: {str(e)}")
-        return jsonify({
-            'success': False,
-            'error': f'Çelişki analizi yapılamadı: {str(e)}'
-        }), 500
-
-def _run_content_training(trainer, training_data, params, session_id):
-    """
-    Background thread'de content model eğitimi çalıştırır
-    """
-    try:
-        # WebSocket ile progress gönder
-        socketio.emit('training_started', {
-            'session_id': session_id,
-            'model_type': 'content',
-            'total_samples': training_data['total_samples']
-        })
-        
-        # Session ID'yi params'a ekle
-        params['session_id'] = session_id
-        
-        # Eğitimi başlat
-        training_result = trainer.train_model(training_data, params)
-        
-        # Model versiyonunu kaydet
-        model_version = trainer.save_model_version(
-            training_result['model'], 
-            training_result
-        )
-        
-        # Başarı mesajı
-        socketio.emit('training_completed', {
-            'session_id': session_id,
-            'success': True,
-            'model_version': model_version.version_name,
-            'metrics': training_result['metrics'],
-            'training_samples': training_result['training_samples'],
-            'validation_samples': training_result['validation_samples'],
-            'conflicts_resolved': training_result['conflicts_detected']
-        })
-        
-    except Exception as e:
-        # Hata mesajı
-        socketio.emit('training_error', {
-            'session_id': session_id,
-            'error': str(e)
-        })
-        logger.error(f"Training thread error: {str(e)}")
-
-def _estimate_training_duration(samples, epochs):
-    """
-    Eğitim süresini tahmin eder (saniye cinsinden)
-    """
-    # Kabaca tahmin: batch başına 0.5 saniye
-    batch_size = 16
-    batches_per_epoch = max(1, samples // batch_size)
-    total_batches = batches_per_epoch * epochs
-    estimated_seconds = total_batches * 0.5
-    
-    return int(estimated_seconds) 
+        }), 500 
