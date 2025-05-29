@@ -1,40 +1,44 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
-WSANALIZ Flask Application Entry Point
+WSANALIZ - Web Tabanlı Yapay Zeka Analiz Sistemi
+===============================================
+
+Bu uygulama, görüntü ve video dosyalarında içerik analizi, yaş tahmini ve yüz tanıma
+işlemlerini gerçekleştiren Flask tabanlı bir web uygulamasıdır.
+
+Özellikler:
+- Video/görüntü içerik analizi (şiddet, yetişkin içerik, taciz, silah, uyuşturucu)
+- Yapay zeka destekli yaş tahmini
+- CLIP model ile risk skorlaması
+- Gerçek zamanlı analiz takibi
+- Model eğitimi ve versiyonlama
 """
 
 import sys
 import os
 import logging
+from pathlib import Path
 
-# Virtual environment kontrolü ve aktivasyonu
 def ensure_virtual_env():
-    """Virtual environment'ın aktif olduğundan emin ol"""
-    venv_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'venv')
-    
-    # Virtual environment var mı kontrol et
-    if os.path.exists(venv_path):
-        # Windows için Scripts, Linux/Mac için bin
-        if os.name == 'nt':  # Windows
-            activate_script = os.path.join(venv_path, 'Scripts', 'python.exe')
-        else:  # Linux/Mac
-            activate_script = os.path.join(venv_path, 'bin', 'python')
-        
-        # Eğer virtual environment'daki Python kullanılmıyorsa
-        if sys.executable != activate_script and os.path.exists(activate_script):
-            print(f"🔄 Virtual environment Python'ı kullanılıyor: {activate_script}")
-            # Virtual environment'daki Python ile yeniden çalıştır
-            os.execv(activate_script, [activate_script] + sys.argv)
+    """Virtual environment kontrolü yapar ve gerekirse kullanıcıyı uyarır"""
+    if not hasattr(sys, 'real_prefix') and not (hasattr(sys, 'base_prefix') and sys.base_prefix != sys.prefix):
+        print("⚠️ Virtual environment aktif değil!")
+        print("💡 Önce virtual environment'ı aktifleştirin:")
+        print("   venv\\Scripts\\activate  (Windows)")
+        print("   source venv/bin/activate  (Linux/Mac)")
+        return False
+    return True
 
 # Virtual environment kontrolü
 ensure_virtual_env()
 
-# TensorFlow uyarılarını bastır
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # INFO ve WARNING loglarını gizle
+# TensorFlow loglarını production seviyesine ayarla
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 
 try:
     import tensorflow as tf
-    tf.get_logger().setLevel('ERROR')  # Sadece ERROR loglarını göster
+    tf.get_logger().setLevel('ERROR')
 except ImportError:
     print("⚠️ TensorFlow bulunamadı, devam ediliyor...")
 
@@ -53,11 +57,11 @@ if __name__ == "__main__":
         print("🚀 WSANALIZ Flask Uygulaması Başlatılıyor...")
         
         app = create_app()
-        initialize_app(app)  # Sadece ana süreçte çalıştırılacak
+        initialize_app(app)  # Uygulama başlangıç işlemleri
         
-        # Werkzeug HTTP request loglarını kapat
+        # Production için log seviyelerini ayarla
         log = logging.getLogger('werkzeug')
-        log.setLevel(logging.ERROR)
+        log.setLevel(logging.WARNING)
         
         print("✅ Uygulama başarıyla başlatıldı!")
         print("🌐 Erişim: http://localhost:5000")
@@ -65,7 +69,9 @@ if __name__ == "__main__":
         print("🤖 CLIP Monitoring: http://localhost:5000/clip-monitoring")
         print("⏹️  Durdurmak için: Ctrl+C")
         
-        socketio.run(app, debug=True, host="0.0.0.0", port=5000, log_output=False)
+        # Production modunda debug=False
+        debug_mode = os.environ.get('FLASK_ENV') == 'development'
+        socketio.run(app, debug=debug_mode, host="0.0.0.0", port=5000, log_output=False)
         
     except Exception as e:
         print(f"❌ Uygulama başlatılırken hata: {e}")

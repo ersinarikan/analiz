@@ -1,5 +1,16 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+WSANALIZ Konfigürasyon Ayarları
+==============================
+
+Bu dosya uygulamanın farklı ortamlar (development, production, testing)
+için konfigürasyon ayarlarını içerir.
+"""
+
 import os
 from dotenv import load_dotenv
+from datetime import timedelta
 
 # .env dosyasını yükle
 load_dotenv()
@@ -29,23 +40,52 @@ except ImportError:
     SETTINGS_LAST_UPDATE = None
 
 class Config:
-    # Uygulama Ayarları
-    SECRET_KEY = os.environ.get('SECRET_KEY') or 'guvenli-anahtar-buraya'
-    DEBUG = os.environ.get('DEBUG', 'False').lower() in ('true', '1', 't')
+    """Temel konfigürasyon sınıfı - tüm ortamlar için ortak ayarlar"""
     
-    # Logging Ayarları
-    SHOW_HTTP_LOGS = os.environ.get('SHOW_HTTP_LOGS', 'False').lower() in ('true', '1', 't')
+    # Güvenlik Ayarları
+    SECRET_KEY = os.environ.get('SECRET_KEY') or 'dev-secret-key-change-in-production'
+    JWT_SECRET_KEY = os.environ.get('JWT_SECRET_KEY') or SECRET_KEY
+    JWT_ACCESS_TOKEN_EXPIRES = timedelta(hours=24)
     
     # Veritabanı Ayarları
     SQLALCHEMY_DATABASE_URI = os.environ.get('DATABASE_URL') or 'sqlite:///wsanaliz.db'
     SQLALCHEMY_TRACK_MODIFICATIONS = False
+    SQLALCHEMY_ENGINE_OPTIONS = {
+        'pool_timeout': 20,
+        'pool_recycle': -1,
+        'pool_pre_ping': True
+    }
     
     # Dosya Yükleme Ayarları
     STORAGE_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'storage')
     UPLOAD_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'storage', 'uploads')
     PROCESSED_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'storage', 'processed')
     MODELS_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'storage', 'models')
-    MAX_CONTENT_LENGTH = 500 * 1024 * 1024  # 500 MB max yükleme boyutu
+    MAX_CONTENT_LENGTH = 500 * 1024 * 1024  # 500MB maksimum dosya boyutu
+    
+    # İzin verilen dosya uzantıları
+    ALLOWED_VIDEO_EXTENSIONS = {'mp4', 'avi', 'mov', 'mkv', 'webm', 'flv', '3gp'}
+    ALLOWED_IMAGE_EXTENSIONS = {'jpg', 'jpeg', 'png', 'gif', 'bmp', 'tiff', 'webp'}
+    
+    # Model Ayarları
+    AGE_MODEL_PATH = os.path.join(MODELS_FOLDER, 'age')
+    CONTENT_MODEL_PATH = os.path.join(MODELS_FOLDER, 'clip')
+    DETECTION_MODEL_PATH = os.path.join(MODELS_FOLDER, 'detection')
+    
+    # Eğitim Ayarları
+    MIN_TRAINING_SAMPLES = 5  # Minimum eğitim örneği sayısı
+    CLEANUP_TRAINING_DATA_AFTER_TRAINING = False  # Eğitim sonrası veri temizleme
+    
+    # CORS Ayarları
+    CORS_ORIGINS = ["http://localhost:3000", "http://127.0.0.1:3000"]
+    
+    # Analiz Performans Ayarları
+    MAX_CONCURRENT_ANALYSES = 3  # Eş zamanlı maksimum analiz sayısı
+    ANALYSIS_TIMEOUT = 1800  # Analiz zaman aşımı (30 dakika)
+    
+    # Log Ayarları
+    LOG_LEVEL = 'INFO'
+    LOG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'storage', 'processed', 'logs', 'app.log')
     
     # Yapay Zeka Modeli Ayarları
     USE_GPU = os.environ.get('USE_GPU', 'True').lower() in ('true', '1', 't')
@@ -115,25 +155,59 @@ class Config:
         'max_feedback_per_person': 3,
         'keep_manual_feedback': True
     }
-    
-    # Eğitim sonrası temizlik ayarı
-    CLEANUP_TRAINING_DATA_AFTER_TRAINING = True  # Eğitim sonrası kullanılan verileri tamamen siler (VT + dosyalar)
 
 class DevelopmentConfig(Config):
+    """Geliştirme ortamı konfigürasyonu"""
     DEBUG = True
-    SQLALCHEMY_DATABASE_URI = 'sqlite:///wsanaliz_dev.db'
+    SQLALCHEMY_DATABASE_URI = os.environ.get('DEV_DATABASE_URL') or \
+        'sqlite:///' + os.path.join(os.getcwd(), 'wsanaliz_dev.db')
+    LOG_LEVEL = 'DEBUG'
 
 class TestingConfig(Config):
+    """Test ortamı konfigürasyonu"""
     TESTING = True
-    SQLALCHEMY_DATABASE_URI = 'sqlite:///wsanaliz_dev.db'  # Aynı DB kullan
+    DEBUG = True
+    SQLALCHEMY_DATABASE_URI = 'sqlite:///:memory:'  # Bellekte test veritabanı
+    WTF_CSRF_ENABLED = False  # Test için CSRF korumasını kapat
+    LOG_LEVEL = 'DEBUG'
 
 class ProductionConfig(Config):
+    """Production ortamı konfigürasyonu"""
     DEBUG = False
-    SQLALCHEMY_DATABASE_URI = 'sqlite:///wsanaliz_dev.db'  # Aynı DB kullan
     
+    # Production veritabanı - çevre değişkeninden al
+    SQLALCHEMY_DATABASE_URI = os.environ.get('DATABASE_URL') or \
+        'sqlite:///' + os.path.join(os.getcwd(), 'wsanaliz_production.db')
+    
+    # Güvenlik için güçlü secret key zorunlu
+    SECRET_KEY = os.environ.get('SECRET_KEY')
+    if not SECRET_KEY:
+        raise ValueError("Production ortamında SECRET_KEY çevre değişkeni zorunludur!")
+    
+    # Production güvenlik ayarları
+    SESSION_COOKIE_SECURE = True
+    SESSION_COOKIE_HTTPONLY = True
+    SESSION_COOKIE_SAMESITE = 'Lax'
+    
+    # Performance optimizasyonları
+    SQLALCHEMY_ENGINE_OPTIONS = {
+        'pool_size': 10,
+        'pool_timeout': 30,
+        'pool_recycle': 3600,
+        'pool_pre_ping': True,
+        'max_overflow': 20
+    }
+    
+    # Log seviyesi
+    LOG_LEVEL = 'WARNING'
+    
+    # CORS - production domainleri
+    CORS_ORIGINS = os.environ.get('CORS_ORIGINS', '').split(',') if os.environ.get('CORS_ORIGINS') else []
+
+# Konfigürasyon sözlüğü
 config = {
     'development': DevelopmentConfig,
-    'testing': TestingConfig,
     'production': ProductionConfig,
+    'testing': TestingConfig,
     'default': DevelopmentConfig
 } 

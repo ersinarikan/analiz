@@ -1285,7 +1285,6 @@ def get_analysis_results(analysis_id):
     Returns:
         dict: Analiz sonuçlarını içeren sözlük
     """
-    logger.info(f"[SVC_LOG][ENTRY] get_analysis_results fonksiyonu çağrıldı. analysis_id: {analysis_id}") # YENİ GİRİŞ LOGU
     analysis = Analysis.query.get(analysis_id)
 
     if not analysis:
@@ -1300,12 +1299,15 @@ def get_analysis_results(analysis_id):
     
     result = analysis.to_dict()
     
+    # İçerik tespitlerini ekle
     content_detections = ContentDetection.query.filter_by(analysis_id=analysis_id).all()
     result['content_detections'] = [cd.to_dict() for cd in content_detections]
     
+    # Yaş tahminlerini ekle (eğer dahil edilmişse)
     if analysis.include_age_analysis:
         age_estimations = AgeEstimation.query.filter_by(analysis_id=analysis_id).all()
-        logger.info(f"[SVC_LOG][RESULTS] get_analysis_results: DB'den {len(age_estimations)} AgeEstimation kaydı çekildi.")
+        
+        # Kişi ID'sine göre grupla ve en iyi tahmini seç
         persons = {}
         for estimation in age_estimations:
             person_id = estimation.person_id
@@ -1313,36 +1315,14 @@ def get_analysis_results(analysis_id):
                 persons[person_id] = []
             persons[person_id].append(estimation.to_dict())
         
-        logger.info(f"[SVC_LOG][RESULTS] get_analysis_results: {len(persons)} kişiye göre gruplandı.")
+        # Her kişi için en yüksek güven skoruna sahip tahmini seç
         best_estimations = []
         for person_id, estimations in persons.items():
             best_estimation = max(estimations, key=lambda e: e['confidence_score'])
-            logger.info(f"[SVC_LOG][RESULTS] get_analysis_results: Kişi {person_id} için en iyi tahmin seçildi (Güven: {best_estimation['confidence_score']:.4f}).")
-            logger.info(f"DEBUG - Frontend'e gönderilecek yaş: person_id={person_id}, estimated_age={best_estimation.get('estimated_age')}, all_estimations_for_person={[(e.get('estimated_age'), e.get('confidence_score')) for e in estimations]}")
-            logger.info(f"DEBUG - best_estimation tüm alanları: {best_estimation}")
             best_estimations.append(best_estimation)
+        
         result['age_estimations'] = best_estimations
-        logger.info(f"[SVC_LOG][RESULTS] get_analysis_results: API yanıtına {len(best_estimations)} en iyi tahmin eklendi.")
 
-    # ---- YENİ LOGLAR ----
-    logger.info(f"[SVC_LOG][DEBUG] get_analysis_results - json.dumps öncesi.")
-    if 'category_specific_highest_risks_data' in result:
-        logger.info(f"[SVC_LOG][DEBUG] result['category_specific_highest_risks_data'] var. Türü: {type(result['category_specific_highest_risks_data'])}")
-        logger.info(f"[SVC_LOG][DEBUG] result['category_specific_highest_risks_data'] içeriği: {result['category_specific_highest_risks_data']}")
-    else:
-        logger.info(f"[SVC_LOG][DEBUG] result['category_specific_highest_risks_data'] YOK.")
-    # ---- YENİ LOGLAR SONU ----
-
-    try:
-        # Orijinal log satırını try-except içine alalım
-        final_result_json = json.dumps(result, indent=2, cls=NumPyJSONEncoder)
-        logger.info(f"[SVC_LOG][RESULTS] get_analysis_results sonu - Dönecek Result: {final_result_json}")
-    except Exception as e_dumps:
-        logger.error(f"[SVC_LOG][ERROR] get_analysis_results - json.dumps sırasında HATA: {str(e_dumps)}")
-        logger.error(f"[SVC_LOG][ERROR] Hata anındaki result sözlüğü (ilk 1000 karakter): {str(result)[:1000]}") # Hata anındaki result'ı logla (çok uzunsa kırp)
-        # Hata durumunda da bir şeyler döndürmek gerekebilir, yoksa frontend askıda kalabilir.
-        # Şimdilik orijinal davranışı koruyup, sadece logluyoruz.
-        # Sorun buysa, buraya bir `return {'error': 'Sonuçlar serileştirilemedi'}` eklenebilir.
     return result
 
 # Model yükleme için yardımcı fonksiyonlar
