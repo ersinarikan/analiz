@@ -1,3 +1,21 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+WSANALIZ Dosya İşlemleri Servisi
+===============================
+
+Bu modül dosya yükleme, kaydetme, doğrulama ve işleme operasyonları
+için gerekli fonksiyonları içerir. Güvenli dosya yönetimi ve thumbnail
+oluşturma işlemlerini sağlar.
+
+Ana Fonksiyonlar:
+- Dosya yükleme ve kaydetme
+- MIME tipi kontrolü
+- Thumbnail oluşturma (resim/video)
+- Dosya bilgilerini alma
+- Güvenlik doğrulamaları
+"""
+
 import os
 import uuid
 import mimetypes
@@ -13,7 +31,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-# İzin verilen dosya uzantıları
+# İzin verilen dosya uzantıları - güvenlik için kısıtlı liste
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp', 'mp4', 'avi', 'mov', 'wmv', 'mkv', 'webm'}
 
 def is_allowed_file(filename):

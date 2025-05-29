@@ -1,3 +1,20 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+WSANALIZ Kuyruk Yönetim Servisi
+===============================
+
+Bu modül analiz işlemlerinin sıralı olarak işlenmesi için kuyruk sistemini yönetir.
+Thread-safe analiz kuyruğu, işleyici thread'i ve durum bildirimleri sağlar.
+
+Ana Özellikler:
+- Thread-safe analiz kuyruğu
+- Asenkron analiz işleme
+- Kuyruk durumu izleme
+- Socket.io ile gerçek zamanlı bildirimler
+- Hata toleransı ve logging
+"""
+
 import threading
 import queue
 import logging
@@ -7,9 +24,9 @@ import traceback
 
 logger = logging.getLogger(__name__)
 
-# Global analiz kuyruğu
+# Global analiz kuyruğu - thread-safe işlemler için
 analysis_queue = queue.Queue()
-# İşleme kilidi
+# İşleme kilidi - aynı anda sadece bir işleyici çalışsın
 processing_lock = threading.Lock()
 is_processing = False
 
