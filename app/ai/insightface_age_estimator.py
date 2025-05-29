@@ -361,56 +361,144 @@ class InsightFaceAgeEstimator:
             # CLIP için ön işleme
             preprocessed_image = self.clip_preprocess(pil_image).unsqueeze(0).to(self.clip_device)
             
-            # Yaş tahminini doğrulamak için daha genel yaş kategorisi prompt'ları
+            # YENİ: Geliştirilmiş yaş kategorisi prompt sistemi (pozitif/negatif zıt anlamlı)
             age = int(round(estimated_age))
-            prompts = []
             
-            # Yaş kategorisi belirle
+            # Yaş kategorisine göre pozitif ve negatif prompt'ları belirle
             if age < 3:
-                prompts.append("a photo of a baby or infant")
-                prompts.append("this person is clearly younger than 5 years old")
-                prompts.append("not an adult or teenager")
+                # 🍼 Bebek (0-2 yaş)
+                positive_prompts = [
+                    "a baby or infant",
+                    "very young child under 3 years old", 
+                    "toddler or newborn",
+                    "infant facial features"
+                ]
+                negative_prompts = [
+                    "adult person",
+                    "teenage or mature face",
+                    "grown-up individual", 
+                    "elderly person"
+                ]
             elif age < 13:
-                prompts.append("a photo of a child")
-                prompts.append("this person appears to be between 3 and 12 years old")
-                prompts.append("not an adult or infant")
+                # 👶 Çocuk (3-12 yaş)
+                positive_prompts = [
+                    "a child between 3 and 12 years old",
+                    "young kid or elementary school age",
+                    "childhood facial features",
+                    "pre-teen child"
+                ]
+                negative_prompts = [
+                    "adult or grown-up",
+                    "teenage person", 
+                    "mature individual",
+                    "elderly or senior"
+                ]
             elif age < 20:
-                prompts.append("a photo of a teenager")
-                prompts.append("this person appears to be between 13 and 19 years old")
-                prompts.append("not a child or a middle-aged adult")
+                # 🧒 Genç (13-19 yaş)
+                positive_prompts = [
+                    "a teenager between 13 and 19 years old",
+                    "adolescent or teen",
+                    "high school age person",
+                    "youthful teenage features"
+                ]
+                negative_prompts = [
+                    "mature adult",
+                    "elderly person",
+                    "young child",
+                    "middle-aged individual"
+                ]
             elif age < 40:
-                prompts.append("a photo of a young adult")
-                prompts.append("this person appears to be in their twenties or thirties")
-                prompts.append("not a child or a senior citizen")
+                # 👨 Genç Yetişkin (20-39 yaş)
+                positive_prompts = [
+                    "a young adult in twenties or thirties",
+                    "person between 20 and 39 years old",
+                    "youthful adult features",
+                    "early career age person"
+                ]
+                negative_prompts = [
+                    "elderly or senior person",
+                    "teenage or adolescent",
+                    "young child",
+                    "middle-aged adult over 40"
+                ]
             elif age < 65:
-                prompts.append("a photo of a middle-aged adult")
-                prompts.append("this person appears to be between 40 and 64 years old")
-                prompts.append("not a teenager or an elderly person")
+                # 👨‍💼 Orta Yaş (40-64 yaş)
+                positive_prompts = [
+                    "a middle-aged adult between 40 and 64",
+                    "mature adult in forties or fifties",
+                    "experienced adult person",
+                    "established adult features"
+                ]
+                negative_prompts = [
+                    "young adult or teenager",
+                    "elderly or senior citizen",
+                    "young child",
+                    "youthful person under 30"
+                ]
             else:
-                prompts.append("a photo of a senior citizen or elderly person")
-                prompts.append("this person appears to be 65 years old or older")
-                prompts.append("not a young adult or child")
+                # 👴 Yaşlı (65+ yaş)
+                positive_prompts = [
+                    "a senior citizen or elderly person",
+                    "person 65 years old or older",
+                    "aged individual with mature features",
+                    "elderly adult"
+                ]
+                negative_prompts = [
+                    "young adult or teenager",
+                    "young child",
+                    "middle-aged person",
+                    "youthful individual"
+                ]
+            
+            # İçerik analizindeki gibi pozitif/negatif prompt'ları birleştir
+            all_prompts = positive_prompts + negative_prompts
             
             # CLIP ile benzerlik hesapla
             with torch.no_grad():
                 image_features = self.clip_model.encode_image(preprocessed_image)
                 image_features /= image_features.norm(dim=-1, keepdim=True)
                 
-                # text_inputs = clip.tokenize(prompts).to(self.clip_device)
-                text_inputs = self.tokenizer(prompts).to(self.clip_device)
+                text_inputs = self.tokenizer(all_prompts).to(self.clip_device)
                 text_features = self.clip_model.encode_text(text_inputs)
                 text_features /= text_features.norm(dim=-1, keepdim=True)
                 
-                # Benzerlik skorlarını al (logit scale * 100)
-                similarity = (100.0 * image_features @ text_features.T).softmax(dim=-1)
-                # En yüksek benzerlik skorunu al (normalize edilmiş)
-                confidence_score = similarity.max().item()
+                # Benzerlik skorlarını al
+                similarities = (100.0 * image_features @ text_features.T).squeeze(0).cpu().numpy()
             
-            # Çok düşük veya çok yüksek skorları sınırlayabiliriz (isteğe bağlı)
-            confidence_score = max(0.1, min(0.9, confidence_score)) # Güveni 0.1-0.9 arasına sıkıştır
+            # Pozitif ve negatif skorları ayır (içerik analizindeki gibi)
+            pos_score = float(np.mean(similarities[:len(positive_prompts)]))
+            neg_score = float(np.mean(similarities[len(positive_prompts):]))
+            fark = pos_score - neg_score
             
-            logger.info(f"[AGE_LOG] CLIP Yaş Kategorisi Promptları: {prompts}")
-            logger.info(f"[AGE_LOG] CLIP Benzerlik Skorları: {similarity.cpu().numpy()}")
+            # İçerik analizindeki normalize etme yöntemini kullan
+            SQUASH_FACTOR = 4.0  # İçerik analizindeki gibi
+            
+            # Eğer her iki skor da çok düşükse, belirsizlik var
+            if abs(pos_score) < 0.02 and abs(neg_score) < 0.02:
+                confidence_score = 0.5  # Belirsiz durum
+                logger.info(f"[AGE_LOG] Belirsizlik durumu: Her iki skor da çok düşük")
+            else:
+                # Normal hesaplama - squash function
+                squashed_fark = math.tanh(fark * SQUASH_FACTOR)
+                confidence_score = (squashed_fark + 1) / 2  # 0-1 aralığına dönüştür
+                
+                # Pozitif boost
+                if pos_score > 0.05 and fark > 0.02:
+                    confidence_score = min(confidence_score * 1.2, 1.0)
+                    logger.info(f"[AGE_LOG] Pozitif boost uygulandı")
+                
+                # Negatif reduction
+                elif neg_score > 0.05 and fark < -0.02:
+                    confidence_score = max(confidence_score * 0.8, 0.0)
+                    logger.info(f"[AGE_LOG] Negatif reduction uygulandı")
+            
+            # Güven skorunu sınırla
+            confidence_score = max(0.1, min(0.9, confidence_score))
+            
+            logger.info(f"[AGE_LOG] YENİ PROMPT SİSTEMİ - Yaş Kategorisi: {age} yaş")
+            logger.info(f"[AGE_LOG] Pozitif Prompt'lar: {positive_prompts}")
+            logger.info(f"[AGE_LOG] Negatif Prompt'lar: {negative_prompts}")
+            logger.info(f"[AGE_LOG] Pozitif Skor: {pos_score:.4f}, Negatif Skor: {neg_score:.4f}, Fark: {fark:.4f}")
             logger.info(f"[AGE_LOG] _calculate_confidence_with_clip tamamlandı. Hesaplanan Güven: {confidence_score:.4f}")
             return confidence_score
             

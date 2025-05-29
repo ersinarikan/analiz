@@ -346,26 +346,23 @@ class CLIPTrainingService:
     def get_available_feedbacks(self, min_feedback_count=50):
         """Eğitim için kullanılabilir feedback'leri getir"""
         try:
-            # Manuel feedback'leri al (daha güvenilir)
+            # İçerik modeli için sadece manuel feedback'leri al
             manual_feedbacks = Feedback.query.filter(
-                Feedback.feedback_type == 'manual',
+                Feedback.feedback_source == 'MANUAL_USER_CONTENT_CORRECTION',  # İçerik için doğru source
                 Feedback.category_feedback.isnot(None)
             ).all()
             
-            # Pseudo-label feedback'leri al
-            pseudo_feedbacks = Feedback.query.filter(
-                Feedback.feedback_type == 'pseudo_label',
-                Feedback.category_feedback.isnot(None)
-            ).all()
+            # PSEUDO_BUFFALO_HIGH_CONF yaş modeli için, içerik için değil!
+            # Bu yüzden pseudo_feedbacks kısmını kaldırıyoruz
             
-            total_feedbacks = len(manual_feedbacks) + len(pseudo_feedbacks)
+            total_feedbacks = len(manual_feedbacks)
             
-            self.logger.info(f"Toplam feedback: {total_feedbacks} (Manuel: {len(manual_feedbacks)}, Pseudo: {len(pseudo_feedbacks)})")
+            self.logger.info(f"Toplam içerik feedback: {total_feedbacks} (Manuel: {len(manual_feedbacks)})")
             
             if total_feedbacks < min_feedback_count:
                 return None, f"Minimum {min_feedback_count} feedback gerekli, mevcut: {total_feedbacks}"
                 
-            return manual_feedbacks + pseudo_feedbacks, None
+            return manual_feedbacks, None
             
         except Exception as e:
             self.logger.error(f"Feedback'ler alınırken hata: {str(e)}")
@@ -514,8 +511,8 @@ class CLIPTrainingService:
             
             stats = {
                 'total_feedbacks': len(feedbacks),
-                'manual_feedbacks': len([f for f in feedbacks if f.feedback_type == 'manual']),
-                'pseudo_feedbacks': len([f for f in feedbacks if f.feedback_type == 'pseudo_label']),
+                'manual_feedbacks': len(feedbacks),  # Artık sadece manuel var
+                'pseudo_feedbacks': 0,  # İçerik için pseudo yok
                 'category_distribution': {},
                 'ready_for_training': len(feedbacks) >= 50
             }

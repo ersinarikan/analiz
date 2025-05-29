@@ -515,19 +515,51 @@ def get_training_stats(model_type):
             })
             
         elif model_type == 'age':
-            # Age model stats
-            feedbacks = Feedback.query.filter_by(feedback_type='age').all()
+            # Age model stats - daha detaylı
+            manual_feedbacks = Feedback.query.filter(
+                Feedback.feedback_source == 'MANUAL_USER',
+                Feedback.feedback_type == 'age'
+            ).all()
+            
+            pseudo_feedbacks = Feedback.query.filter(
+                Feedback.feedback_source == 'PSEUDO_BUFFALO_HIGH_CONF',  # Spesifik source
+                Feedback.feedback_type == 'age_pseudo'
+            ).all()
+            
+            total_feedbacks = len(manual_feedbacks) + len(pseudo_feedbacks)
+            
+            # Çelişki çözümlemeli eğitim örnek sayısı hesaplama
+            # Aynı person_id için hem manual hem pseudo varsa, manuel öncelikli
+            unique_persons = set()
+            for feedback in manual_feedbacks:
+                if feedback.person_id:
+                    unique_persons.add(feedback.person_id)
+            
+            # Pseudo feedbacks'ten sadece manual'i olmayan person_id'leri say
+            additional_persons = 0
+            for feedback in pseudo_feedbacks:
+                if feedback.person_id and feedback.person_id not in unique_persons:
+                    unique_persons.add(feedback.person_id)
+                    additional_persons += 1
+            
+            training_samples = len(unique_persons)
             
             stats = {
-                'total_feedbacks': len(feedbacks),
-                'total_samples': len(feedbacks),
+                'total_feedbacks': total_feedbacks,
+                'manual_feedbacks': len(manual_feedbacks),
+                'pseudo_feedbacks': len(pseudo_feedbacks),
+                'total_samples': training_samples,
                 'age_distribution': {},
-                'manual_vs_pseudo': {}
+                'manual_vs_pseudo': {
+                    'manual_only': len([f for f in manual_feedbacks if f.person_id not in [p.person_id for p in pseudo_feedbacks if p.person_id]]),
+                    'pseudo_only': additional_persons,
+                    'both_available': len(manual_feedbacks) - len([f for f in manual_feedbacks if f.person_id not in [p.person_id for p in pseudo_feedbacks if p.person_id]])
+                }
             }
             
-            # Yaş dağılımı
-            for feedback in feedbacks:
-                age = feedback.corrected_age
+            # Yaş dağılımı hesapla
+            for feedback in manual_feedbacks + pseudo_feedbacks:
+                age = feedback.corrected_age or feedback.pseudo_label_original_age
                 if age:
                     age_group = f"{(age // 10) * 10}s"
                     stats['age_distribution'][age_group] = stats['age_distribution'].get(age_group, 0) + 1

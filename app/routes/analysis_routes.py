@@ -361,6 +361,8 @@ def get_detailed_results(analysis_id):
             'file_id': analysis.file_id,
             'file_name': analysis.file.original_filename if analysis.file else None,
             'file_type': analysis.file.file_type if analysis.file else None,
+            'file_path': analysis.file.file_path if analysis.file else None,
+            'processed_image_path': analysis.processed_image_path,
             'overall_scores': {
                 'violence': analysis.overall_violence_score,
                 'adult_content': analysis.overall_adult_content_score,
@@ -377,6 +379,9 @@ def get_detailed_results(analysis_id):
                 'score': analysis.highest_risk_score,
                 'category': analysis.highest_risk_category
             },
+            'highest_risk_frame_details': {
+                'frame_path': analysis.highest_risk_frame
+            } if analysis.highest_risk_frame else None,
             'content_detections': content_detections,
             'age_estimations': age_estimations,
             'category_specific_highest_risks_data': analysis.category_specific_highest_risks_data

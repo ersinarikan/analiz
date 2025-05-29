@@ -69,25 +69,109 @@ class ContentTrainingService:
             validation_strategy: 'strict' (sadece tutarlı veriler), 'balanced' (dengelenmiş), 'all' (tüm veriler)
         """
         try:
-            # DOĞRU feedback filtreleme - content feedback'leri al
-            feedbacks = db.session.query(Feedback).filter(
-                Feedback.feedback_source == 'MANUAL_USER',
-                Feedback.category_feedback.isnot(None),  # JSON field boş değil
-                Feedback.category_correct_values.isnot(None),  # JSON field boş değil
-                Feedback.frame_path.isnot(None)
+            # Geri bildirimleri al - doğru source kontrolü
+            feedbacks = Feedback.query.filter(
+                Feedback.feedback_source == 'MANUAL_USER_CONTENT_CORRECTION',  # Doğru source
+                Feedback.category_feedback.isnot(None)
             ).all()
             
             logger.info(f"Found {len(feedbacks)} potential feedback records")
             
-            if len(feedbacks) < min_samples:
-                logger.warning(f"Insufficient feedback data: {len(feedbacks)} < {min_samples}")
+            if len(feedbacks) == 0:
+                logger.warning("No feedback data found")
+                return None
+            
+            # Path sorunlarını handle et - valid pathli feedbackları say
+            valid_path_feedbacks = []
+            invalid_path_feedbacks = []
+            
+            # Frame path kontrolü - göreli yolları mutlak yollara dönüştür
+            for feedback in feedbacks:
+                if feedback.frame_path:
+                    # Göreli yolu mutlak yola dönüştür
+                    normalized_path = feedback.frame_path
+                    
+                    # "../" ile başlıyorsa temizle ve STORAGE_FOLDER ile birleştir
+                    if normalized_path.startswith('../'):
+                        normalized_path = normalized_path.replace('../', '')
+                        from flask import current_app
+                        if 'storage/' in normalized_path:
+                            # "storage/uploads/..." formatındaysa direkt kullan
+                            base_path = os.path.dirname(current_app.config.get('STORAGE_FOLDER', ''))
+                            normalized_path = os.path.join(base_path, normalized_path).replace('\\', '/')
+                        else:
+                            # Sadece dosya adı varsa storage klasörüne ekle
+                            normalized_path = os.path.join(current_app.config.get('STORAGE_FOLDER', ''), 'uploads', normalized_path).replace('\\', '/')
+                    
+                    # Mutlak yol değilse workspace root'a göre düzelt
+                    if not os.path.isabs(normalized_path):
+                        workspace_root = os.getcwd()
+                        normalized_path = os.path.join(workspace_root, normalized_path).replace('\\', '/')
+                    
+                    logger.info(f"Path normalized: {feedback.frame_path} -> {normalized_path}")
+                    
+                    # Dosya var mı kontrol et
+                    if os.path.exists(normalized_path):
+                        # Geçici olarak normalize edilmiş yolu kullan
+                        feedback.frame_path = normalized_path
+                        valid_path_feedbacks.append(feedback)
+                        logger.info(f"Valid path found: {normalized_path}")
+                    else:
+                        invalid_path_feedbacks.append(feedback)
+                        logger.warning(f"Path not found: {normalized_path}")
+                else:
+                    invalid_path_feedbacks.append(feedback)
+            
+            logger.info(f"Valid path feedbacks: {len(valid_path_feedbacks)}, Invalid path: {len(invalid_path_feedbacks)}")
+            
+            # Eğer valid path yoksa ama feedback varsa, geçici bir stats döndür
+            if len(valid_path_feedbacks) == 0 and len(feedbacks) > 0:
+                logger.warning("No valid frame paths found, but feedbacks exist. Returning summary stats.")
+                
+                # Kategorileri say
+                category_stats = {cat: {'positive': 0, 'negative': 0, 'corrections': 0, 'total': 0} for cat in self.categories}
+                total_feedback_entries = 0
+                
+                for feedback in feedbacks:
+                    try:
+                        category_feedback = feedback.category_feedback or {}
+                        for category in self.categories:
+                            if category in category_feedback:
+                                feedback_type = category_feedback[category]
+                                if feedback_type and feedback_type != "":
+                                    category_stats[category]['total'] += 1
+                                    total_feedback_entries += 1
+                                    
+                                    if feedback_type in ['false_negative', 'score_too_high']:
+                                        category_stats[category]['positive'] += 1
+                                    elif feedback_type in ['false_positive', 'score_too_low']:
+                                        category_stats[category]['negative'] += 1
+                                    
+                                    if feedback_type in ['score_too_low', 'score_too_high']:
+                                        category_stats[category]['corrections'] += 1
+                    except Exception as e:
+                        logger.warning(f"Error processing invalid path feedback {feedback.id}: {str(e)}")
+                        continue
+                
+                return {
+                    'data': [],  # Boş training data
+                    'category_stats': category_stats,
+                    'total_samples': 0,  # Eğitim için kullanılamaz
+                    'feedbacks_processed': len(feedbacks),
+                    'valid_feedbacks': 0,
+                    'invalid_path_count': len(invalid_path_feedbacks),
+                    'message': f"36 feedback mevcut ama frame path'ler geçersiz (../undefined). Frontend düzeltmesi gerekiyor."
+                }
+            
+            if len(valid_path_feedbacks) < min_samples:
+                logger.warning(f"Insufficient valid feedback data: {len(valid_path_feedbacks)} < {min_samples}")
                 return None
             
             # Feedback'leri işle ve eğitim verisi oluştur
             training_samples = []
             category_stats = {cat: {'positive': 0, 'negative': 0, 'corrections': 0} for cat in self.categories}
             
-            for feedback in feedbacks:
+            for feedback in valid_path_feedbacks:
                 if not feedback.frame_path or not os.path.exists(feedback.frame_path):
                     continue
                 
@@ -98,18 +182,29 @@ class ContentTrainingService:
                     
                     # Her kategori için veri işle
                     for category in self.categories:
-                        if category not in category_feedback:
-                            continue
+                        # Feedback var mı kontrol et
+                        feedback_type = category_feedback.get(category, "")
+                        original_score = category_correct_values.get(category)
                         
-                        feedback_type = category_feedback[category]
+                        # YENI MANTIK: Boş feedback = Kullanıcı memnun = Correct
                         if not feedback_type or feedback_type == "":
-                            continue
-                        
-                        # Doğru skor belirle
-                        target_score = self._calculate_target_score(
-                            feedback_type, 
-                            category_correct_values.get(category)
-                        )
+                            # Kullanıcı bu kategori için feedback vermemiş
+                            # Bu demek oluyor ki sonuçtan memnun = "correct"
+                            if original_score is not None:
+                                # Modelin verdiği skoru hedef skor olarak kullan
+                                target_score = max(0.0, min(original_score / 100.0, 1.0))
+                                feedback_type = "correct"
+                                
+                                logger.info(f"Empty feedback for {category} -> treated as 'correct' with score {target_score:.3f}")
+                            else:
+                                # Original skor yoksa bu kategoriyi atla
+                                continue
+                        else:
+                            # Normal feedback processing
+                            target_score = self._calculate_target_score(
+                                feedback_type, 
+                                original_score
+                            )
                         
                         if target_score is None:
                             continue
@@ -124,7 +219,7 @@ class ContentTrainingService:
                             'target_score': target_score,  # 0.0 - 1.0 arası
                             'feedback_type': feedback_type,
                             'feedback_id': feedback.id,
-                            'original_score': category_correct_values.get(category, 0) / 100.0  # Normalize to 0-1
+                            'original_score': original_score / 100.0  # Normalize to 0-1
                         })
                         
                         # İstatistikleri güncelle
@@ -140,10 +235,6 @@ class ContentTrainingService:
                     logger.warning(f"Error processing feedback {feedback.id}: {str(e)}")
                     continue
             
-            if len(training_samples) < min_samples:
-                logger.warning(f"Insufficient processed samples: {len(training_samples)} < {min_samples}")
-                return None
-            
             logger.info(f"Prepared {len(training_samples)} training samples")
             logger.info(f"Category statistics: {category_stats}")
             
@@ -151,7 +242,7 @@ class ContentTrainingService:
                 'data': training_samples,
                 'category_stats': category_stats,
                 'total_samples': len(training_samples),
-                'feedbacks_processed': len(feedbacks)
+                'feedbacks_processed': len(valid_path_feedbacks)
             }
             
         except Exception as e:
@@ -179,7 +270,10 @@ class ContentTrainingService:
             return 0.8  # Varsayılan olarak yüksek skor
         
         elif feedback_type == 'correct':
-            return None  # Model zaten doğru, eğitim verisi olarak kullanma
+            # YENI: Model doğru tahmin etmiş, bu skoru koru
+            if user_score is not None:
+                return max(0.0, min(user_score / 100.0, 1.0))
+            return 0.5  # Fallback
         
         elif feedback_type in ['score_too_low', 'score_too_high']:
             # Kullanıcının verdiği doğru skoru kullan
@@ -192,8 +286,8 @@ class ContentTrainingService:
     def _validate_sample(self, feedback_type, target_score, strategy):
         """Validation strategy'ye göre örneği kabul et/reddet"""
         if strategy == 'strict':
-            # Sadece kesin feedback'leri kabul et
-            return feedback_type in ['false_positive', 'false_negative', 'score_too_low', 'score_too_high']
+            # Sadece kesin feedback'leri kabul et (correct dahil)
+            return feedback_type in ['false_positive', 'false_negative', 'score_too_low', 'score_too_high', 'correct']
         
         elif strategy == 'balanced':
             # Dengeli veri seti için tüm türleri kabul et

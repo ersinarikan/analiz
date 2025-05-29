@@ -166,8 +166,8 @@ def initialize_app(app):
         os.makedirs(app.config['PROCESSED_FOLDER'], exist_ok=True)
         os.makedirs(app.config['MODELS_FOLDER'], exist_ok=True)
         
-        # Sadece upload klasörünü temizle (processed klasörü analiz sonuçlarını içerdiği için korunur)
-        clean_folder(app.config['UPLOAD_FOLDER'])
+        # Upload klasörü temizlemeyi devre dışı bırak - Eğitim verisi güvenliği için
+        # clean_folder(app.config['UPLOAD_FOLDER'])  # ← EĞİTİM VERİSİ GÜVENLİĞİ İÇİN KAPATILDI
         # clean_folder(app.config['PROCESSED_FOLDER'])  # Analiz sonuçlarını korumak için devre dışı
         
         # Eski analiz sonuçlarını temizle (7 günden eski olanları)

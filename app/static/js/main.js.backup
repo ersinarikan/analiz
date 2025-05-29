@@ -1581,20 +1581,15 @@ function displayAnalysisResults(fileId, results) {
         framePathInput.name = 'frame_path';
         
         // Resimler için orijinal dosya yolu, videolar için en yüksek riskli karenin yolu (eğer varsa)
-        let determinedFramePath = results.file_path || results.processed_image_path || '';
+        let determinedFramePath = results.file_path; // Default to file_path (image or video itself)
         if (results.file_type === 'video' && results.highest_risk_frame_details && results.highest_risk_frame_details.frame_path) {
             determinedFramePath = results.highest_risk_frame_details.frame_path;
         } else if (results.file_type === 'image' && results.processed_image_path) { 
-            determinedFramePath = results.processed_image_path;
+            // For single images, if a specific processed_image_path exists (like for age overlays), use it.
+            // However, for content feedback, the original image itself is usually the reference.
+            // We'll stick to results.file_path for images for content feedback for now, unless a more specific per-category frame is available.
         }
-        
-        if (!determinedFramePath || determinedFramePath === 'undefined') {
-            console.warn('determinedFramePath geçersiz:', determinedFramePath);
-            determinedFramePath = '';
-        }
-        
-        framePathInput.value = normalizePath(determinedFramePath);
-        
+        framePathInput.value = normalizePath(determinedFramePath); 
         feedbackForm.appendChild(framePathInput);
         
         console.log('Feedback formuna eklendi: analysis_id=', analysisIdInput.value, ', frame_path=', framePathInput.value);
@@ -2960,14 +2955,12 @@ function displayModelVersions(modelType, versions) {
     
     container.appendChild(versionsList);
     
-    // Sıfırlama butonu ekle (sadece yaş modeli için)
-    if (modelType === 'age') {
-        const resetButton = document.createElement('button');
-        resetButton.className = 'btn btn-danger mt-3';
-        resetButton.innerHTML = '<i class="fas fa-undo-alt me-2"></i>Modeli Sıfırla';
-        resetButton.onclick = () => confirmModelReset(modelType);
-        container.appendChild(resetButton);
-    }
+    // Sıfırlama butonu ekle
+    const resetButton = document.createElement('button');
+    resetButton.className = 'btn btn-danger mt-3';
+    resetButton.innerHTML = '<i class="fas fa-undo-alt me-2"></i>Modeli Sıfırla';
+    resetButton.onclick = () => confirmModelReset(modelType);
+    container.appendChild(resetButton);
     
     // Aktifleştirme butonlarına olay dinleyici ekle
     const activateButtons = container.querySelectorAll('.activate-version-btn');
@@ -4338,142 +4331,66 @@ async function refreshTrainingStats() {
         if (data.success) {
             const stats = data.stats;
             
-            // Model türüne göre farklı display
-            if (modelType === 'age') {
-                container.innerHTML = `
-                    <div class="row g-3">
-                        <div class="col-md-4">
-                            <div class="card border-primary">
-                                <div class="card-body text-center">
-                                    <h5 class="card-title text-primary">Manuel Feedbacks</h5>
-                                    <h3 class="mb-0">${stats.manual_feedbacks || 0}</h3>
-                                    <small class="text-muted">Kullanıcı düzeltmeleri</small>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="col-md-4">
-                            <div class="card border-info">
-                                <div class="card-body text-center">
-                                    <h5 class="card-title text-info">Otomatik Feedbacks</h5>
-                                    <h3 class="mb-0">${stats.pseudo_feedbacks || 0}</h3>
-                                    <small class="text-muted">Sistem etiketleri</small>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="col-md-4">
-                            <div class="card border-success">
-                                <div class="card-body text-center">
-                                    <h5 class="card-title text-success">Eğitim Örneği</h5>
-                                    <h3 class="mb-0">${stats.total_samples || stats.total_feedbacks}</h3>
-                                    <small class="text-muted">Çelişki çözümlemeli</small>
-                                </div>
+            container.innerHTML = `
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <div class="card border-primary">
+                            <div class="card-body text-center">
+                                <h5 class="card-title text-primary">Toplam Feedback</h5>
+                                <h3 class="mb-0">${stats.total_feedbacks}</h3>
                             </div>
                         </div>
                     </div>
-                    
-                    ${stats.age_distribution ? `
-                    <div class="mt-3">
-                        <h6>Yaş Dağılımı:</h6>
-                        <div class="table-responsive">
-                            <table class="table table-sm table-bordered">
-                                <thead class="table-light">
-                                    <tr>
-                                        <th>Yaş Grubu</th>
-                                        <th>Örnek Sayısı</th>
-                                        <th>Oran (%)</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    ${Object.entries(stats.age_distribution).map(([ageGroup, count]) => {
-                                        const percentage = ((count / stats.total_feedbacks) * 100).toFixed(1);
-                                        return `
-                                            <tr>
-                                                <td>${ageGroup}</td>
-                                                <td><span class="badge bg-primary">${count}</span></td>
-                                                <td>${percentage}%</td>
-                                            </tr>
-                                        `;
-                                    }).join('')}
-                                </tbody>
-                            </table>
+                    <div class="col-md-6">
+                        <div class="card border-success">
+                            <div class="card-body text-center">
+                                <h5 class="card-title text-success">Eğitim Örneği</h5>
+                                <h3 class="mb-0">${stats.total_samples}</h3>
+                            </div>
+                        </div>
+                    </div>
+                    ${stats.conflicts_detected ? `
+                    <div class="col-md-6">
+                        <div class="card border-warning">
+                            <div class="card-body text-center">
+                                <h5 class="card-title text-warning">Çelişkiler</h5>
+                                <h3 class="mb-0">${stats.conflicts_detected}</h3>
+                            </div>
                         </div>
                     </div>
                     ` : ''}
-                    
-                    <div class="alert alert-info mt-3">
-                        <h6><i class="fas fa-info-circle me-2"></i>Eğitim Verisi Açıklaması</h6>
-                        <ul class="mb-0">
-                            <li><strong>Manuel Feedbacks:</strong> Kullanıcıların yaş tahminlerini düzelttikleri gerçek geri bildirimler</li>
-                            <li><strong>Otomatik Feedbacks:</strong> Buffalo modeli tarafından yüksek güvenle etiketlenen veriler</li>
-                            <li><strong>Eğitim Örneği:</strong> Aynı kişi için hem manuel hem otomatik feedback varsa, manuel feedback öncelikli</li>
-                        </ul>
-                    </div>
-                    
-                    ${stats.message ? `<div class="alert alert-warning mt-3">${stats.message}</div>` : ''}
-                `;
-            } else {
-                // Content modeli için mevcut display
-                container.innerHTML = `
-                    <div class="row g-3">
-                        <div class="col-md-6">
-                            <div class="card border-primary">
-                                <div class="card-body text-center">
-                                    <h5 class="card-title text-primary">Toplam Feedback</h5>
-                                    <h3 class="mb-0">${stats.total_feedbacks}</h3>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="col-md-6">
-                            <div class="card border-success">
-                                <div class="card-body text-center">
-                                    <h5 class="card-title text-success">Eğitim Örneği</h5>
-                                    <h3 class="mb-0">${stats.total_samples}</h3>
-                                </div>
-                            </div>
-                        </div>
-                        ${stats.conflicts_detected ? `
-                        <div class="col-md-6">
-                            <div class="card border-warning">
-                                <div class="card-body text-center">
-                                    <h5 class="card-title text-warning">Çelişkiler</h5>
-                                    <h3 class="mb-0">${stats.conflicts_detected}</h3>
-                                </div>
-                            </div>
-                        </div>
-                        ` : ''}
-                    </div>
-                    
-                    ${stats.category_stats ? `
-                    <div class="mt-3">
-                        <h6>Kategori Dağılımı:</h6>
-                        <div class="table-responsive">
-                            <table class="table table-sm table-bordered">
-                                <thead class="table-light">
+                </div>
+                
+                ${stats.category_stats ? `
+                <div class="mt-3">
+                    <h6>Kategori Dağılımı:</h6>
+                    <div class="table-responsive">
+                        <table class="table table-sm table-bordered">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>Kategori</th>
+                                    <th>Pozitif</th>
+                                    <th>Negatif</th>
+                                    <th>Toplam</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${Object.entries(stats.category_stats).map(([category, data]) => `
                                     <tr>
-                                        <th>Kategori</th>
-                                        <th>Pozitif</th>
-                                        <th>Negatif</th>
-                                        <th>Toplam</th>
+                                        <td>${getCategoryDisplayName(category)}</td>
+                                        <td><span class="badge bg-danger">${data.positive || 0}</span></td>
+                                        <td><span class="badge bg-success">${data.negative || 0}</span></td>
+                                        <td><span class="badge bg-primary">${data.total || 0}</span></td>
                                     </tr>
-                                </thead>
-                                <tbody>
-                                    ${Object.entries(stats.category_stats).map(([category, data]) => `
-                                        <tr>
-                                            <td>${getCategoryDisplayName(category)}</td>
-                                            <td><span class="badge bg-danger">${data.positive || 0}</span></td>
-                                            <td><span class="badge bg-success">${data.negative || 0}</span></td>
-                                            <td><span class="badge bg-primary">${data.total || 0}</span></td>
-                                        </tr>
-                                    `).join('')}
-                                </tbody>
-                            </table>
-                        </div>
+                                `).join('')}
+                            </tbody>
+                        </table>
                     </div>
-                    ` : ''}
-                    
-                    ${stats.message ? `<div class="alert alert-info mt-3">${stats.message}</div>` : ''}
-                `;
-            }
+                </div>
+                ` : ''}
+                
+                ${stats.message ? `<div class="alert alert-info mt-3">${stats.message}</div>` : ''}
+            `;
         } else {
             container.innerHTML = `
                 <div class="alert alert-danger">

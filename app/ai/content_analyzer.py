@@ -368,7 +368,7 @@ class ContentAnalyzer:
                     import random
                     import math
                     
-                    SQUASH_FACTOR = 5.0  # Artırıldı (3.5'tan 5.0'a)
+                    SQUASH_FACTOR = 4.0  # Azaltıldı (5.0'dan 4.0'a)
                     
                     # Mutlak skorları da dikkate al
                     abs_pos_score = abs(pos_score)
@@ -415,8 +415,8 @@ class ContentAnalyzer:
                         normalized = (clamped_score - min_val) / (max_val - min_val)
                         
                         # Küçük varyasyon ekle (daha doğal görünüm için)
-                        variation = random.uniform(-0.02, 0.02)  # ±2% varyasyon
-                        final_normalized = max(0.0, min(1.0, normalized + variation))
+                        variation = random.uniform(-0.015, 0.015)  # ±1.5% varyasyon (azaltıldı)
+                        final_normalized = max(0.0, min(0.98, normalized + variation))  # Maksimum %98'e sınırla
                         
                         return final_normalized
                     
@@ -425,7 +425,7 @@ class ContentAnalyzer:
                     # 0-100 aralığına dönüştür ve kategorize et
                     final_percentage = normalized_score * 100
                     
-                    # Risk seviyesi belirleme
+                    # Risk seviyesi belirleme (4 seviyeli sistem)
                     if final_percentage < 20:
                         risk_level = "ÇOK DÜŞÜK"
                     elif final_percentage < 40:
