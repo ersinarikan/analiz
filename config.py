@@ -16,7 +16,8 @@ os.environ['NO_ALBUMENTATIONS_UPDATE'] = '1'
 
 # Model state'i import et (Flask debug mode bu dosyayı izleyecek)
 try:
-    from app.utils.model_state import MODEL_STATE, LAST_UPDATE as MODEL_LAST_UPDATE
+    from app.utils.model_state import get_model_state, LAST_UPDATE as MODEL_LAST_UPDATE
+    MODEL_STATE = get_model_state()  # Thread-safe getter kullan
 except ImportError:
     MODEL_STATE = {}
     MODEL_LAST_UPDATE = None

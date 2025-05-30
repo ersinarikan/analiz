@@ -710,6 +710,20 @@ def get_training_stats(model_type):
         elif model_type == 'age':
             # Age model stats - AgeTrainingService kullan
             from app.services.age_training_service import AgeTrainingService
+            from app.models.feedback import Feedback
+            
+            # Raw feedback sayılarını al (conflict resolution öncesi)
+            raw_manual_feedbacks = Feedback.query.filter(
+                Feedback.feedback_type == 'age',
+                Feedback.feedback_source == 'MANUAL_USER'
+            ).count()
+            
+            raw_pseudo_feedbacks = Feedback.query.filter(
+                Feedback.feedback_type == 'age_pseudo',
+                Feedback.feedback_source == 'PSEUDO_BUFFALO_HIGH_CONF'
+            ).count()
+            
+            total_raw_feedbacks = raw_manual_feedbacks + raw_pseudo_feedbacks
             
             trainer = AgeTrainingService()
             training_data = trainer.prepare_training_data(min_samples=1)
@@ -718,10 +732,10 @@ def get_training_stats(model_type):
                 return jsonify({
                     'success': True,
                     'stats': {
-                        'total_feedbacks': 0,
+                        'total_feedbacks': total_raw_feedbacks,
                         'total_samples': 0,
-                        'manual_samples': 0,
-                        'pseudo_samples': 0,
+                        'manual_samples': raw_manual_feedbacks,
+                        'pseudo_samples': raw_pseudo_feedbacks,
                         'age_range': None,
                         'mean_age': None,
                         'message': 'Henüz yaş eğitim verisi bulunmuyor'
@@ -741,10 +755,10 @@ def get_training_stats(model_type):
             return jsonify({
                 'success': True,
                 'stats': {
-                    'total_feedbacks': len(training_data['feedback_ids']),
-                    'total_samples': len(training_data['embeddings']),
-                    'manual_samples': manual_count,
-                    'pseudo_samples': pseudo_count,
+                    'total_feedbacks': total_raw_feedbacks,  # Raw toplam (manuel + pseudo)
+                    'total_samples': len(training_data['embeddings']),  # Conflict resolution sonrası
+                    'manual_samples': raw_manual_feedbacks,  # Raw manuel sayısı
+                    'pseudo_samples': raw_pseudo_feedbacks,  # Raw pseudo sayısı
                     'age_range': {
                         'min': float(ages.min()),
                         'max': float(ages.max())
@@ -766,4 +780,81 @@ def get_training_stats(model_type):
         return jsonify({
             'success': False,
             'error': f'İstatistikler alınamadı: {str(e)}'
+        }), 500 
+
+@bp.route('/analyze-conflicts/<model_type>', methods=['GET'])
+def analyze_conflicts(model_type):
+    """
+    Belirtilen model türü için çelişki analizi yapar
+    
+    Args:
+        model_type: 'content' veya 'age'
+        
+    Returns:
+        JSON: Çelişki analizi sonuçları
+    """
+    try:
+        if model_type == 'content':
+            from app.services.content_training_service import ContentTrainingService
+            
+            trainer = ContentTrainingService()
+            training_data = trainer.prepare_training_data(min_samples=1, validation_strategy='all')
+            
+            if training_data is None:
+                return jsonify({
+                    'success': True,
+                    'conflicts': [],
+                    'total_conflicts': 0,
+                    'high_severity': 0,
+                    'summary': {
+                        'categories_affected': 0,
+                        'avg_score_diff': 0.0
+                    },
+                    'message': 'Henüz analiz edilecek feedback verisi bulunmuyor'
+                })
+            
+            # Çelişkileri tespit et
+            conflicts = trainer.detect_feedback_conflicts(training_data)
+            
+            # Özet istatistikleri hesapla
+            high_severity_count = len([c for c in conflicts if c.get('severity') == 'high'])
+            categories_affected = len(set(c['category'] for c in conflicts))
+            avg_score_diff = sum(c.get('score_diff', 0) for c in conflicts) / len(conflicts) if conflicts else 0.0
+            
+            return jsonify({
+                'success': True,
+                'conflicts': conflicts,
+                'total_conflicts': len(conflicts),
+                'high_severity': high_severity_count,
+                'summary': {
+                    'categories_affected': categories_affected,
+                    'avg_score_diff': avg_score_diff
+                }
+            })
+            
+        elif model_type == 'age':
+            # Yaş modeli için çelişki analizi gerekli değil
+            return jsonify({
+                'success': True,
+                'conflicts': [],
+                'total_conflicts': 0,
+                'high_severity': 0,
+                'summary': {
+                    'categories_affected': 0,
+                    'avg_score_diff': 0.0
+                },
+                'message': 'Yaş modeli için çelişki analizi gerekli değildir'
+            })
+        
+        else:
+            return jsonify({
+                'success': False,
+                'error': f'Desteklenmeyen model türü: {model_type}'
+            }), 400
+            
+    except Exception as e:
+        logger.error(f"Çelişki analizi hatası: {str(e)}")
+        return jsonify({
+            'success': False,
+            'error': f'Çelişki analizi yapılırken hata oluştu: {str(e)}'
         }), 500 

@@ -9,13 +9,21 @@ from app import db
 from app.models.file import File
 from app.services.file_service import is_allowed_file, save_uploaded_file
 from app.services.analysis_service import AnalysisService
+from app.utils.security import (
+    validate_file_upload, validate_path, validate_request_params,
+    FileSecurityError, PathSecurityError, SecurityError,
+    sanitize_html_input
+)
 
 logger = logging.getLogger(__name__)
 
 bp = Blueprint('files', __name__, url_prefix='/api/files')
 
-# Kabul edilen dosya türleri
-ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'mp4', 'avi', 'mov'}
+# Kabul edilen dosya uzantıları (güvenlik kontrolü ile)
+ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'mp4', 'avi', 'mov', 'mkv', 'webm'}
+
+# Maximum file size (50MB)
+MAX_FILE_SIZE = 50 * 1024 * 1024
 
 # Dosya uzantısının geçerli olup olmadığını kontrol eder
 def allowed_file(filename):
@@ -34,69 +42,90 @@ def allowed_file(filename):
 @bp.route('/', methods=['POST'])
 def upload_file():
     """
-    Dosya yükleme endpoint'i. Medya dosyasını sisteme kaydeder ve veritabanına kaydını oluşturur.
-    
-    Returns:
-        JSON: Yüklenen dosya bilgileri veya hata mesajı
+    Güvenli dosya yükleme endpoint'i.
     """
-    if 'file' not in request.files:
-        return jsonify({'error': 'Dosya bulunamadı'}), 400
-    
-    file = request.files['file']
-    
-    if file.filename == '':
-        return jsonify({'error': 'Dosya seçilmedi'}), 400
-    
-    if not allowed_file(file.filename):
-        return jsonify({'error': 'Geçersiz dosya türü. İzin verilen türler: ' + ', '.join(ALLOWED_EXTENSIONS)}), 400
-    
     try:
-        filename = secure_filename(file.filename)
-        unique_filename = str(uuid.uuid4()) + '_' + filename
+        # Input validation
+        if 'file' not in request.files:
+            return jsonify({'error': 'Dosya bulunamadı'}), 400
         
-        file_path = save_uploaded_file(file, unique_filename)
+        file = request.files['file']
         
-        if not file_path:
+        if file.filename == '':
+            return jsonify({'error': 'Dosya seçilmedi'}), 400
+        
+        # Validate file using security module
+        try:
+            file_info = validate_file_upload(file, ALLOWED_EXTENSIONS)
+        except FileSecurityError as e:
+            return jsonify({'error': f'Dosya güvenlik kontrolü başarısız: {str(e)}'}), 400
+        
+        # Check file size
+        file.seek(0, 2)  # Seek to end
+        file_size = file.tell()
+        file.seek(0)  # Reset to beginning
+        
+        if file_size > MAX_FILE_SIZE:
+            return jsonify({'error': f'Dosya çok büyük (max {MAX_FILE_SIZE // (1024*1024)}MB)'}), 400
+        
+        if file_size == 0:
+            return jsonify({'error': 'Boş dosya yüklenemez'}), 400
+        
+        # Generate unique secure filename
+        unique_filename = str(uuid.uuid4()) + '_' + file_info['safe_filename']
+        
+        # Validate upload path
+        try:
+            upload_folder = current_app.config['UPLOAD_FOLDER']
+            safe_path = validate_path(
+                os.path.join(upload_folder, unique_filename),
+                upload_folder
+            )
+        except PathSecurityError as e:
+            return jsonify({'error': f'Path güvenlik hatası: {str(e)}'}), 400
+        
+        # Save file securely
+        try:
+            file.save(safe_path)
+        except Exception as e:
+            logger.error(f"Dosya kaydetme hatası: {str(e)}")
             return jsonify({'error': 'Dosya kaydedilemedi'}), 500
         
-        mime_type, _ = mimetypes.guess_type(file_path)
-        if not mime_type:
-            # Fallback to common types based on extension
-            ext = filename.rsplit('.', 1)[1].lower() if '.' in filename else ''
-            if ext in ['jpg', 'jpeg']:
-                mime_type = 'image/jpeg'
-            elif ext == 'png':
-                mime_type = 'image/png'
-            elif ext == 'gif':
-                mime_type = 'image/gif'
-            elif ext == 'mp4':
-                mime_type = 'video/mp4'
-            elif ext == 'avi':
-                mime_type = 'video/x-msvideo'
-            elif ext == 'mov':
-                mime_type = 'video/quicktime'
-            else:
-                mime_type = 'application/octet-stream'
+        # Double-check MIME type after saving
+        actual_mime, _ = mimetypes.guess_type(safe_path)
+        if actual_mime and actual_mime != file_info['detected_mime']:
+            logger.warning(f"MIME type mismatch: detected={file_info['detected_mime']}, actual={actual_mime}")
         
-        if not (mime_type.startswith('image/') or mime_type.startswith('video/')):
-            os.remove(file_path)
-            return jsonify({'error': 'Sadece resim ve video dosyaları desteklenmektedir'}), 400
-        
-        file_size = os.path.getsize(file_path)
+        # Create database record
         file_record = File(
             filename=unique_filename,
-            original_filename=filename,
-            file_path=file_path,
+            original_filename=sanitize_html_input(file.filename),  # XSS protection
+            file_path=safe_path,
             file_size=file_size,
-            mime_type=mime_type,
+            mime_type=file_info['detected_mime'],
+            file_type=file_info['file_type'],
             user_id=g.user.id if hasattr(g, 'user') else None
         )
         
         db.session.add(file_record)
         db.session.commit()
         
-        auto_analyze = request.form.get('auto_analyze', 'false').lower() == 'true'
-        if auto_analyze:
+        # Validate auto_analyze parameter
+        try:
+            form_params = validate_request_params(
+                dict(request.form),
+                {
+                    'auto_analyze': {
+                        'type': 'bool',
+                        'default': False
+                    }
+                }
+            )
+        except SecurityError as e:
+            return jsonify({'error': f'Parameter hatası: {str(e)}'}), 400
+        
+        # Start analysis if requested
+        if form_params.get('auto_analyze', False):
             analysis_service = AnalysisService()
             analysis = analysis_service.start_analysis(file_record.id)
             
@@ -113,48 +142,74 @@ def upload_file():
         }), 201
         
     except Exception as e:
-        logger.error(f"Dosya yüklenirken hata oluştu: {str(e)}")
-        return jsonify({'error': f'Dosya yüklenirken bir hata oluştu: {str(e)}'}), 500
+        logger.error(f"Dosya yüklenirken beklenmeyen hata: {str(e)}")
+        return jsonify({'error': 'Dosya yüklenirken bir hata oluştu'}), 500
 
 @bp.route('/', methods=['GET'])
 def get_files():
     """
-    Sistemdeki tüm dosyaları veya belirli kullanıcıya ait dosyaları listeler.
-    Sayfalama ve filtreleme özellikleri sunar.
-    
-    Returns:
-        JSON: Dosya listesi veya hata mesajı
+    Güvenli dosya listesi endpoint'i. Parametreleri doğrular ve güvenli sorgu yapar.
     """
     try:
-        page = request.args.get('page', 1, type=int)
-        per_page = request.args.get('per_page', 10, type=int)
-        
-        file_type = request.args.get('file_type')
-        user_id = request.args.get('user_id')
+        # Validate request parameters
+        params = validate_request_params(
+            dict(request.args),
+            {
+                'page': {
+                    'type': 'int',
+                    'min': 1,
+                    'max': 1000,
+                    'default': 1
+                },
+                'per_page': {
+                    'type': 'int',
+                    'min': 1,
+                    'max': 100,
+                    'default': 10
+                },
+                'file_type': {
+                    'type': 'str',
+                    'allowed': ['image', 'video'],
+                    'required': False
+                },
+                'user_id': {
+                    'type': 'int',
+                    'min': 1,
+                    'required': False
+                }
+            }
+        )
         
         query = File.query
         
-        if file_type:
-            query = query.filter(File.file_type == file_type)
-        if user_id:
-            query = query.filter(File.user_id == user_id)
+        # Apply filters safely
+        if params.get('file_type'):
+            query = query.filter(File.file_type == params['file_type'])
+        if params.get('user_id'):
+            query = query.filter(File.user_id == params['user_id'])
         
         query = query.order_by(File.created_at.desc())
         
-        paginated_files = query.paginate(page=page, per_page=per_page, error_out=False)
+        paginated_files = query.paginate(
+            page=params['page'], 
+            per_page=params['per_page'], 
+            error_out=False
+        )
         
         result = {
             'files': [file.to_dict() for file in paginated_files.items],
             'total': paginated_files.total,
             'pages': paginated_files.pages,
-            'current_page': page
+            'current_page': params['page']
         }
         
         return jsonify(result), 200
         
+    except SecurityError as e:
+        return jsonify({'error': f'Parameter hatası: {str(e)}'}), 400
     except Exception as e:
-        logger.error(f"Dosya listesi alınırken hata oluştu: {str(e)}")
-        return jsonify({'error': f'Dosya listesi alınırken bir hata oluştu: {str(e)}'}), 500
+        logger.error(f"Dosya listesi alınırken hata: {str(e)}")
+        return jsonify({'error': 'Dosya listesi alınırken bir hata oluştu'}), 500
 
 @bp.route('/<int:file_id>', methods=['GET'])
 def get_file(file_id):
@@ -182,30 +237,51 @@ def get_file(file_id):
 @bp.route('/<int:file_id>/download', methods=['GET'])
 def download_file(file_id):
     """
-    Belirtilen ID'ye sahip dosyayı indirme endpoint'i.
-    
-    Args:
-        file_id: İndirilecek dosyanın ID'si
-        
-    Returns:
-        File: İndirilecek dosya veya hata mesajı
+    Güvenli dosya indirme endpoint'i. Path traversal saldırılarına karşı korumalı.
     """
     try:
+        # Validate file_id parameter
+        if not isinstance(file_id, int) or file_id <= 0:
+            return jsonify({'error': 'Geçersiz dosya ID'}), 400
+        
         file = File.query.get(file_id)
         
         if not file:
             return jsonify({'error': 'Dosya bulunamadı'}), 404
-            
+        
+        # Validate file path against directory traversal
+        try:
+            upload_folder = current_app.config['UPLOAD_FOLDER']
+            safe_file_path = validate_path(file.file_path, upload_folder)
+        except PathSecurityError as e:
+            logger.error(f"Path security error for file {file_id}: {str(e)}")
+            return jsonify({'error': 'Dosya erişim hatası'}), 403
+        
+        # Check if file actually exists
+        if not os.path.exists(safe_file_path):
+            logger.error(f"File not found on disk: {safe_file_path}")
+            return jsonify({'error': 'Dosya sistemde bulunamadı'}), 404
+        
+        # Get directory and filename safely
+        directory = os.path.dirname(safe_file_path)
+        filename = os.path.basename(safe_file_path)
+        
+        # Ensure directory is still within upload folder after manipulation
+        try:
+            validate_path(directory, upload_folder)
+        except PathSecurityError:
+            return jsonify({'error': 'Güvenlik hatası: Geçersiz dosya yolu'}), 403
+        
         return send_from_directory(
-            current_app.config['UPLOAD_FOLDER'],
-            file.filename,
+            directory,
+            filename,
             as_attachment=True,
-            download_name=file.original_filename
+            download_name=sanitize_html_input(file.original_filename)
         )
         
     except Exception as e:
-        logger.error(f"Dosya indirilirken hata oluştu: {str(e)}")
-        return jsonify({'error': f'Dosya indirilirken bir hata oluştu: {str(e)}'}), 500
+        logger.error(f"Dosya indirme hatası: {str(e)}")
+        return jsonify({'error': 'Dosya indirilemedi'}), 500
 
 @bp.route('/<int:file_id>', methods=['DELETE'])
 def delete_file(file_id):

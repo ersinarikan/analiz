@@ -4,6 +4,7 @@ import logging
 import time
 from flask import current_app
 import traceback
+from contextlib import contextmanager
 
 logger = logging.getLogger(__name__)
 
@@ -13,6 +14,45 @@ analysis_queue = queue.Queue()
 processing_lock = threading.Lock()
 is_processing = False
 
+@contextmanager
+def database_session(app):
+    """
+    Thread-safe database session context manager
+    Her thread için ayrı session yönetimi sağlar
+    """
+    try:
+        with app.app_context():
+            from app import db
+            
+            # Yeni session başlat
+            session = db.session
+            
+            # İşlem başlangıcında session'ı temizle
+            session.rollback()  # Önceki işlemlerden kalan uncommitted changes'i temizle
+            session.close()     # Connection pool'a geri döndür
+            
+            # Fresh session başlat
+            yield session
+            
+            # Başarılı işlem sonrası commit
+            session.commit()
+            
+    except Exception as e:
+        # Hata durumunda rollback
+        try:
+            session.rollback()
+            logger.error(f"Database session rollback yapıldı: {str(e)}")
+        except:
+            pass
+        raise
+        
+    finally:
+        # Her durumda session'ı temizle
+        try:
+            session.close()
+        except:
+            pass
+
 def add_to_queue(analysis_id):
     """
     Analiz işini kuyruğa ekler ve işleyiciyi başlatır
@@ -20,14 +60,14 @@ def add_to_queue(analysis_id):
     Args:
         analysis_id: Eklenecek analiz ID'si
     """
+    logger.info(f"Analiz kuyruğa ekleniyor: {analysis_id}")
     analysis_queue.put(analysis_id)
-    logger.info(f"Analiz #{analysis_id} kuyruğa eklendi. Kuyruk boyutu: {analysis_queue.qsize()}")
     
-    # Kuyruk durumu bildirimi gönder
-    emit_queue_status()
-    
-    # İşleyici başlat
+    # Kuyruk işleyiciyi başlat
     start_processor()
+    
+    # Kuyruk durumu bildirimi gönder  
+    emit_queue_status()
 
 def emit_queue_status():
     """
@@ -56,7 +96,7 @@ def start_processor():
 
 def process_queue():
     """
-    Kuyruktan sırayla analiz işlerini işler
+    Kuyruktan sırayla analiz işlerini işler - Thread-safe database management ile
     """
     global is_processing
     
@@ -76,9 +116,9 @@ def process_queue():
             logger.info(f"Analiz işleme başlıyor: #{analysis_id}, Kalan işler: {analysis_queue.qsize()}")
             
             try:
-                with app.app_context():
+                # Thread-safe database session kullan
+                with database_session(app) as session:
                     # Gerekli modülleri import et
-                    from app import db
                     from app.models.analysis import Analysis
                     from app.services.analysis_service import analyze_file
                     
@@ -89,105 +129,59 @@ def process_queue():
                         analysis_queue.task_done()
                         continue
                     
-                    # DB session'ı temizle (önceki işlemlerden kalan bağlantıları kapat)
-                    db.session.close()
-                    
-                    # Yeni bir transaction başlat
-                    analysis = Analysis.query.get(analysis_id)
+                    # İlk durum güncellemesi
                     analysis.status = 'processing'
                     analysis.status_message = 'Analiz işlemi başlatılıyor...'
                     analysis.progress = 5
-                    db.session.commit()
+                    session.commit()  # İlk commit
                     
                     # Socket bildirim gönder - status update
-                    try:
-                        from app import socketio
-                        socketio.emit('analysis_status_update', {
-                            'analysis_id': analysis_id,
-                            'file_id': analysis.file_id,
-                            'status': 'processing',
-                            'progress': 5,
-                            'message': 'Analiz işlemi başlatılıyor...'
-                        })
-                        
-                        # Özel olarak durumu da bildirelim (eski client'lar için)
-                        socketio.emit('analysis_progress', {
-                            'analysis_id': analysis_id,
-                            'file_id': analysis.file_id,
-                            'current_frame': 0,
-                            'total_frames': 100, 
-                            'progress': 5,
-                            'message': 'Analiz başlatılıyor'
-                        })
-                    except Exception as socket_err:
-                        logger.warning(f"Socket bildirim hatası: {str(socket_err)}")
+                    _emit_analysis_status(analysis_id, analysis.file_id, 'processing', 5, 'Analiz işlemi başlatılıyor...')
                     
-                    # Analizi gerçekleştir
-                    start_time = time.time()
-                    success, message = analyze_file(analysis_id)
-                    elapsed_time = time.time() - start_time
-                    
-                    # Sonuç bildirim
-                    logger.info(f"Analiz #{analysis_id} tamamlandı: {'Başarılı' if success else 'Başarısız'}, "
-                               f"Süre: {elapsed_time:.2f}s, Mesaj: {message}")
-                    
-                    # Socket bildirim gönder - completed/failed
-                    try:
-                        from app import socketio
+                # Session bitti, şimdi analizi gerçekleştir (ayrı session'da)
+                start_time = time.time()
+                success, message = analyze_file(analysis_id)
+                elapsed_time = time.time() - start_time
+                
+                # Sonuç bildirim
+                logger.info(f"Analiz #{analysis_id} tamamlandı: {'Başarılı' if success else 'Başarısız'}, "
+                           f"Süre: {elapsed_time:.2f}s, Mesaj: {message}")
+                
+                # Final durumu için yeni session
+                with database_session(app) as session:
+                    analysis = Analysis.query.get(analysis_id)
+                    if analysis:
                         if success:
-                            # Tamamlandığında klasik completed eventi
-                            socketio.emit('analysis_completed', {
-                                'analysis_id': analysis_id,
-                                'file_id': analysis.file_id,
-                                'elapsed_time': elapsed_time,
-                                'message': message
-                            })
-                            
-                            # Eski client'lar için analysis_status_update de gönder
-                            socketio.emit('analysis_status_update', {
-                                'analysis_id': analysis_id, 
-                                'file_id': analysis.file_id,
-                                'status': 'completed',
-                                'progress': 100,
-                                'message': 'Tamamlandı'
-                            })
+                            # analyze_file zaten status'u 'completed' yapmış olmalı
+                            analysis.status_message = message or 'Analiz başarıyla tamamlandı'
                         else:
-                            # Klasik failed eventi
-                            socketio.emit('analysis_failed', {
-                                'analysis_id': analysis_id,
-                                'file_id': analysis.file_id,
-                                'elapsed_time': elapsed_time,
-                                'error': message
-                            })
-                            
-                            # Eski client'lar için analysis_status_update de gönder
-                            socketio.emit('analysis_status_update', {
-                                'analysis_id': analysis_id,
-                                'file_id': analysis.file_id,
-                                'status': 'failed',
-                                'progress': 0,
-                                'message': message
-                            })
-                    except Exception as socket_err:
-                        logger.warning(f"Socket bildirim hatası: {str(socket_err)}")
+                            analysis.status = 'failed'
+                            analysis.status_message = message or 'Analiz başarısız'
+                        session.commit()
+                
+                # Socket bildirim gönder - completed/failed
+                _emit_analysis_completion(analysis_id, analysis.file_id, success, elapsed_time, message)
                 
             except Exception as e:
                 logger.error(f"Analiz işleme hatası: #{analysis_id}, {str(e)}")
                 logger.error(traceback.format_exc())
                 
-                # Hata durumunda analizi başarısız olarak işaretle
+                # Hata durumunda analizi başarısız olarak işaretle - yeni session ile
                 try:
-                    with app.app_context():
-                        from app import db
-                        from app.models.analysis import Analysis
-                        
+                    with database_session(app) as session:
                         analysis = Analysis.query.get(analysis_id)
                         if analysis:
                             analysis.status = 'failed'
                             analysis.status_message = f"İşlem sırasında hata: {str(e)}"[:250]
-                            db.session.commit()
+                            session.commit()
+                            
+                        # Hata bildirimi
+                        _emit_analysis_completion(analysis_id, analysis.file_id if analysis else None, 
+                                                False, 0, f"İşlem hatası: {str(e)}")
+                        
                 except Exception as db_err:
                     logger.error(f"Hata durumunda DB güncelleme hatası: {str(db_err)}")
+                    
             finally:
                 # Kuyruk işlemi tamamlandı
                 analysis_queue.task_done()
@@ -203,9 +197,11 @@ def process_queue():
         
         # Son kuyruk durumu bildirimi
         emit_queue_status()
+        
     except Exception as e:
         logger.error(f"Kuyruk işleyici kritik hatası: {str(e)}")
         logger.error(traceback.format_exc())
+        
     finally:
         # İşleme durumunu sıfırla
         with processing_lock:
@@ -215,6 +211,71 @@ def process_queue():
             # Eğer kuyrukta hala eleman varsa, yeni bir işleyici başlat
             if not analysis_queue.empty():
                 start_processor()
+
+def _emit_analysis_status(analysis_id, file_id, status, progress, message):
+    """Socket.io analiz durumu bildirimi helper fonksiyonu"""
+    try:
+        from app import socketio
+        socketio.emit('analysis_status_update', {
+            'analysis_id': analysis_id,
+            'file_id': file_id,
+            'status': status,
+            'progress': progress,
+            'message': message
+        })
+        
+        # Özel olarak durumu da bildirelim (eski client'lar için)
+        socketio.emit('analysis_progress', {
+            'analysis_id': analysis_id,
+            'file_id': file_id,
+            'current_frame': 0,
+            'total_frames': 100, 
+            'progress': progress,
+            'message': message
+        })
+    except Exception as socket_err:
+        logger.warning(f"Socket bildirim hatası: {str(socket_err)}")
+
+def _emit_analysis_completion(analysis_id, file_id, success, elapsed_time, message):
+    """Socket.io analiz tamamlanma bildirimi helper fonksiyonu"""
+    try:
+        from app import socketio
+        if success:
+            # Tamamlandığında klasik completed eventi
+            socketio.emit('analysis_completed', {
+                'analysis_id': analysis_id,
+                'file_id': file_id,
+                'elapsed_time': elapsed_time,
+                'message': message
+            })
+            
+            # Eski client'lar için analysis_status_update de gönder
+            socketio.emit('analysis_status_update', {
+                'analysis_id': analysis_id, 
+                'file_id': file_id,
+                'status': 'completed',
+                'progress': 100,
+                'message': 'Tamamlandı'
+            })
+        else:
+            # Klasik failed eventi
+            socketio.emit('analysis_failed', {
+                'analysis_id': analysis_id,
+                'file_id': file_id,
+                'elapsed_time': elapsed_time,
+                'error': message
+            })
+            
+            # Eski client'lar için analysis_status_update de gönder
+            socketio.emit('analysis_status_update', {
+                'analysis_id': analysis_id,
+                'file_id': file_id,
+                'status': 'failed',
+                'progress': 0,
+                'message': message
+            })
+    except Exception as socket_err:
+        logger.warning(f"Socket bildirim hatası: {str(socket_err)}")
 
 def get_queue_status():
     """

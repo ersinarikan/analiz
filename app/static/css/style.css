@@ -597,4 +597,10 @@ body {
     width: 100%;
     height: 100%;
     object-fit: cover;
+}
+
+/* Custom progress bar colors for risk levels */
+.progress-bar-pink {
+    background-color: #ff6b8a !important;
+    color: white;
 } 

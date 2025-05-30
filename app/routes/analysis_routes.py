@@ -6,6 +6,10 @@ from app.models.analysis import Analysis, ContentDetection, AgeEstimation, Analy
 from app.models.feedback import Feedback
 from app.services.analysis_service import AnalysisService, get_analysis_results
 from app.json_encoder import json_dumps_numpy
+from app.utils.security import (
+    validate_request_params, validate_json_input,
+    SecurityError, sanitize_html_input
+)
 
 logger = logging.getLogger(__name__)
 
@@ -14,32 +18,53 @@ bp = Blueprint('analysis', __name__, url_prefix='/api/analysis')
 @bp.route('/start', methods=['POST'])
 def start_analysis():
     """
-    Yeni bir analiz başlatır. Belirtilen dosya ID'si için analiz işlemini kuyruğa ekler.
-    
-    Gerekli parametreler:
-    - file_id: Analiz edilecek dosyanın ID'si
-    - Opsiyonel parametreler: frames_per_second, include_age_analysis
-    
-    Returns:
-        JSON: Oluşturulan analiz bilgileri veya hata mesajı
+    Güvenli analiz başlatma endpoint'i. Tüm girişleri doğrular.
     """
     try:
-        data = request.json
+        # JSON input validation
+        if not request.is_json:
+            return jsonify({'error': 'Content-Type application/json gereklidir'}), 400
         
-        # Gerekli alanları kontrol et
-        if not data or 'file_id' not in data:
-            return jsonify({'error': 'file_id alanı gereklidir'}), 400
-            
-        file_id = data['file_id']
+        try:
+            data = validate_json_input(request.json)
+        except SecurityError as e:
+            return jsonify({'error': f'JSON doğrulama hatası: {str(e)}'}), 400
+        
+        # Validate request parameters
+        try:
+            params = validate_request_params(
+                data,
+                {
+                    'file_id': {
+                        'type': 'int',
+                        'min': 1,
+                        'required': True
+                    },
+                    'frames_per_second': {
+                        'type': 'float',
+                        'min': 0.1,
+                        'max': 60.0,
+                        'required': False
+                    },
+                    'include_age_analysis': {
+                        'type': 'bool',
+                        'default': False
+                    }
+                }
+            )
+        except SecurityError as e:
+            return jsonify({'error': f'Parameter doğrulama hatası: {str(e)}'}), 400
+        
+        file_id = params['file_id']
         
         # Dosyanın varlığını kontrol et
         file = File.query.get(file_id)
         if not file:
-            return jsonify({'error': f'ID: {file_id} ile dosya bulunamadı'}), 404
+            return jsonify({'error': 'Dosya bulunamadı'}), 404
             
-        # İsteğe bağlı parametreleri al
-        frames_per_second = data.get('frames_per_second')
-        include_age_analysis = data.get('include_age_analysis', False)
+        # Analiz parametrelerini güvenli şekilde al
+        frames_per_second = params.get('frames_per_second')
+        include_age_analysis = params.get('include_age_analysis', False)
         
         # AnalysisService ile analizi başlat
         analysis_service = AnalysisService()
@@ -48,12 +73,6 @@ def start_analysis():
         if not analysis:
             return jsonify({'error': 'Analiz başlatılamadı'}), 500
         
-        # Analizi başarılı durum güncellemesi
-        analysis.status = 'pending'
-        analysis.status_message = 'Analiz başlatıldı'
-        db.session.commit()
-        
-        # Oluşturulan analiz bilgilerini döndür
         return jsonify({
             'message': 'Analiz başarıyla başlatıldı',
             'analysis': analysis.to_dict()
@@ -62,20 +81,18 @@ def start_analysis():
     except Exception as e:
         logger.error(f"Analiz başlatılırken hata: {str(e)}")
         db.session.rollback()
-        return jsonify({'error': f'Analiz başlatılırken bir hata oluştu: {str(e)}'}), 500
+        return jsonify({'error': 'Analiz başlatılırken bir hata oluştu'}), 500
 
-@bp.route('/<analysis_id>', methods=['GET'])
+@bp.route('/<int:analysis_id>', methods=['GET'])
 def get_analysis(analysis_id):
     """
-    Belirtilen ID'ye sahip analizin bilgilerini getirir.
-    
-    Args:
-        analysis_id: Analiz ID'si
-        
-    Returns:
-        JSON: Analiz bilgileri veya hata mesajı
+    Güvenli analiz bilgisi getirme endpoint'i.
     """
     try:
+        # ID validation
+        if analysis_id <= 0:
+            return jsonify({'error': 'Geçersiz analiz ID'}), 400
+        
         analysis = Analysis.query.get(analysis_id)
         
         if not analysis:
@@ -85,109 +102,135 @@ def get_analysis(analysis_id):
         
     except Exception as e:
         logger.error(f"Analiz bilgisi alınırken hata: {str(e)}")
-        return jsonify({'error': f'Analiz bilgisi alınırken bir hata oluştu: {str(e)}'}), 500
+        return jsonify({'error': 'Analiz bilgisi alınırken bir hata oluştu'}), 500
 
-
-@bp.route('/file/<file_id>', methods=['GET'])
+@bp.route('/file/<int:file_id>', methods=['GET'])
 def get_file_analyses(file_id):
     """
-    Belirtilen dosya ID'sine ait tüm analizleri getirir.
-    
-    Args:
-        file_id: Dosya ID'si
-        
-    Returns:
-        JSON: Analiz listesi veya hata mesajı
+    Güvenli dosya analizleri getirme endpoint'i.
     """
-    # Dosyanın varlığını kontrol et
-    file = File.query.get_or_404(file_id)
-    
-    # Dosyaya ait tüm analizleri bul
-    analyses = Analysis.query.filter_by(file_id=file_id).all()
-    
-    return jsonify([a.to_dict() for a in analyses]), 200
+    try:
+        # ID validation
+        if file_id <= 0:
+            return jsonify({'error': 'Geçersiz dosya ID'}), 400
+        
+        # Dosyanın varlığını kontrol et
+        file = File.query.get(file_id)
+        if not file:
+            return jsonify({'error': 'Dosya bulunamadı'}), 404
+        
+        # Dosyaya ait tüm analizleri bul
+        analyses = Analysis.query.filter_by(file_id=file_id).all()
+        
+        return jsonify([a.to_dict() for a in analyses]), 200
+        
+    except Exception as e:
+        logger.error(f"Dosya analizleri alınırken hata: {str(e)}")
+        return jsonify({'error': 'Dosya analizleri alınırken bir hata oluştu'}), 500
 
-
-@bp.route('/<analysis_id>/results', methods=['GET'])
+@bp.route('/<int:analysis_id>/results', methods=['GET'])
 def get_results(analysis_id):
-    print("--- GET_RESULTS ENDPOINT CALLED ---")
     """
-    Belirtilen analiz ID'si için detaylı sonuçları getirir.
-    
-    Args:
-        analysis_id: Analiz ID'si
-        
-    Returns:
-        JSON: Analiz sonuçları veya hata mesajı
+    Güvenli analiz sonuçları getirme endpoint'i.
     """
-    results = get_analysis_results(analysis_id)
-    
-    # YENİ LOGLAR
-    logger.info(f"[ROUTE_LOG] get_results: get_analysis_results fonksiyonundan dönen results: {type(results)}")
-    if isinstance(results, dict):
-        logger.info(f"[ROUTE_LOG] results sözlüğünün anahtarları: {list(results.keys())}")
-        # category_specific_highest_risks_data alanının varlığını ve türünü kontrol et
-        if 'category_specific_highest_risks_data' in results:
-            logger.info(f"[ROUTE_LOG] results['category_specific_highest_risks_data'] TÜRÜ: {type(results['category_specific_highest_risks_data'])}")
-            logger.info(f"[ROUTE_LOG] results['category_specific_highest_risks_data'] İÇERİĞİ (ilk 200 karakter): {str(results['category_specific_highest_risks_data'])[:200]}")
-        else:
-            logger.info("[ROUTE_LOG] results içerisinde 'category_specific_highest_risks_data' anahtarı BULUNAMADI.")
-    else:
-        logger.warning(f"[ROUTE_LOG] get_analysis_results beklenen gibi sözlük dönmedi, dönen değer (ilk 200 karakter): {str(results)[:200]}")
-    # YENİ LOGLAR SONU
-
-    if 'error' in results:
-        return jsonify(results), 404
+    try:
+        # ID validation
+        if analysis_id <= 0:
+            return jsonify({'error': 'Geçersiz analiz ID'}), 400
         
-    return jsonify(results), 200
+        results = get_analysis_results(analysis_id)
+        
+        if 'error' in results:
+            return jsonify(results), 404
+            
+        return jsonify(results), 200
+        
+    except Exception as e:
+        logger.error(f"Analiz sonuçları alınırken hata: {str(e)}")
+        return jsonify({'error': 'Analiz sonuçları alınırken bir hata oluştu'}), 500
 
-
-@bp.route('/<analysis_id>/feedback', methods=['POST'])
+@bp.route('/<int:analysis_id>/feedback', methods=['POST'])
 def submit_feedback(analysis_id):
     """
-    Bir analiz sonucu için kullanıcı geribildirimini kaydeder.
-    
-    Args:
-        analysis_id: Geribildirim yapılacak analiz ID'si
-        
-    İstek gövdesinde:
-        - rating: Puanlama (1-5 arası)
-        - comment: Yorumlar/açıklamalar
-        - false_positives: Yanlış pozitif tespitler (kategori listesi)
-        - false_negatives: Yanlış negatif tespitler (kategori listesi)
-    
-    Returns:
-        JSON: Başarı mesajı veya hata mesajı
+    Güvenli feedback gönderme endpoint'i.
     """
-    # Analizin varlığını kontrol et
-    analysis = Analysis.query.get_or_404(analysis_id)
-    
-    data = request.json
-    
-    # Veri doğrulama
-    if not data or 'rating' not in data:
-        return jsonify({'error': 'Puanlama (rating) alanı gereklidir'}), 400
+    try:
+        # ID validation
+        if analysis_id <= 0:
+            return jsonify({'error': 'Geçersiz analiz ID'}), 400
         
-    # Feedback oluştur
-    feedback = Feedback(
-        analysis_id=analysis_id,
-        rating=data['rating'],
-        comment=data.get('comment', ''),
-        false_positives=data.get('false_positives', []),
-        false_negatives=data.get('false_negatives', [])
-    )
-    
-    db.session.add(feedback)
-    db.session.commit()
-    
-    # Socket.io ile bildirimleri gönder (gerçek zamanlı)
-    socketio.emit('new_feedback', feedback.to_dict())
-    
-    return jsonify({
-        'message': 'Geribildirim başarıyla kaydedildi',
-        'feedback': feedback.to_dict()
-    }), 201
-
+        # Analizin varlığını kontrol et
+        analysis = Analysis.query.get(analysis_id)
+        if not analysis:
+            return jsonify({'error': 'Analiz bulunamadı'}), 404
+        
+        # JSON input validation
+        if not request.is_json:
+            return jsonify({'error': 'Content-Type application/json gereklidir'}), 400
+        
+        try:
+            data = validate_json_input(request.json)
+        except SecurityError as e:
+            return jsonify({'error': f'JSON doğrulama hatası: {str(e)}'}), 400
+        
+        # Validate request parameters
+        try:
+            params = validate_request_params(
+                data,
+                {
+                    'rating': {
+                        'type': 'int',
+                        'min': 1,
+                        'max': 5,
+                        'required': True
+                    },
+                    'comment': {
+                        'type': 'str',
+                        'max_length': 1000,
+                        'required': False,
+                        'default': ''
+                    },
+                    'false_positives': {
+                        'required': False
+                    },
+                    'false_negatives': {
+                        'required': False
+                    }
+                }
+            )
+        except SecurityError as e:
+            return jsonify({'error': f'Parameter doğrulama hatası: {str(e)}'}), 400
+        
+        # Sanitize comment input
+        comment = sanitize_html_input(params.get('comment', ''))
+        
+        # Feedback oluştur
+        feedback = AnalysisFeedback(
+            analysis_id=analysis_id,
+            rating=params['rating'],
+            comment=comment,
+            false_positives=params.get('false_positives', []),
+            false_negatives=params.get('false_negatives', [])
+        )
+        
+        db.session.add(feedback)
+        db.session.commit()
+        
+        # Socket.io ile bildirimleri gönder
+        try:
+            socketio.emit('new_feedback', feedback.to_dict())
+        except Exception as socket_err:
+            logger.warning(f"Socket bildirim hatası: {str(socket_err)}")
+        
+        return jsonify({
+            'message': 'Geribildirim başarıyla kaydedildi',
+            'feedback': feedback.to_dict()
+        }), 201
+        
+    except Exception as e:
+        logger.error(f"Feedback kaydedilirken hata: {str(e)}")
+        db.session.rollback()
+        return jsonify({'error': 'Geribildirim kaydedilirken bir hata oluştu'}), 500
 
 @bp.route('/<analysis_id>/feedback', methods=['GET'])
 def get_feedback(analysis_id):
@@ -207,7 +250,6 @@ def get_feedback(analysis_id):
     feedbacks = Feedback.query.filter_by(analysis_id=analysis_id).all()
     
     return jsonify([f.to_dict() for f in feedbacks]), 200
-
 
 @bp.route('/<analysis_id>/cancel', methods=['POST'])
 def cancel_analysis(analysis_id):
@@ -242,7 +284,6 @@ def cancel_analysis(analysis_id):
     except Exception as e:
         logger.error(f"Analiz iptal edilirken hata: {str(e)}")
         return jsonify({'error': f'Analiz iptal edilirken bir hata oluştu: {str(e)}'}), 500
-
 
 @bp.route('/<analysis_id>/retry', methods=['POST'])
 def retry_analysis(analysis_id):
@@ -282,7 +323,6 @@ def retry_analysis(analysis_id):
         logger.error(f"Analiz tekrar denenirken hata: {str(e)}")
         return jsonify({'error': f'Analiz tekrar denenirken bir hata oluştu: {str(e)}'}), 500
 
-
 @bp.route('/<analysis_id>/status', methods=['GET'])
 def get_analysis_status(analysis_id):
     """
@@ -314,7 +354,6 @@ def get_analysis_status(analysis_id):
     except Exception as e:
         logger.error(f"Analiz durumu alınırken hata: {str(e)}")
         return jsonify({'error': f'Analiz durumu alınırken bir hata oluştu: {str(e)}'}), 500
-
 
 @bp.route('/<analysis_id>/detailed-results', methods=['GET'])
 def get_detailed_results(analysis_id):

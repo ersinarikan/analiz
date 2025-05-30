@@ -1770,6 +1770,7 @@ function displayAnalysisResults(fileId, results) {
             
             // Kategori rengini belirle
             let progressBarClass = '';
+            
             if (category === 'safe') {
                 // Güvenli kategorisi için: yüksek skor = yeşil, düşük skor = kırmızı
                 if (score >= 80) {
@@ -1780,9 +1781,18 @@ function displayAnalysisResults(fileId, results) {
                     progressBarClass = 'bg-danger'; // Kırmızı - düşük güven
                 }
             } else {
-                // Diğer kategoriler için risk arttıkça kırmızılaşan renk
-                progressBarClass = riskClass === 'risk-level-high' ? 'bg-danger' : 
-                                  riskClass === 'risk-level-medium' ? 'bg-warning' : 'bg-success';
+                // Diğer kategoriler için yeni 5-seviye renk sistemi
+                if (score < 20) {
+                    progressBarClass = 'bg-primary'; // Mavi - çok düşük risk
+                } else if (score < 35) {
+                    progressBarClass = 'bg-info'; // Lacivert - düşük risk  
+                } else if (score < 55) {
+                    progressBarClass = 'bg-warning'; // Turuncu - belirsiz
+                } else if (score < 85) {
+                    progressBarClass = 'progress-bar-pink'; // Pembe - yüksek risk
+                } else {
+                    progressBarClass = 'bg-danger'; // Kırmızı - çok yüksek risk
+                }
             }
             
             // Varsa güven skorunu al
@@ -3954,6 +3964,26 @@ function updateModalModelStats(modelType, stats) {
 // Modal'dan model eğitimi başlat
 function trainModelFromModal(modelType) {
     console.log(`Modal - Training ${modelType} model`);
+    
+    // Model eğitimi progress'ini göster
+    showModalTrainingStatus('Eğitim başlatılıyor...', 'info');
+    const progressDiv = document.getElementById('modal-training-progress');
+    if (progressDiv) {
+        progressDiv.style.display = 'block';
+        document.getElementById('modal-progress-bar').style.width = '0%';
+        document.getElementById('modal-current-epoch').textContent = '-';
+        document.getElementById('modal-current-loss').textContent = '-';
+        document.getElementById('modal-current-mae').textContent = '-';
+        document.getElementById('modal-training-duration').textContent = '-';
+    }
+    
+    // Eğitim butonlarını deaktif et
+    const trainButtons = document.querySelectorAll('[onclick*="trainModelFromModal"]');
+    trainButtons.forEach(btn => {
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Eğitim Başlatılıyor...';
+    });
+    
     // Model Metrikleri modalının Model Eğitimi tab'ına yönlendir
     const modelMetricsModal = document.getElementById('modelMetricsModal');
     const modal = new bootstrap.Modal(modelMetricsModal);
@@ -3968,7 +3998,7 @@ function trainModelFromModal(modelType) {
             trainingTab.click();
         }
     
-    // Model tipini seç
+        // Model tipini seç
         const trainingModelType = document.getElementById('trainingModelType');
         if (trainingModelType) {
             trainingModelType.value = modelType;
@@ -3981,6 +4011,11 @@ function trainModelFromModal(modelType) {
                 }
             }
         }
+        
+        // Eğitimi başlat
+        setTimeout(() => {
+            startWebTraining();
+        }, 500);
     }, 300);
 }
 
@@ -4697,6 +4732,9 @@ function setupTrainingWebSocketListeners(sessionId) {
             console.log('Training started:', data);
             document.getElementById('webTrainingMessage').textContent = 
                 `Eğitim başladı (${data.total_samples} örnek)`;
+            
+            // Modal progress için de güncelle
+            showModalTrainingStatus(`Eğitim başladı (${data.total_samples} örnek)`, 'info');
         }
     });
     
@@ -4705,6 +4743,9 @@ function setupTrainingWebSocketListeners(sessionId) {
     socket.on('training_progress', (data) => {
         if (data.session_id === sessionId) {
             updateWebTrainingProgress(data);
+            
+            // Modal progress'i de güncelle
+            updateModalTrainingProgress(data);
         }
     });
     
@@ -4713,6 +4754,9 @@ function setupTrainingWebSocketListeners(sessionId) {
     socket.on('training_completed', (data) => {
         if (data.session_id === sessionId) {
             handleWebTrainingCompleted(data);
+            
+            // Modal completion'ı da handle et
+            handleModalTrainingCompleted(data);
         }
     });
     
@@ -4721,6 +4765,16 @@ function setupTrainingWebSocketListeners(sessionId) {
     socket.on('training_error', (data) => {
         if (data.session_id === sessionId) {
             handleWebTrainingError(data);
+            
+            // Modal error handling
+            showModalTrainingStatus(`Eğitim hatası: ${data.error}`, 'danger');
+            
+            // Eğitim butonlarını aktif et
+            const trainButtons = document.querySelectorAll('[onclick*="trainModelFromModal"]');
+            trainButtons.forEach(btn => {
+                btn.disabled = false;
+                btn.innerHTML = `<i class="fas fa-play me-2"></i>Yeni Eğitim Başlat`;
+            });
         }
     });
 }
@@ -4979,4 +5033,100 @@ function getRiskLevel(score, category) {
     if (score < 0.6) return { level: 'medium', color: 'warning', text: 'Orta' };
     if (score < 0.8) return { level: 'high', color: 'danger', text: 'Yüksek' };
     return { level: 'very-high', color: 'dark', text: 'Çok Yüksek' };
+}
+
+// Modal training progress güncelle
+function updateModalTrainingProgress(data) {
+    const progressBar = document.getElementById('modal-progress-bar');
+    const currentEpoch = document.getElementById('modal-current-epoch');
+    const currentLoss = document.getElementById('modal-current-loss');
+    const currentMAE = document.getElementById('modal-current-mae');
+    const trainingDuration = document.getElementById('modal-training-duration');
+    
+    console.log('Modal training progress update:', data);
+    
+    // Progress bar güncelleme
+    const progress = Math.round(data.progress || 0);
+    if (progressBar) {
+        progressBar.style.width = `${progress}%`;
+        progressBar.setAttribute('aria-valuenow', progress);
+    }
+    
+    // Epoch bilgisi
+    if (currentEpoch && data.epoch && data.total_epochs) {
+        currentEpoch.textContent = `${data.epoch}/${data.total_epochs}`;
+    }
+    
+    // Metrics güncelleme
+    if (data.metrics) {
+        if (data.metrics.val_loss && currentLoss) {
+            currentLoss.textContent = data.metrics.val_loss.toFixed(4);
+        }
+        if (data.metrics.val_mae && currentMAE) {
+            currentMAE.textContent = data.metrics.val_mae.toFixed(3);
+        }
+        
+        // Fallback untuk current metrics
+        if (data.metrics.current_loss && currentLoss) {
+            currentLoss.textContent = data.metrics.current_loss.toFixed(4);
+        }
+        if (data.metrics.current_mae && currentMAE) {
+            currentMAE.textContent = data.metrics.current_mae.toFixed(3);
+        }
+    }
+    
+    // Süre hesaplaması
+    if (trainingStartTime && trainingDuration) {
+        const elapsed = (Date.now() - trainingStartTime) / 1000;
+        trainingDuration.textContent = formatDuration(elapsed);
+    }
+    
+    // Durum mesajını güncelle
+    showModalTrainingStatus(`Eğitim devam ediyor... Epoch ${data.epoch || 0}/${data.total_epochs || 0} (${progress}%)`, 'info');
+}
+
+// Modal training tamamlandı
+function handleModalTrainingCompleted(data) {
+    const progressDiv = document.getElementById('modal-training-progress');
+    
+    // Progress bar'ı 100% yap
+    const progressBar = document.getElementById('modal-progress-bar');
+    if (progressBar) {
+        progressBar.style.width = '100%';
+        progressBar.setAttribute('aria-valuenow', 100);
+    }
+    
+    // Tamamlanma mesajı
+    const metrics = data.metrics || {};
+    let successMessage = 'Eğitim başarıyla tamamlandı!';
+    
+    if (metrics.mae) {
+        successMessage += ` (MAE: ${metrics.mae.toFixed(3)})`;
+    } else if (metrics.accuracy) {
+        successMessage += ` (Accuracy: ${(metrics.accuracy * 100).toFixed(1)}%)`;
+    }
+    
+    showModalTrainingStatus(successMessage, 'success');
+    
+    // Eğitim butonlarını aktif et
+    const trainButtons = document.querySelectorAll('[onclick*="trainModelFromModal"]');
+    trainButtons.forEach(btn => {
+        btn.disabled = false;
+        const modelType = btn.onclick.toString().includes("'age'") ? 'age' : 'content';
+        btn.innerHTML = `<i class="fas fa-play me-2"></i>Yeni Eğitim Başlat`;
+    });
+    
+    // Model versiyonlarını ve istatistikleri yenile
+    setTimeout(() => {
+        loadModalModelVersions();
+        loadModalModelStats();
+        
+        // Progress'i gizle
+        if (progressDiv) {
+            progressDiv.style.display = 'none';
+        }
+    }, 3000);
+    
+    // Toast notification
+    showToast('Başarılı', 'Model eğitimi başarıyla tamamlandı!', 'success');
 }

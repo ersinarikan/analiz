@@ -1190,41 +1190,19 @@ def get_content_model_versions():
 
 def update_model_state_file(model_type, version_id):
     """
-    Model state dosyasını günceller (Flask auto-reload için)
+    Model state'i thread-safe şekilde günceller (Flask auto-reload için)
     """
     try:
-        import datetime
-        state_file_path = os.path.join(os.path.dirname(__file__), '..', 'utils', 'model_state.py')
+        from app.utils.model_state import update_model_state
         
-        # Dosyayı oku
-        with open(state_file_path, 'r', encoding='utf-8') as f:
-            content = f.read()
+        # Thread-safe update fonksiyonunu kullan
+        update_model_state(model_type, version_id)
         
-        # LAST_UPDATE satırını güncelle
-        import re
-        timestamp = datetime.datetime.now().isoformat()
-        new_content = re.sub(
-            r'LAST_UPDATE = .*',
-            f'LAST_UPDATE = "{timestamp}"',
-            content
-        )
-        
-        # Model state'i güncelle
-        new_content = re.sub(
-            f"'{model_type}': {{\s*'active_version': [^,]*,\s*'last_activation': [^}}]*}}",
-            f"'{model_type}': {{\n        'active_version': {version_id},\n        'last_activation': '{timestamp}'\n    }}",
-            new_content
-        )
-        
-        # Dosyayı yaz
-        with open(state_file_path, 'w', encoding='utf-8') as f:
-            f.write(new_content)
-            
-        logger.info(f"Model state dosyası güncellendi: {model_type} -> version {version_id}")
+        logger.info(f"Model state thread-safe güncellendi: {model_type} -> version {version_id}")
         return True
         
     except Exception as e:
-        logger.error(f"Model state dosyası güncellenirken hata: {str(e)}")
+        logger.error(f"Model state güncellenirken hata: {str(e)}")
         return False
 
 def activate_model_version(version_id):

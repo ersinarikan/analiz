@@ -82,44 +82,37 @@ class ContentTrainingService:
                 logger.warning("No feedback data found")
                 return None
             
-            # Path sorunlarını handle et - valid pathli feedbackları say
+            # Path kontrolü - artık database'de doğru format olmalı
             valid_path_feedbacks = []
             invalid_path_feedbacks = []
             
-            # Frame path kontrolü - göreli yolları mutlak yollara dönüştür
             for feedback in feedbacks:
                 if feedback.frame_path:
-                    # Göreli yolu mutlak yola dönüştür
-                    normalized_path = feedback.frame_path
-                    
-                    # "../" ile başlıyorsa temizle ve STORAGE_FOLDER ile birleştir
-                    if normalized_path.startswith('../'):
-                        normalized_path = normalized_path.replace('../', '')
-                        from flask import current_app
-                        if 'storage/' in normalized_path:
-                            # "storage/uploads/..." formatındaysa direkt kullan
-                            base_path = os.path.dirname(current_app.config.get('STORAGE_FOLDER', ''))
-                            normalized_path = os.path.join(base_path, normalized_path).replace('\\', '/')
+                    # Database'den gelen path'i absolute path'e çevir
+                    if os.path.isabs(feedback.frame_path):
+                        # Zaten absolute path
+                        abs_path = feedback.frame_path
+                    else:
+                        # Relative path'i absolute'a çevir
+                        if feedback.frame_path.startswith('../'):
+                            # Eski format "../storage/uploads/..." -> "storage/uploads/..."
+                            clean_rel_path = feedback.frame_path.replace('../', '')
+                            workspace_root = os.getcwd()
+                            abs_path = os.path.join(workspace_root, clean_rel_path).replace('\\', '/')
                         else:
-                            # Sadece dosya adı varsa storage klasörüne ekle
-                            normalized_path = os.path.join(current_app.config.get('STORAGE_FOLDER', ''), 'uploads', normalized_path).replace('\\', '/')
-                    
-                    # Mutlak yol değilse workspace root'a göre düzelt
-                    if not os.path.isabs(normalized_path):
-                        workspace_root = os.getcwd()
-                        normalized_path = os.path.join(workspace_root, normalized_path).replace('\\', '/')
-                    
-                    logger.info(f"Path normalized: {feedback.frame_path} -> {normalized_path}")
+                            # Normal relative path
+                            workspace_root = os.getcwd()
+                            abs_path = os.path.join(workspace_root, feedback.frame_path).replace('\\', '/')
                     
                     # Dosya var mı kontrol et
-                    if os.path.exists(normalized_path):
-                        # Geçici olarak normalize edilmiş yolu kullan
-                        feedback.frame_path = normalized_path
+                    if os.path.exists(abs_path):
+                        # Absolute path'i feedback objesine set et (training için)
+                        feedback.frame_path = abs_path
                         valid_path_feedbacks.append(feedback)
-                        logger.info(f"Valid path found: {normalized_path}")
+                        logger.info(f"Valid path found: {abs_path}")
                     else:
                         invalid_path_feedbacks.append(feedback)
-                        logger.warning(f"Path not found: {normalized_path}")
+                        logger.warning(f"Path not found: {abs_path}")
                 else:
                     invalid_path_feedbacks.append(feedback)
             
@@ -220,7 +213,7 @@ class ContentTrainingService:
                             'target_score': target_score,  # 0.0 - 1.0 arası
                             'feedback_type': feedback_type,
                             'feedback_id': feedback.id,
-                            'original_score': original_score / 100.0  # Normalize to 0-1
+                            'original_score': original_score / 100.0 if original_score is not None else 0.0  # Normalize to 0-1, None check
                         })
                         
                         # İstatistikleri güncelle

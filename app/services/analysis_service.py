@@ -4,6 +4,9 @@ import traceback
 from datetime import datetime
 import json
 import cv2
+import threading
+from contextlib import contextmanager
+
 from flask import current_app
 from app import db
 from app.ai.content_analyzer import ContentAnalyzer, get_content_analyzer
@@ -20,6 +23,45 @@ from app.utils.face_utils import extract_face_features
 from app.utils.path_utils import to_rel_path
 
 logger = logging.getLogger(__name__)
+
+# Thread-safe session management
+_session_lock = threading.Lock()
+
+@contextmanager
+def safe_database_session():
+    """
+    Thread-safe database session context manager
+    Automatic rollback on errors and proper cleanup
+    """
+    session = None
+    try:
+        session = db.session
+        
+        # Başlangıçta mevcut işlemleri temizle
+        session.rollback()
+        
+        yield session
+        
+        # Başarılı işlem sonrası commit
+        session.commit()
+        
+    except Exception as e:
+        # Hata durumunda rollback
+        if session:
+            try:
+                session.rollback()
+                logger.error(f"Database session rollback yapıldı: {str(e)}")
+            except Exception as rollback_err:
+                logger.error(f"Rollback hatası: {str(rollback_err)}")
+        raise
+        
+    finally:
+        # Session'ı temizle
+        if session:
+            try:
+                session.close()
+            except Exception as close_err:
+                logger.error(f"Session close hatası: {close_err}")
 
 # Mock analizör sınıflarını kaldırıyoruz, gerçek analizörleri kullanacağız
 
@@ -43,53 +85,53 @@ class AnalysisService:
             Analysis: Oluşturulan analiz nesnesi veya None
         """
         try:
-            # Dosyayı veritabanından al
-            file = File.query.get(file_id)
-            if not file:
-                logger.error(f"Dosya bulunamadı: {file_id}")
-                return None
+            with safe_database_session() as session:
+                # Dosyayı veritabanından al
+                file = File.query.get(file_id)
+                if not file:
+                    logger.error(f"Dosya bulunamadı: {file_id}")
+                    return None
+                    
+                # Yeni bir analiz oluştur
+                analysis = Analysis(
+                    file_id=file_id,
+                    frames_per_second=frames_per_second,
+                    include_age_analysis=include_age_analysis
+                )
                 
-            # Yeni bir analiz oluştur
-            analysis = Analysis(
-                file_id=file_id,
-                frames_per_second=frames_per_second,
-                include_age_analysis=include_age_analysis
-            )
-            
-            # Başlangıç durumunu ayarla
-            analysis.status = 'pending'
-            analysis.status_message = 'Analiz başlatılıyor, dosya hazırlanıyor...'
-            analysis.progress = 5
-            
-            db.session.add(analysis)
-            db.session.commit()
-            
-            logger.info(f"Analiz oluşturuldu: #{analysis.id} - Dosya: {file.original_filename}, Durum: pending")
-            
-            # Socket.io üzerinden bildirim gönder
-            try:
-                from app import socketio
-                socketio.emit('analysis_started', {
-                    'analysis_id': analysis.id,
-                    'file_id': file_id,
-                    'file_name': file.original_filename,
-                    'file_type': file.file_type,
-                    'status': 'pending'
-                })
-            except Exception as socket_err:
-                logger.warning(f"Socket.io analiz başlangıç bildirimi hatası: {str(socket_err)}")
-            
-            # Analizi kuyruğa ekle (thread yerine kuyruk kullan)
-            from app.services.queue_service import add_to_queue
-            add_to_queue(analysis.id)
-            
-            logger.info(f"Analiz kuyruğa eklendi: #{analysis.id}")
-            
-            return analysis
+                # Başlangıç durumunu ayarla
+                analysis.status = 'pending'
+                analysis.status_message = 'Analiz başlatılıyor, dosya hazırlanıyor...'
+                analysis.progress = 5
                 
+                session.add(analysis)
+                session.commit()
+                
+                logger.info(f"Analiz oluşturuldu: #{analysis.id} - Dosya: {file.original_filename}, Durum: pending")
+                
+                # Socket.io üzerinden bildirim gönder
+                try:
+                    from app import socketio
+                    socketio.emit('analysis_started', {
+                        'analysis_id': analysis.id,
+                        'file_id': file_id,
+                        'file_name': file.original_filename,
+                        'file_type': file.file_type,
+                        'status': 'pending'
+                    })
+                except Exception as socket_err:
+                    logger.warning(f"Socket.io analiz başlangıç bildirimi hatası: {str(socket_err)}")
+                
+                # Analizi kuyruğa ekle (thread yerine kuyruk kullan)
+                from app.services.queue_service import add_to_queue
+                add_to_queue(analysis.id)
+                
+                logger.info(f"Analiz kuyruğa eklendi: #{analysis.id}")
+                
+                return analysis
+                    
         except Exception as e:
             logger.error(f"Analiz başlatma hatası: {str(e)}")
-            db.session.rollback()
             return None
     
     def cancel_analysis(self, analysis_id):
@@ -103,18 +145,19 @@ class AnalysisService:
             bool: İptal başarılı mı?
         """
         try:
-            analysis = Analysis.query.get(analysis_id)
-            if not analysis:
-                return False
+            with safe_database_session() as session:
+                analysis = Analysis.query.get(analysis_id)
+                if not analysis:
+                    return False
+                    
+                # Analiz durumunu iptal edildi olarak işaretle
+                analysis.status = 'cancelled'
+                analysis.status_message = 'Analiz kullanıcı tarafından iptal edildi'
+                analysis.updated_at = datetime.now()
+                session.commit()
                 
-            # Analiz durumunu iptal edildi olarak işaretle
-            analysis.status = 'cancelled'
-            analysis.status_message = 'Analiz kullanıcı tarafından iptal edildi'
-            analysis.updated_at = datetime.now()
-            db.session.commit()
-            
-            return True
-            
+                return True
+                
         except Exception as e:
             logger.error(f"Analiz iptal hatası: {str(e)}")
             return False
@@ -130,32 +173,32 @@ class AnalysisService:
             Analysis: Yeni analiz nesnesi veya None
         """
         try:
-            # Önceki analizi al
-            prev_analysis = Analysis.query.get(analysis_id)
-            if not prev_analysis:
-                return None
+            with safe_database_session() as session:
+                # Önceki analizi al
+                prev_analysis = Analysis.query.get(analysis_id)
+                if not prev_analysis:
+                    return None
+                    
+                # Aynı parametrelerle yeni analiz oluştur
+                new_analysis = Analysis(
+                    file_id=prev_analysis.file_id,
+                    frames_per_second=prev_analysis.frames_per_second,
+                    include_age_analysis=prev_analysis.include_age_analysis
+                )
                 
-            # Aynı parametrelerle yeni analiz oluştur
-            new_analysis = Analysis(
-                file_id=prev_analysis.file_id,
-                frames_per_second=prev_analysis.frames_per_second,
-                include_age_analysis=prev_analysis.include_age_analysis
-            )
-            
-            db.session.add(new_analysis)
-            db.session.commit()
-            
-            # Analizi kuyruğa ekle (thread yerine)
-            from app.services.queue_service import add_to_queue
-            add_to_queue(new_analysis.id)
-            
-            logger.info(f"Tekrar analiz kuyruğa eklendi: #{new_analysis.id}")
-            
-            return new_analysis
-            
+                session.add(new_analysis)
+                session.commit()
+                
+                # Analizi kuyruğa ekle (thread yerine)
+                from app.services.queue_service import add_to_queue
+                add_to_queue(new_analysis.id)
+                
+                logger.info(f"Tekrar analiz kuyruğa eklendi: #{new_analysis.id}")
+                
+                return new_analysis
+                
         except Exception as e:
             logger.error(f"Analiz tekrar deneme hatası: {str(e)}")
-            db.session.rollback()
             return None
 
 def analyze_file(analysis_id):

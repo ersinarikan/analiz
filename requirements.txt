@@ -161,4 +161,10 @@ threadpoolctl==3.6.0
 tifffile==2025.3.30
 
 # Wrapt
-wrapt==1.14.1 
+wrapt==1.14.1
+
+# Security dependencies
+python-magic==0.4.27
+python-magic-bin==0.4.14  # Windows için
+bleach==6.1.0  # HTML sanitization için
+cryptography==41.0.7  # Güvenli token generation için 

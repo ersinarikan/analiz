@@ -9,6 +9,8 @@ from flask_socketio import SocketIO
 from config import config
 import logging
 import threading
+import importlib
+from app.middleware.security_middleware import SecurityMiddleware
 
 # Global extensions
 db = SQLAlchemy()
@@ -140,6 +142,17 @@ def create_app(config_name=None):
     
     # SocketIO başlatma
     socketio.init_app(app, cors_allowed_origins="*")
+    
+    # Initialize security middleware
+    security_middleware = SecurityMiddleware()
+    security_middleware.init_app(app)
+    
+    # Security configuration
+    app.config['SECURITY_RATE_LIMIT_PER_MINUTE'] = 60
+    app.config['SECURITY_RATE_LIMIT_BURST'] = 10
+    app.config['SECURITY_MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024  # 100MB
+    # Add your allowed hosts here in production
+    app.config['SECURITY_ALLOWED_HOSTS'] = []
     
     # Register error handlers
     @app.errorhandler(404)
@@ -430,18 +443,70 @@ def sync_age_model_versions_startup():
             else:
                 print(f"   ⚠ {version_folder} için training_details.json bulunamadı")
         
-        # En son versiyonu aktif yap
+        # En son versiyonu aktif yap - ama model state'i kontrol et
         if version_folders:
-            latest_version = max(version_folders, key=lambda x: os.path.getctime(os.path.join(versions_dir, x)))
-            latest_model = ModelVersion.query.filter_by(
-                model_type='age',
-                version_name=latest_version
-            ).first()
-            
-            if latest_model:
-                ModelVersion.query.filter_by(model_type='age', is_active=True).update({'is_active': False})
-                latest_model.is_active = True
-                print(f"   🎯 {latest_version} aktif olarak ayarlandı")
+            # Model state dosyasını kontrol et
+            try:
+                # Model state modülünü fresh reload et (cache'den değil)
+                import app.utils.model_state
+                importlib.reload(app.utils.model_state)
+                from app.utils.model_state import get_model_state
+                
+                current_model_state = get_model_state('age')  # Thread-safe getter
+                current_age_version = current_model_state.get('active_version')
+                print(f"   📊 Model state age version: {current_age_version}")
+                
+                # Eğer model state version 0 (reset) ise, en son versiyonu aktif yapma
+                if current_age_version == 0:
+                    print(f"   🔄 Model state version 0 (reset) - en son versiyon aktif yapılmıyor")
+                    # Base model'i aktif yap (eğer varsa)
+                    base_model = ModelVersion.query.filter_by(model_type='age', version=0).first()
+                    if base_model:
+                        ModelVersion.query.filter_by(model_type='age', is_active=True).update({'is_active': False})
+                        base_model.is_active = True
+                        print(f"   🎯 Base model (v0) aktif olarak ayarlandı")
+                elif current_age_version is not None:
+                    # Model state'te belirli bir versiyon var - onu aktif tut
+                    print(f"   🔒 Model state version {current_age_version} korunuyor - startup sync atlanıyor")
+                    target_model = ModelVersion.query.filter_by(model_type='age', version=current_age_version).first()
+                    if target_model:
+                        ModelVersion.query.filter_by(model_type='age', is_active=True).update({'is_active': False})
+                        target_model.is_active = True
+                        print(f"   🎯 Version {current_age_version} ({target_model.version_name}) model state'e göre aktif tutuldu")
+                    else:
+                        print(f"   ⚠ Model state version {current_age_version} veritabanında bulunamadı, en son versiyon aktif yapılacak")
+                        # Fallback to latest
+                        latest_version = max(version_folders, key=lambda x: os.path.getctime(os.path.join(versions_dir, x)))
+                        latest_model = ModelVersion.query.filter_by(model_type='age', version_name=latest_version).first()
+                        if latest_model:
+                            ModelVersion.query.filter_by(model_type='age', is_active=True).update({'is_active': False})
+                            latest_model.is_active = True
+                            print(f"   🎯 {latest_version} aktif olarak ayarlandı (fallback)")
+                else:
+                    # Model state'te versiyon yok - normal durum, en son versiyonu aktif yap
+                    latest_version = max(version_folders, key=lambda x: os.path.getctime(os.path.join(versions_dir, x)))
+                    latest_model = ModelVersion.query.filter_by(
+                        model_type='age',
+                        version_name=latest_version
+                    ).first()
+                    
+                    if latest_model:
+                        ModelVersion.query.filter_by(model_type='age', is_active=True).update({'is_active': False})
+                        latest_model.is_active = True
+                        print(f"   🎯 {latest_version} aktif olarak ayarlandı (varsayılan)")
+            except Exception as e:
+                print(f"   ⚠ Model state kontrol hatası: {e}")
+                # Fallback - en son versiyonu aktif yap
+                latest_version = max(version_folders, key=lambda x: os.path.getctime(os.path.join(versions_dir, x)))
+                latest_model = ModelVersion.query.filter_by(
+                    model_type='age',
+                    version_name=latest_version
+                ).first()
+                
+                if latest_model:
+                    ModelVersion.query.filter_by(model_type='age', is_active=True).update({'is_active': False})
+                    latest_model.is_active = True
+                    print(f"   🎯 {latest_version} aktif olarak ayarlandı (fallback)")
         
         db.session.commit()
         

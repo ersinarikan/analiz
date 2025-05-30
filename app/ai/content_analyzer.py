@@ -17,33 +17,80 @@ import shutil
 import time
 import json
 import math
+import threading
+import weakref
 from app.utils.serialization_utils import convert_numpy_types_to_python
 
 logger = logging.getLogger(__name__)
 
-# Singleton pattern için model repository
+# Thread-safe singleton pattern için model repository
 _models_cache = {}
+_cache_lock = threading.Lock()
 
 class ContentAnalyzer:
     """İçerik analiz sınıfı, görüntülerdeki şiddet, yetişkin içeriği, vb. kategorileri tespit eder."""
     
-    # Singleton instance
+    # Thread-safe singleton implementation
     _instance = None
+    _lock = threading.Lock()
     
     def __new__(cls):
-        """Singleton pattern implementasyonu - tek bir instance oluşturur"""
+        """Thread-safe singleton pattern implementasyonu"""
         if cls._instance is None:
-            cls._instance = super(ContentAnalyzer, cls).__new__(cls)
-            cls._instance.initialized = False
+            with cls._lock:
+                # Double-checked locking pattern
+                if cls._instance is None:
+                    cls._instance = super(ContentAnalyzer, cls).__new__(cls)
+                    cls._instance.initialized = False
         return cls._instance
     
     @classmethod
     def reset_instance(cls):
-        """Singleton instance'ını sıfırlar ve model cache'ini temizler"""
+        """Singleton instance'ını thread-safe şekilde sıfırlar ve model cache'ini temizler"""
         global _models_cache
-        _models_cache.clear()
-        cls._instance = None
-        logger.info("ContentAnalyzer instance ve model cache sıfırlandı")
+        
+        with cls._lock:
+            with _cache_lock:
+                # GPU memory temizle
+                if cls._instance and hasattr(cls._instance, 'cleanup_models'):
+                    cls._instance.cleanup_models()
+                
+                # Cache temizle
+                _models_cache.clear()
+                
+                # Instance'ı sıfırla
+                cls._instance = None
+                logger.info("ContentAnalyzer instance ve model cache thread-safe şekilde sıfırlandı")
+    
+    def cleanup_models(self):
+        """GPU memory ve model referanslarını temizle"""
+        try:
+            # CLIP model temizle
+            if hasattr(self, 'clip_model'):
+                del self.clip_model
+            if hasattr(self, 'clip_preprocess'):
+                del self.clip_preprocess
+                
+            # YOLO model temizle  
+            if hasattr(self, 'yolo_model'):
+                del self.yolo_model
+                
+            # Tokenizer temizle
+            if hasattr(self, 'tokenizer'):
+                del self.tokenizer
+                
+            # GPU cache temizle
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+                
+            logger.info("Model cleanup tamamlandı")
+            
+        except Exception as e:
+            logger.warning(f"Model cleanup sırasında hata: {e}")
+    
+    def __del__(self):
+        """Garbage collection sırasında GPU memory temizle"""
+        self.cleanup_models()
     
     def __init__(self):
         """
@@ -178,16 +225,19 @@ class ContentAnalyzer:
             raise
     
     def _load_clip_model(self):
-        """CLIP modelini yükler, önbellek kontrolü yapar ve merkezi yoldan yükler."""
+        """Thread-safe CLIP model yükleme"""
         cache_key = "clip_model"
-        if cache_key in _models_cache:
-            logger.info("CLIP modeli önbellekten kullanılıyor")
-            return _models_cache[cache_key]
+        
+        # Thread-safe cache kontrolü
+        with _cache_lock:
+            if cache_key in _models_cache:
+                logger.info("CLIP modeli thread-safe cache'den kullanılıyor")
+                return _models_cache[cache_key]
         
         try:
             device = "cuda" if torch.cuda.is_available() and current_app.config.get('USE_GPU', True) else "cpu"
             
-            # ÖNCELİKLE: Doğru pretrained DFN5B modelini yükle (yerel ağırlık sorununu atla)
+            # CLIP modelini yükle
             try:
                 logger.info("DFN5B CLIP modeli yükleniyor (pretrained='dfn5b')...")
                 model, _, preprocess_val = open_clip.create_model_and_transforms(
@@ -197,61 +247,71 @@ class ContentAnalyzer:
                     jit=False
                 )
                 
-                _models_cache[cache_key] = (model, preprocess_val)
-                logger.info(f"✅ DFN5B CLIP modeli {device} üzerinde başarıyla yüklendi (doğru ağırlıklarla)")
+                # Thread-safe cache'e kaydet
+                with _cache_lock:
+                    _models_cache[cache_key] = (model, preprocess_val)
+                
+                logger.info(f"✅ DFN5B CLIP modeli {device} üzerinde başarıyla yüklendi")
                 return model, preprocess_val
                 
             except Exception as dfn5b_error:
                 logger.warning(f"DFN5B pretrained model yüklenemedi: {dfn5b_error}")
-                # Fallback: Yerel dosya denemeyi atla, direkt hata fırlat
                 raise dfn5b_error
                 
         except Exception as e:
-            logger.error(f"CLIP model yükleme genel hatası: {str(e)}")
+            logger.error(f"CLIP model yükleme hatası: {str(e)}")
             raise e
     
     def _load_yolo_model(self, model_folder):
-        """YOLOv8 modelini merkezi aktif yoldan yükler, cache kontrolü yapar"""
+        """Thread-safe YOLOv8 model yükleme"""
         cache_key = "yolov8"
         
-        if cache_key in _models_cache:
-            logger.info(f"YOLOv8 modeli önbellekten kullanılıyor")
-            return _models_cache[cache_key]
-            
+        # Thread-safe cache kontrolü
+        with _cache_lock:
+            if cache_key in _models_cache:
+                logger.info("YOLOv8 modeli thread-safe cache'den kullanılıyor")
+                return _models_cache[cache_key]
+        
+        # Model path belirleme
         active_yolo_model_base_path = current_app.config['YOLO_MODEL_ACTIVE_PATH']
-        # YOLO model adı config'den alınabilir veya sabit olabilir.
-        # Örn: YOLO_MODEL_NAME = 'yolov8x'
-        yolo_model_filename = current_app.config.get('YOLO_MODEL_NAME', 'yolov8x') + '.pt' #örn: yolov8x.pt
+        yolo_model_filename = current_app.config.get('YOLO_MODEL_NAME', 'yolov8x') + '.pt'
         yolo_model_full_path = os.path.join(active_yolo_model_base_path, yolo_model_filename)
 
         if not os.path.exists(yolo_model_full_path):
             logger.warning(f"Aktif YOLO modeli bulunamadı: {yolo_model_full_path}. Base model denenecek.")
             base_yolo_path = current_app.config['YOLO_MODEL_BASE_PATH']
             yolo_model_full_path = os.path.join(base_yolo_path, yolo_model_filename)
+            
             if not os.path.exists(yolo_model_full_path):
                 logger.error(f"YOLO modeli ne aktif ne de base path'te bulunamadı: {yolo_model_full_path}")
-                # Acil durum: Online'dan indirmeyi dene (eski davranış)
+                # Fallback: Online'dan indirme
                 try:
-                    logger.info(f"YOLO modeli yerel olarak bulunamadı. {yolo_model_filename} online'dan indirilmeye çalışılıyor...")
-                    model = YOLO(yolo_model_filename) # yolov8x.pt veya yolov8n.pt
-                    # İndirilen modeli base_path'e kaydetmeyi düşünebiliriz.
-                    # shutil.copy(yolo_model_filename, os.path.join(current_app.config['YOLO_MODEL_BASE_PATH'], yolo_model_filename))
-                    logger.info(f"{yolo_model_filename} modeli online kaynaktan fallback olarak yüklendi.")
-                    _models_cache[cache_key] = model
+                    logger.info(f"YOLO modeli online'dan indirilmeye çalışılıyor: {yolo_model_filename}")
+                    model = YOLO(yolo_model_filename)
+                    
+                    # Thread-safe cache'e kaydet
+                    with _cache_lock:
+                        _models_cache[cache_key] = model
+                    
+                    logger.info(f"{yolo_model_filename} modeli online'dan yüklendi.")
                     return model
                 except Exception as fallback_err:
-                    logger.error(f"Fallback {yolo_model_filename} modeli de online kaynaktan yüklenemedi: {fallback_err}", exc_info=True)
-                    raise FileNotFoundError(f"YOLO modeli bulunamadı: {yolo_model_full_path} ve online'dan da indirilemedi.")
-            logger.info(f"Aktif YOLO modeli bulunamadı, base modelden yüklenecek: {yolo_model_full_path}")
+                    logger.error(f"Fallback YOLO modeli online'dan yüklenemedi: {fallback_err}")
+                    raise FileNotFoundError(f"YOLO modeli bulunamadı ve online'dan indirilemedi: {yolo_model_full_path}")
         
         try:
             logger.info(f"YOLOv8 modeli yükleniyor: {yolo_model_full_path}")
             model = YOLO(yolo_model_full_path)
-            logger.info(f"YOLOv8 modeli ({yolo_model_full_path}) başarıyla yüklendi")
-            _models_cache[cache_key] = model
+            
+            # Thread-safe cache'e kaydet
+            with _cache_lock:
+                _models_cache[cache_key] = model
+            
+            logger.info(f"YOLOv8 modeli başarıyla yüklendi: {yolo_model_full_path}")
             return model
+            
         except Exception as yolo_err:
-            logger.error(f"YOLOv8 modeli yüklenemedi ({yolo_model_full_path}): {str(yolo_err)}", exc_info=True)
+            logger.error(f"YOLOv8 modeli yüklenemedi: {str(yolo_err)}")
             raise
     
     def _load_classification_head(self):
