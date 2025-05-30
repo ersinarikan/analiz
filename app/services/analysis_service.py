@@ -9,8 +9,8 @@ from contextlib import contextmanager
 
 from flask import current_app
 from app import db
-from app.ai.content_analyzer import ContentAnalyzer, get_content_analyzer
-from app.ai.insightface_age_estimator import InsightFaceAgeEstimator, get_age_estimator
+from app.ai.content_analyzer import ContentAnalyzer
+from app.utils.model_state import get_content_analyzer, get_age_estimator
 from app.models.analysis import Analysis, ContentDetection, AgeEstimation
 from app.models.feedback import Feedback
 from app.models.file import File
@@ -1394,8 +1394,13 @@ def get_content_analyzer():
     return ContentAnalyzer()
 
 def get_age_estimator():
-    """Yaş tahmini için InsightFaceAgeEstimator nesnesi döndürür"""
-    return InsightFaceAgeEstimator()
+    """
+    DEPRECATED: Use app.utils.model_state.get_age_estimator() instead.
+    This function is kept for backwards compatibility but will be removed.
+    """
+    logger.warning("DEPRECATED: get_age_estimator() from analysis_service is deprecated. Use model_state.get_age_estimator()")
+    from app.utils.model_state import get_age_estimator as model_state_get_age_estimator
+    return model_state_get_age_estimator()
 
 # --- PATH NORMALİZASYON HELPER ---
 def normalize_rel_storage_path(rel_path):

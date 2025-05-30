@@ -11,6 +11,7 @@ from PIL import Image  # PIL kütüphanesini ekliyoruz
 import math
 from flask import current_app # current_app import edildi
 import open_clip # ADDED IMPORT
+import time
 
 # Logger oluştur
 logger = logging.getLogger(__name__)
@@ -105,6 +106,14 @@ class InsightFaceAgeEstimator:
         # Custom Age Head modelini yükle
         self.device = torch.device("cuda" if torch.cuda.is_available() and current_app.config.get('USE_GPU', True) else "cpu")
         self.custom_age_head = None
+        
+        # Performance optimization flags
+        self.initialized = True
+        self._last_cleanup = time.time()
+        self._memory_threshold_mb = 500  # Memory cleanup threshold
+        
+        # Model load and initialize tracking for performance
+        logger.info(f"InsightFaceAgeEstimator device: {self.device}")
         
         try:
             # Önce active_model'den yüklemeye çalış
@@ -210,6 +219,78 @@ class InsightFaceAgeEstimator:
             self.clip_model = None
             self.clip_preprocess = None
 
+    def cleanup_models(self):
+        """GPU memory ve model referanslarını temizle - Performance optimization"""
+        try:
+            logger.info("InsightFaceAgeEstimator cleanup başlatılıyor...")
+            
+            # CLIP model temizle
+            if hasattr(self, 'clip_model') and self.clip_model is not None:
+                del self.clip_model
+                self.clip_model = None
+                logger.debug("CLIP model cleaned up")
+            
+            if hasattr(self, 'clip_preprocess') and self.clip_preprocess is not None:
+                del self.clip_preprocess
+                self.clip_preprocess = None
+                logger.debug("CLIP preprocess cleaned up")
+                
+            # Custom age head temizle
+            if hasattr(self, 'custom_age_head') and self.custom_age_head is not None:
+                del self.custom_age_head
+                self.custom_age_head = None
+                logger.debug("Custom age head cleaned up")
+                
+            # InsightFace model temizle
+            if hasattr(self, 'model') and self.model is not None:
+                del self.model
+                self.model = None
+                logger.debug("InsightFace model cleaned up")
+                
+            # Tokenizer temizle
+            if hasattr(self, 'tokenizer') and self.tokenizer is not None:
+                del self.tokenizer
+                self.tokenizer = None
+                logger.debug("Tokenizer cleaned up")
+                
+            # GPU cache temizle
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+                logger.debug("GPU cache cleaned up")
+                
+            # Update cleanup timestamp
+            self._last_cleanup = time.time()
+            logger.info("InsightFaceAgeEstimator cleanup tamamlandı")
+            
+        except Exception as e:
+            logger.warning(f"InsightFaceAgeEstimator cleanup sırasında hata: {e}")
+    
+    def __del__(self):
+        """Garbage collection sırasında cleanup yap"""
+        try:
+            if hasattr(self, 'initialized') and self.initialized:
+                self.cleanup_models()
+        except:
+            pass  # Ignore errors during garbage collection
+
+    def _check_memory_usage(self):
+        """Memory usage kontrolü ve otomatik cleanup - Performance monitoring"""
+        try:
+            current_time = time.time()
+            # Her 5 dakikada bir memory kontrolü yap
+            if current_time - self._last_cleanup > 300:  # 5 minutes
+                
+                # GPU memory kontrolü
+                if torch.cuda.is_available():
+                    gpu_memory_mb = torch.cuda.memory_allocated() / (1024 * 1024)
+                    if gpu_memory_mb > self._memory_threshold_mb:
+                        logger.warning(f"High GPU memory usage detected: {gpu_memory_mb:.1f}MB, triggering cleanup")
+                        torch.cuda.empty_cache()
+                        self._last_cleanup = current_time
+                
+        except Exception as e:
+            logger.debug(f"Memory check error: {e}")
+
     def estimate_age(self, full_image: np.ndarray, face):
         """
         Verilen 'face' nesnesi için yaş tahminini ve CLIP güven skorunu döndürür.
@@ -223,6 +304,9 @@ class InsightFaceAgeEstimator:
             Tuple: (final_age, final_confidence, pseudo_label_data_to_save)
                    pseudo_label_data_to_save bir dict veya None olabilir.
         """
+        # Performance monitoring
+        self._check_memory_usage()
+        
         if face is None:
             logger.warning("estimate_age: Geçersiz 'face' nesnesi alındı (None). Varsayılan değerler dönülüyor.")
             return 25.0, 0.5, None

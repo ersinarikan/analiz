@@ -11,6 +11,9 @@ import logging
 import threading
 import importlib
 from app.middleware.security_middleware import SecurityMiddleware
+from app.middleware import register_json_middleware
+from app.services.analysis_service import AnalysisService
+from app.utils.memory_utils import initialize_memory_management
 
 # Global extensions
 db = SQLAlchemy()
@@ -20,155 +23,68 @@ socketio = SocketIO()
 # Thread-safe logging lock
 _log_lock = threading.Lock()
 
-def create_app(config_name=None):
-    """
-    Flask uygulamasını oluşturur ve yapılandırır.
-    
-    Args:
-        config_name: Kullanılacak konfigürasyon tipi ('development', 'production', 'testing')
-        
-    Returns:
-        Flask uygulaması
-    """
+def create_app(config_name='default'):
+    """Flask uygulaması fabrikası"""
     app = Flask(__name__)
-    
-    # Konfigürasyonu yükle
-    if config_name is None:
-        config_name = os.environ.get('FLASK_CONFIG', 'development')
-    
     app.config.from_object(config[config_name])
     
-    # Thread-safe loglama konfigürasyonu
-    with _log_lock:
-        # Loglama için 'processed' klasörünün var olduğundan emin ol
-        logs_folder = os.path.join(app.config['PROCESSED_FOLDER'], 'logs')
-        os.makedirs(logs_folder, exist_ok=True)
-        
-        # Tarih bazlı log dosyası kullan (rotation problemini önlemek için)
-        today_str = datetime.now().strftime('%Y%m%d')
-        log_file_path = os.path.join(logs_folder, f'app_{today_str}.log')
-
-        # Basit FileHandler kullan (rotation problemini önlemek için)
-        try:
-            file_handler = logging.FileHandler(
-                log_file_path, 
-                mode='a',  # Append mode
-                encoding='utf-8'
-            )
-            file_handler.setFormatter(logging.Formatter(
-                '%(asctime)s %(levelname)s: %(message)s [in %(pathname)s:%(lineno)d]'
-            ))
-            file_handler.setLevel(logging.INFO)
-            
-            # Console handler da ekle (terminalde görmek için)
-            console_handler = logging.StreamHandler()
-            console_handler.setFormatter(logging.Formatter(
-                '%(asctime)s %(levelname)s: %(message)s'
-            ))
-            console_handler.setLevel(logging.INFO)
-            
-            # Önceki handler'ları temizle (tekrar eklemeyi önlemek için)
-            for handler in app.logger.handlers[:]:
-                app.logger.removeHandler(handler)
-            app.logger.addHandler(file_handler)
-            app.logger.addHandler(console_handler)
-
-            app.logger.setLevel(logging.INFO)
-            app.logger.info('Uygulama başlatılıyor - Dosya ve console loglama aktif')
-            
-        except Exception as log_error:
-            # Log dosyası açılamazsa, sadece console logging kullan
-            print(f"Log dosyası açılamadı: {log_error}")
-            console_handler = logging.StreamHandler()
-            console_handler.setFormatter(logging.Formatter(
-                '%(asctime)s %(levelname)s: %(message)s'
-            ))
-            console_handler.setLevel(logging.INFO)
-            
-            for handler in app.logger.handlers[:]:
-                app.logger.removeHandler(handler)
-            app.logger.addHandler(console_handler)
-            app.logger.setLevel(logging.INFO)
-            app.logger.info('Console loglama aktif (dosya loglama başarısız)')
-    
-    # Werkzeug HTTP request loglarını kapat (terminalde görünmesin)
-    if not app.config.get('SHOW_HTTP_LOGS', False):
-        werkzeug_logger = logging.getLogger('werkzeug')
-        werkzeug_logger.setLevel(logging.ERROR)
-        
-        # SocketIO loglarını da azalt
-        socketio_logger = logging.getLogger('socketio')
-        socketio_logger.setLevel(logging.WARNING)
-        engineio_logger = logging.getLogger('engineio')
-        engineio_logger.setLevel(logging.WARNING)
-    
-    # CORS yapılandırması
-    CORS(app)
-    
-    # Veritabanı başlatma
+    # Initialize extensions
     db.init_app(app)
+    socketio.init_app(app, cors_allowed_origins="*")
     
-    # Migrasyon
-    migrate.init_app(app, db)
+    # JSON encoder'ı ayarla
+    app.json_encoder = CustomJSONEncoder
     
-    # Blueprintleri kaydet
-    from app.routes.file_routes import bp as file_bp
-    from app.routes.analysis_routes import bp as analysis_bp
-    from app.routes.main_routes import bp as main_bp
-    from app.routes.model_routes import bp as model_bp
-    from app.routes.feedback_routes import bp as feedback_bp
-    from app.routes.debug_routes import bp as debug_bp
-    from app.routes.settings_routes import bp as settings_bp
+    # Initialize security middleware
+    from app.middleware.security_middleware import SecurityMiddleware
+    SecurityMiddleware(app)
+    
+    # Initialize memory management for performance optimization
+    try:
+        initialize_memory_management()
+        print("✅ Memory management initialized")
+    except Exception as e:
+        print(f"⚠️ Memory management initialization failed: {e}")
+    
+    # Register blueprints
+    from app.routes.main_routes import main_bp
+    from app.routes.file_routes import file_bp
+    from app.routes.analysis_routes import analysis_bp
+    from app.routes.feedback_routes import feedback_bp
+    from app.routes.settings_routes import settings_bp
     from app.routes.model_management_routes import model_management_bp
-    from app.routes.clip_training_routes import clip_training_bp
+    from app.routes.queue_routes import queue_bp
+    from app.routes.performance_routes import performance_bp  # Performance routes
     
     app.register_blueprint(main_bp)
     app.register_blueprint(file_bp)
     app.register_blueprint(analysis_bp)
-    app.register_blueprint(model_bp)
     app.register_blueprint(feedback_bp)
-    app.register_blueprint(debug_bp)
     app.register_blueprint(settings_bp)
     app.register_blueprint(model_management_bp)
-    app.register_blueprint(clip_training_bp)
+    app.register_blueprint(queue_bp)
+    app.register_blueprint(performance_bp)  # Register performance routes
     
-    # NumPy JSON serializer middleware'i kaydet
-    from app.middleware import register_json_middleware
-    register_json_middleware(app)
+    # Socket.IO event handlers
+    register_socketio_events(app)
     
-    # Servisler
-    from app.services.analysis_service import AnalysisService
-    analysis_service = AnalysisService()
+    # Error handlers
+    register_error_handlers(app)
     
-    # SocketIO başlatma
-    socketio.init_app(app, cors_allowed_origins="*")
+    # Startup tasks
+    with app.app_context():
+        try:
+            db.create_all()
+            print("✅ Veritabanı tabloları oluşturuldu/kontrol edildi")
+            
+            # Model versiyonlarını senkronize et
+            sync_age_model_versions_startup()
+            sync_clip_model_versions_startup()
+            
+        except Exception as e:
+            print(f"❌ Startup görevleri hatası: {str(e)}")
     
-    # Initialize security middleware
-    security_middleware = SecurityMiddleware()
-    security_middleware.init_app(app)
-    
-    # Security configuration
-    app.config['SECURITY_RATE_LIMIT_PER_MINUTE'] = 60
-    app.config['SECURITY_RATE_LIMIT_BURST'] = 10
-    app.config['SECURITY_MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024  # 100MB
-    # Add your allowed hosts here in production
-    app.config['SECURITY_ALLOWED_HOSTS'] = []
-    
-    # Register error handlers
-    @app.errorhandler(404)
-    def page_not_found(e):
-        return {"error": "Resource not found"}, 404
-    
-    @app.errorhandler(500)
-    def internal_server_error(e):
-        return {"error": "Internal server error"}, 500
-    
-    # A simple route to confirm the app is working
-    @app.route('/')
-    def index():
-        return app.send_static_file('index.html')
-    
-    return app 
+    return app
 
 def initialize_app(app):
     """

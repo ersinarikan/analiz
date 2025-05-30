@@ -40,8 +40,12 @@ class ContentAnalyzer:
             with cls._lock:
                 # Double-checked locking pattern
                 if cls._instance is None:
+                    logger.info("Yeni ContentAnalyzer singleton instance oluşturuluyor...")
+                    start_time = time.time()
                     cls._instance = super(ContentAnalyzer, cls).__new__(cls)
                     cls._instance.initialized = False
+                    load_time = time.time() - start_time
+                    logger.info(f"ContentAnalyzer singleton instance oluşturuldu ({load_time:.2f}s)")
         return cls._instance
     
     @classmethod
@@ -653,7 +657,11 @@ class ContentAnalyzer:
 
         return scores
 
-# Bu fonksiyonu analysis_service.py tarafından import edilebilmesi için ekliyoruz.
 def get_content_analyzer():
-    """ContentAnalyzer sınıfından bir örnek (singleton) döndürür."""
+    """
+    Performance-optimized factory function for ContentAnalyzer singleton
+    
+    Returns:
+        ContentAnalyzer: Thread-safe singleton instance
+    """
     return ContentAnalyzer() 
