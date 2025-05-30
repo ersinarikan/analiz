@@ -53,8 +53,10 @@ def create_app(config_name='default'):
     from app.routes.feedback_routes import feedback_bp
     from app.routes.settings_routes import settings_bp
     from app.routes.model_management_routes import model_management_bp
+    from app.routes.model_routes import bp as model_bp  # Model routes
     from app.routes.queue_routes import queue_bp
     from app.routes.performance_routes import performance_bp  # Performance routes
+    from app.routes.clip_training_routes import clip_training_bp  # CLIP training routes
     
     app.register_blueprint(main_bp)
     app.register_blueprint(file_bp)
@@ -62,8 +64,10 @@ def create_app(config_name='default'):
     app.register_blueprint(feedback_bp)
     app.register_blueprint(settings_bp)
     app.register_blueprint(model_management_bp)
+    app.register_blueprint(model_bp)  # Register model routes
     app.register_blueprint(queue_bp)
     app.register_blueprint(performance_bp)  # Register performance routes
+    app.register_blueprint(clip_training_bp)  # Register CLIP training routes
     
     # Socket.IO event handlers
     register_socketio_events(app)
