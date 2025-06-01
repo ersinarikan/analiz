@@ -10,7 +10,14 @@ from pathlib import Path
 from typing import Union, Optional, List, Dict, Any
 from werkzeug.utils import secure_filename
 from werkzeug.datastructures import FileStorage
-import magic
+
+# Magic import - Windows için optional
+try:
+    import magic
+    MAGIC_AVAILABLE = True
+except ImportError:
+    MAGIC_AVAILABLE = False
+    magic = None
 
 logger = logging.getLogger(__name__)
 
@@ -173,11 +180,17 @@ def validate_file_upload(file: FileStorage, allowed_extensions: set = None) -> D
         raise FileSecurityError("Empty file not allowed")
     
     # Detect MIME type using file content (not just extension)
-    try:
-        detected_mime = magic.from_buffer(file_header, mime=True)
-    except Exception as e:
-        logger.warning(f"Failed to detect MIME type using magic: {e}")
-        # Fallback to mimetypes
+    detected_mime = None
+    
+    if MAGIC_AVAILABLE:
+        try:
+            detected_mime = magic.from_buffer(file_header, mime=True)
+        except Exception as e:
+            logger.warning(f"Failed to detect MIME type using magic: {e}")
+    
+    # Fallback to mimetypes if magic not available or failed
+    if not detected_mime:
+        import mimetypes
         detected_mime, _ = mimetypes.guess_type(safe_filename)
     
     if not detected_mime:

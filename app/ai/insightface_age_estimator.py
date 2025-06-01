@@ -18,14 +18,14 @@ logger = logging.getLogger(__name__)
 
 # CustomAgeHead sınıfı (train_v1.py'den alınmalı)
 class CustomAgeHead(torch.nn.Module):
-    def __init__(self, input_size=512, hidden_dims=[256, 128], output_dim=1, input_dim=None):
+    def __init__(self, input_dim=512, hidden_dims=[256, 128], output_dim=1, input_size=None):
         super().__init__()
-        # input_dim parametresi varsa onu kullan (backward compatibility için)
-        if input_dim is not None:
-            input_size = input_dim
+        # input_size parametresi varsa onu kullan (backward compatibility için)
+        if input_size is not None:
+            input_dim = input_size
         
         layers = []
-        prev_dim = input_size
+        prev_dim = input_dim
         for hidden_dim in hidden_dims:
             layers.append(torch.nn.Linear(prev_dim, hidden_dim))
             layers.append(torch.nn.ReLU())
@@ -141,13 +141,13 @@ class InsightFaceAgeEstimator:
                         if 'model_config' in checkpoint:
                             model_config = checkpoint['model_config']
                             self.custom_age_head = CustomAgeHead(
-                                input_size=model_config['input_dim'],
+                                input_dim=model_config['input_dim'],
                                 hidden_dims=model_config['hidden_dims'],
                                 output_dim=model_config['output_dim']
                             )
                         else:
                             # Varsayılan konfigürasyon
-                            self.custom_age_head = CustomAgeHead(input_size=512, hidden_dims=[256, 128], output_dim=1)
+                            self.custom_age_head = CustomAgeHead(input_dim=512, hidden_dims=[256, 128], output_dim=1)
                         
                         # Model ağırlıklarını yükle
                         if 'model_state_dict' in checkpoint:
@@ -186,22 +186,40 @@ class InsightFaceAgeEstimator:
             device = "cuda" if torch.cuda.is_available() and current_app.config.get('USE_GPU', True) else "cpu"
             self.clip_device = device
 
-            # ÖNCELİKLE: Doğru pretrained DFN5B modelini yükle (yaş analizi için)
+            # ORIJINAL YÖNTEM: Önce base model yükle (dfn5b), sonra fine-tuned weights
+            logger.info(f"CLIP modeli yükleniyor: ViT-H-14-378-quickgelu, Device: {device}")
+            
             try:
-                logger.info("DFN5B CLIP modeli yükleniyor (yaş tahmini için, pretrained='dfn5b')...")
                 model, _, preprocess_val = open_clip.create_model_and_transforms(
-                    model_name="ViT-H-14-378-quickgelu",
-                    pretrained="dfn5b",  # Doğru pretrained tag
-                    device=self.clip_device,
-                    jit=False
+                    'ViT-H-14-378-quickgelu', 
+                    pretrained="dfn5b",
+                    device=self.clip_device
                 )
                 
+                # Fine-tuned model varsa yükle
+                try:
+                    active_model_path = current_app.config['OPENCLIP_MODEL_ACTIVE_PATH']
+                    model_file_path = os.path.join(active_model_path, 'open_clip_pytorch_model.bin')
+                    
+                    if os.path.exists(model_file_path):
+                        logger.info(f"Fine-tuned CLIP weights yükleniyor (yaş tahmini için): {model_file_path}")
+                        checkpoint = torch.load(model_file_path, map_location=self.clip_device)
+                        model.load_state_dict(checkpoint, strict=False)
+                        logger.info("Fine-tuned CLIP weights başarıyla yüklendi! (yaş tahmini)")
+                    else:
+                        logger.info("Fine-tuned CLIP weights bulunamadı, base model kullanılıyor (yaş tahmini)")
+                        
+                except Exception as ft_error:
+                    logger.warning(f"Fine-tuned weights yükleme hatası (yaş tahmini): {str(ft_error)}")
+                    logger.info("Base model ile devam ediliyor... (yaş tahmini)")
+                
+                model.eval()
                 self.clip_model = model
                 self.clip_preprocess = preprocess_val
-                logger.info(f"✅ DFN5B CLIP modeli (yaş tahmini için) {self.clip_device} üzerinde başarıyla yüklendi")
+                logger.info(f"✅ CLIP modeli (yaş tahmini için) başarıyla yüklendi! Device: {self.clip_device}")
                 
-            except Exception as dfn5b_error:
-                logger.warning(f"DFN5B pretrained model (yaş için) yüklenemedi: {dfn5b_error}")
+            except Exception as clip_error:
+                logger.warning(f"CLIP model (yaş için) yüklenemedi: {clip_error}")
                 # Fallback: CLIP olmadan devam et
                 self.clip_model = None
                 self.clip_preprocess = None
@@ -358,6 +376,8 @@ class InsightFaceAgeEstimator:
             try:
                 with torch.no_grad():
                     emb_tensor = torch.tensor(embedding_current, dtype=torch.float32).unsqueeze(0)
+                    # NORMALIZE EMBEDDING (Custom model eğitimi sırasında eksik olan adım)
+                    emb_tensor = emb_tensor / torch.norm(emb_tensor, dim=1, keepdim=True)
                     age_custom_pred = self.age_model(emb_tensor).item()
                 logger.info(f"[AGE_LOG] Özel yaş modeli (CustomAgeHead) tahmini: {age_custom_pred:.1f}")
                 age_custom = float(age_custom_pred) # float yap
@@ -372,19 +392,40 @@ class InsightFaceAgeEstimator:
         elif embedding_current is None:
             logger.info("[AGE_LOG] Özel yaş modeli (CustomAgeHead) için embedding mevcut değil (face.embedding None).")
 
-        # Adım 4: Nihai Yaş ve Güven Belirleme
+        # Adım 4: Nihai Yaş ve Güven Belirleme (ÇAPRAZ TEST İLE)
         final_age = age_buffalo # Varsayılan olarak buffalo'nun ham yaşı
         final_confidence = confidence_clip_buffalo # ve onun CLIP güveni
-
-        if custom_age_calculated and confidence_clip_custom >= confidence_clip_buffalo:
-            logger.info(f"[AGE_LOG][SELECT] Seçilen yaş tahmini: CustomAgeHead (Yaş: {age_custom:.2f}, Güven: {confidence_clip_custom:.4f})")
-            final_age = age_custom
-            final_confidence = confidence_clip_custom
-        else:
-            if custom_age_calculated: # Ama Buffalo daha iyi veya eşit
-                logger.info(f"[AGE_LOG][SELECT] Seçilen yaş tahmini: Buffalo (Yaş: {age_buffalo:.2f}, Güven: {confidence_clip_buffalo:.4f})")
-            else: # Custom hesaplanamadı
-                logger.info("[AGE_LOG] Nihai yaş Buffalo'dan (ham) seçildi (CustomAgeHead kullanılamadı).")
+        
+        # ÇAPRAZ TEST SİSTEMİ: Her iki tahmin için de karşıt soruları sor
+        if custom_age_calculated:
+            logger.info(f"[AGE_LOG][CROSS_TEST] Çapraz test başlıyor...")
+            
+            # Normal çapraz test
+            # Buffalo'nun tahmini için Custom'ın yaş sorusunu sor
+            buffalo_cross_confidence = self._calculate_confidence_with_clip(face_roi, age_custom)
+            
+            # Custom'ın tahmini için Buffalo'nun yaş sorusunu sor  
+            custom_cross_confidence = self._calculate_confidence_with_clip(face_roi, age_buffalo)
+            
+            logger.info(f"[AGE_LOG][CROSS_TEST] Buffalo {age_buffalo:.1f} yaş tahmini, Custom'ın {age_custom:.1f} yaş sorusunda: {buffalo_cross_confidence:.4f}")
+            logger.info(f"[AGE_LOG][CROSS_TEST] Custom {age_custom:.1f} yaş tahmini, Buffalo'nun {age_buffalo:.1f} yaş sorusunda: {custom_cross_confidence:.4f}")
+            
+            # Net üstünlük kontrolü
+            buffalo_net_score = confidence_clip_buffalo - buffalo_cross_confidence
+            custom_net_score = confidence_clip_custom - custom_cross_confidence
+            
+            logger.info(f"[AGE_LOG][CROSS_TEST] Buffalo Net Skor: {buffalo_net_score:.4f} (kendi: {confidence_clip_buffalo:.4f} - karşıt: {buffalo_cross_confidence:.4f})")
+            logger.info(f"[AGE_LOG][CROSS_TEST] Custom Net Skor: {custom_net_score:.4f} (kendi: {confidence_clip_custom:.4f} - karşıt: {custom_cross_confidence:.4f})")
+            
+            # En yüksek net skora sahip olan kazansın
+            if custom_net_score > buffalo_net_score:
+                final_age = age_custom
+                final_confidence = confidence_clip_custom
+                logger.info(f"[AGE_LOG][CROSS_SELECT] Çapraz test sonucu: CustomAgeHead seçildi (Net: {custom_net_score:.4f})")
+            else:
+                final_age = age_buffalo  
+                final_confidence = confidence_clip_buffalo
+                logger.info(f"[AGE_LOG][CROSS_SELECT] Çapraz test sonucu: Buffalo seçildi (Net: {buffalo_net_score:.4f})")
         
         # Adım 5: CustomAgeHead İçin Potansiyel Sözde Etiketli Veri Hazırlama
         pseudo_label_data_to_save = None
@@ -445,97 +486,29 @@ class InsightFaceAgeEstimator:
             # CLIP için ön işleme
             preprocessed_image = self.clip_preprocess(pil_image).unsqueeze(0).to(self.clip_device)
             
-            # YENİ: Geliştirilmiş yaş kategorisi prompt sistemi (pozitif/negatif zıt anlamlı)
+            # DİREKT YAŞ SORUSU: "this face is X years old"
             age = int(round(estimated_age))
             
-            # Yaş kategorisine göre pozitif ve negatif prompt'ları belirle
-            if age < 3:
-                # 🍼 Bebek (0-2 yaş)
-                positive_prompts = [
-                    "a baby or infant",
-                    "very young child under 3 years old", 
-                    "toddler or newborn",
-                    "infant facial features"
-                ]
-                negative_prompts = [
-                    "adult person",
-                    "teenage or mature face",
-                    "grown-up individual", 
-                    "elderly person"
-                ]
-            elif age < 13:
-                # 👶 Çocuk (3-12 yaş)
-                positive_prompts = [
-                    "a child between 3 and 12 years old",
-                    "young kid or elementary school age",
-                    "childhood facial features",
-                    "pre-teen child"
-                ]
-                negative_prompts = [
-                    "adult or grown-up",
-                    "teenage person", 
-                    "mature individual",
-                    "elderly or senior"
-                ]
-            elif age < 20:
-                # 🧒 Genç (13-19 yaş)
-                positive_prompts = [
-                    "a teenager between 13 and 19 years old",
-                    "adolescent or teen",
-                    "high school age person",
-                    "youthful teenage features"
-                ]
-                negative_prompts = [
-                    "mature adult",
-                    "elderly person",
-                    "young child",
-                    "middle-aged individual"
-                ]
-            elif age < 40:
-                # 👨 Genç Yetişkin (20-39 yaş)
-                positive_prompts = [
-                    "a young adult in twenties or thirties",
-                    "person between 20 and 39 years old",
-                    "youthful adult features",
-                    "early career age person"
-                ]
-                negative_prompts = [
-                    "elderly or senior person",
-                    "teenage or adolescent",
-                    "young child",
-                    "middle-aged adult over 40"
-                ]
-            elif age < 65:
-                # 👨‍💼 Orta Yaş (40-64 yaş)
-                positive_prompts = [
-                    "a middle-aged adult between 40 and 64",
-                    "mature adult in forties or fifties",
-                    "experienced adult person",
-                    "established adult features"
-                ]
-                negative_prompts = [
-                    "young adult or teenager",
-                    "elderly or senior citizen",
-                    "young child",
-                    "youthful person under 30"
-                ]
-            else:
-                # 👴 Yaşlı (65+ yaş)
-                positive_prompts = [
-                    "a senior citizen or elderly person",
-                    "person 65 years old or older",
-                    "aged individual with mature features",
-                    "elderly adult"
-                ]
-                negative_prompts = [
-                    "young adult or teenager",
-                    "young child",
-                    "middle-aged person",
-                    "youthful individual"
-                ]
+            # Spesifik yaş sorusu
+            target_prompt = f"this face is {age} years old"
             
-            # İçerik analizindeki gibi pozitif/negatif prompt'ları birleştir
-            all_prompts = positive_prompts + negative_prompts
+            # Karşıt yaş soruları (farklı yaş aralıklarından)
+            opposing_ages = []
+            if age < 10:
+                opposing_ages = [25, 45, 65, 16]  # Bebek/çocuk için yetişkin yaşları
+            elif age < 20:
+                opposing_ages = [5, 30, 50, 70]   # Genç için diğer yaşlar
+            elif age < 30:
+                opposing_ages = [8, 45, 65, 15]   # Genç yetişkin için diğer yaşlar
+            elif age < 50:
+                opposing_ages = [10, 20, 65, 75]  # Orta yaş için diğer yaşlar
+            else:
+                opposing_ages = [8, 18, 30, 45]   # Yaşlı için genç yaşlar
+            
+            opposing_prompts = [f"this face is {opp_age} years old" for opp_age in opposing_ages]
+            
+            # Tüm prompt'ları birleştir
+            all_prompts = [target_prompt] + opposing_prompts
             
             # CLIP ile benzerlik hesapla
             with torch.no_grad():
@@ -549,41 +522,31 @@ class InsightFaceAgeEstimator:
                 # Benzerlik skorlarını al
                 similarities = (100.0 * image_features @ text_features.T).squeeze(0).cpu().numpy()
             
-            # Pozitif ve negatif skorları ayır (içerik analizindeki gibi)
-            pos_score = float(np.mean(similarities[:len(positive_prompts)]))
-            neg_score = float(np.mean(similarities[len(positive_prompts):]))
-            fark = pos_score - neg_score
+            target_score = float(similarities[0])
+            opposing_scores = similarities[1:]
+            avg_opposing = float(np.mean(opposing_scores))
+            max_opposing = float(np.max(opposing_scores))
             
-            # İçerik analizindeki normalize etme yöntemini kullan
-            SQUASH_FACTOR = 4.0  # İçerik analizindeki gibi
+            # MAXIMUM opposing score ile karşılaştır (daha hassas)
+            score_diff = target_score - max_opposing
             
-            # Eğer her iki skor da çok düşükse, belirsizlik var
-            if abs(pos_score) < 0.02 and abs(neg_score) < 0.02:
-                confidence_score = 0.5  # Belirsiz durum
-                logger.info(f"[AGE_LOG] Belirsizlik durumu: Her iki skor da çok düşük")
+            # Eğer target score, max opposing'den düşükse net negatif güven
+            if score_diff < 0:
+                confidence_score = 0.1  # Minimum güven
             else:
-                # Normal hesaplama - squash function
-                squashed_fark = math.tanh(fark * SQUASH_FACTOR)
-                confidence_score = (squashed_fark + 1) / 2  # 0-1 aralığına dönüştür
-                
-                # Pozitif boost
-                if pos_score > 0.05 and fark > 0.02:
-                    confidence_score = min(confidence_score * 1.2, 1.0)
-                    logger.info(f"[AGE_LOG] Pozitif boost uygulandı")
-                
-                # Negatif reduction
-                elif neg_score > 0.05 and fark < -0.02:
-                    confidence_score = max(confidence_score * 0.8, 0.0)
-                    logger.info(f"[AGE_LOG] Negatif reduction uygulandı")
+                # Softmax-style confidence
+                confidence_score = 1.0 / (1.0 + np.exp(-score_diff * 2))
+                confidence_score = max(0.1, min(0.9, confidence_score))
             
-            # Güven skorunu sınırla
-            confidence_score = max(0.1, min(0.9, confidence_score))
+            logger.info(f"[AGE_LOG] DİREKT YAŞ SORUSU - Target Yaş: {age}")
+            logger.info(f"[AGE_LOG] Target Prompt: '{target_prompt}'")
+            logger.info(f"[AGE_LOG] Opposing Prompts: {opposing_prompts}")
+            logger.info(f"[AGE_LOG] Target Skor: {target_score:.4f}")
+            logger.info(f"[AGE_LOG] Opposing Skorlar: {[f'{s:.4f}' for s in opposing_scores]}")
+            logger.info(f"[AGE_LOG] Opposing Ort: {avg_opposing:.4f}, Max: {max_opposing:.4f}")
+            logger.info(f"[AGE_LOG] Skor Farkı (Target - Max): {score_diff:.4f}")
+            logger.info(f"[AGE_LOG] Final Güven: {confidence_score:.4f}")
             
-            logger.info(f"[AGE_LOG] YENİ PROMPT SİSTEMİ - Yaş Kategorisi: {age} yaş")
-            logger.info(f"[AGE_LOG] Pozitif Prompt'lar: {positive_prompts}")
-            logger.info(f"[AGE_LOG] Negatif Prompt'lar: {negative_prompts}")
-            logger.info(f"[AGE_LOG] Pozitif Skor: {pos_score:.4f}, Negatif Skor: {neg_score:.4f}, Fark: {fark:.4f}")
-            logger.info(f"[AGE_LOG] _calculate_confidence_with_clip tamamlandı. Hesaplanan Güven: {confidence_score:.4f}")
             return confidence_score
             
         except Exception as e:

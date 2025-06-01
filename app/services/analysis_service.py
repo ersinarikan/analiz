@@ -10,7 +10,9 @@ from contextlib import contextmanager
 from flask import current_app
 from app import db
 from app.ai.content_analyzer import ContentAnalyzer
-from app.utils.model_state import get_content_analyzer, get_age_estimator
+from app.ai.insightface_age_estimator import InsightFaceAgeEstimator
+from app.utils.model_state import get_content_analyzer
+from app.utils.model_state import get_age_estimator as model_state_get_age_estimator
 from app.models.analysis import Analysis, ContentDetection, AgeEstimation
 from app.models.feedback import Feedback
 from app.models.file import File
@@ -91,6 +93,14 @@ class AnalysisService:
                 if not file:
                     logger.error(f"Dosya bulunamadı: {file_id}")
                     return None
+                
+                # File bilgilerini önceden çek (session kapanmadan önce)
+                file_info = {
+                    'original_filename': file.original_filename,
+                    'file_type': file.file_type,
+                    'filename': file.filename,
+                    'file_path': file.file_path
+                }
                     
                 # Yeni bir analiz oluştur
                 analysis = Analysis(
@@ -107,7 +117,18 @@ class AnalysisService:
                 session.add(analysis)
                 session.commit()
                 
-                logger.info(f"Analiz oluşturuldu: #{analysis.id} - Dosya: {file.original_filename}, Durum: pending")
+                # Analysis nesnesini refresh et ve file relationship'ini eager load et
+                session.refresh(analysis)
+                # File bilgisini önceden yükle (lazy loading sorununu önlemek için)
+                _ = analysis.file  # Bu file relationship'ini session'a yükler
+                
+                # Analysis nesnesini session'dan ayır (detach)
+                session.expunge(analysis)
+                
+                # File bilgilerini manuel olarak ekle (lazy loading olmadan)
+                analysis._cached_file_info = file_info
+                
+                logger.info(f"Analiz oluşturuldu: #{analysis.id} - Dosya: {file_info['original_filename']}, Durum: pending")
                 
                 # Socket.io üzerinden bildirim gönder
                 try:
@@ -115,8 +136,8 @@ class AnalysisService:
                     socketio.emit('analysis_started', {
                         'analysis_id': analysis.id,
                         'file_id': file_id,
-                        'file_name': file.original_filename,
-                        'file_type': file.file_type,
+                        'file_name': file_info['original_filename'],
+                        'file_type': file_info['file_type'],
                         'status': 'pending'
                     })
                 except Exception as socket_err:
@@ -212,42 +233,83 @@ def analyze_file(analysis_id):
     Returns:
         tuple: (başarı durumu, mesaj)
     """
-    analysis = Analysis.query.get(analysis_id)
-    
-    if not analysis:
-        current_app.logger.error(f"Analiz bulunamadı: {analysis_id}")
-        return False, "Analiz bulunamadı"
+    # Flask app context kontrolü ve yönetimi
+    app = None
+    needs_context = False
     
     try:
-        # Analizi başlat
-        analysis.start_analysis()
-        
-        # Dosyayı al
-        file = analysis.file
-        
-        # Dosya türüne göre uygun analiz metodunu çağır
-        if file.file_type == 'image':
-            success, message = analyze_image(analysis)
-        elif file.file_type == 'video':
-            success, message = analyze_video(analysis)
+        from flask import current_app, has_app_context
+        if has_app_context():
+            app = current_app._get_current_object()
         else:
-            analysis.fail_analysis("Desteklenmeyen dosya türü")
-            return False, "Desteklenmeyen dosya türü"
-        
-        if success:
-            # Analiz sonuçlarını hesapla
-            calculate_overall_scores(analysis)
-            analysis.complete_analysis()
-            return True, "Analiz başarıyla tamamlandı"
-        else:
-            analysis.fail_analysis(message)
-            return False, message
+            needs_context = True
+    except (RuntimeError, ImportError):
+        needs_context = True
     
-    except Exception as e:
-        error_message = f"Analiz hatası: {str(e)}"
-        current_app.logger.error(error_message)
-        analysis.fail_analysis(error_message)
-        return False, error_message
+    def _perform_analysis():
+        """Actual analysis logic"""
+        try:
+            analysis = Analysis.query.get(analysis_id)
+            
+            if not analysis:
+                logger.error(f"Analiz bulunamadı: {analysis_id}")
+                return False, "Analiz bulunamadı"
+            
+            # Analizi başlat
+            analysis.start_analysis()
+            db.session.commit()  # Durum güncellemesini kaydet
+            
+            # Dosyayı al
+            file = analysis.file
+            
+            # Dosya türüne göre uygun analiz metodunu çağır
+            if file.file_type == 'image':
+                success, message = analyze_image(analysis)
+            elif file.file_type == 'video':
+                success, message = analyze_video(analysis)
+            else:
+                analysis.fail_analysis("Desteklenmeyen dosya türü")
+                db.session.commit()
+                return False, "Desteklenmeyen dosya türü"
+            
+            if success:
+                # Analiz sonuçlarını hesapla
+                calculate_overall_scores(analysis)
+                analysis.complete_analysis()
+                db.session.commit()
+                return True, "Analiz başarıyla tamamlandı"
+            else:
+                analysis.fail_analysis(message)
+                db.session.commit()
+                return False, message
+                
+        except Exception as e:
+            error_message = f"Analiz hatası: {str(e)}"
+            logger.error(error_message)
+            logger.error(traceback.format_exc())
+            try:
+                analysis = Analysis.query.get(analysis_id)
+                if analysis:
+                    analysis.fail_analysis(error_message)
+                    db.session.commit()
+            except Exception as db_err:
+                logger.error(f"Error updating analysis status: {str(db_err)}")
+            return False, error_message
+    
+    # Context management
+    if needs_context:
+        # Import burada yapıyoruz circular import'ı önlemek için
+        try:
+            import app as app_module
+            app = app_module.create_app()
+            with app.app_context():
+                return _perform_analysis()
+        except Exception as e:
+            logger.error(f"App context oluşturma hatası: {str(e)}")
+            return False, f"App context hatası: {str(e)}"
+    else:
+        # Zaten app context var
+        return _perform_analysis()
 
 
 def analyze_image(analysis):
@@ -578,7 +640,7 @@ def analyze_video(analysis):
 
         if analysis.include_age_analysis:
             try:
-                age_estimator = get_age_estimator() # get_ ile alınıyor
+                age_estimator = model_state_get_age_estimator() # model_state'den alınıyor
                 logger.info(f"Yaş tahmin modeli yüklendi: Analiz #{analysis.id}")
                 
                 # Config'den takip parametrelerini oku
@@ -1393,14 +1455,7 @@ def get_content_analyzer():
     """İçerik analizi için ContentAnalyzer nesnesi döndürür"""
     return ContentAnalyzer()
 
-def get_age_estimator():
-    """
-    DEPRECATED: Use app.utils.model_state.get_age_estimator() instead.
-    This function is kept for backwards compatibility but will be removed.
-    """
-    logger.warning("DEPRECATED: get_age_estimator() from analysis_service is deprecated. Use model_state.get_age_estimator()")
-    from app.utils.model_state import get_age_estimator as model_state_get_age_estimator
-    return model_state_get_age_estimator()
+# Deprecated get_age_estimator function removed - use app.utils.model_state.get_age_estimator() instead
 
 # --- PATH NORMALİZASYON HELPER ---
 def normalize_rel_storage_path(rel_path):

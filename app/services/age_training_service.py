@@ -208,6 +208,11 @@ class AgeTrainingService:
         y_val_tensor = torch.FloatTensor(y_val).to(self.device)
         weights_tensor = torch.FloatTensor(weights_train).to(self.device)
         
+        # KRİTİK: EMBEDDING NORMALİZASYONU (inference ile tutarlılık için)
+        X_train_tensor = X_train_tensor / torch.norm(X_train_tensor, dim=1, keepdim=True)
+        X_val_tensor = X_val_tensor / torch.norm(X_val_tensor, dim=1, keepdim=True)
+        logger.info("Embeddings normalized during training (to match inference normalization)")
+        
         # DataLoader oluştur
         train_dataset = TensorDataset(X_train_tensor, y_train_tensor, weights_tensor)
         val_dataset = TensorDataset(X_val_tensor, y_val_tensor)

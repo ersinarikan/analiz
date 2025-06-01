@@ -115,7 +115,15 @@ class Analysis(db.Model):
             dict: Analizin tüm özellikleriyle sözlük temsili
         """
         file_info = None
-        if self.file:
+        
+        # Önce cached file info'yu kontrol et (session problemi için)
+        if hasattr(self, '_cached_file_info') and self._cached_file_info:
+            file_info = {
+                'filename': self._cached_file_info['original_filename'],
+                'file_type': self._cached_file_info['file_type']
+            }
+        elif self.file:
+            # Normal durum - file relationship mevcut
             file_info = {
                 'filename': self.file.original_filename,
                 'file_type': self.file.file_type

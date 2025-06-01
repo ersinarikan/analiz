@@ -240,27 +240,40 @@ class ContentAnalyzer:
         
         try:
             device = "cuda" if torch.cuda.is_available() and current_app.config.get('USE_GPU', True) else "cpu"
+            logger.info(f"CLIP modeli yükleniyor: ViT-H-14-378-quickgelu, Device: {device}")
             
-            # CLIP modelini yükle
+            # ORIJINAL YÖNTEM: Önce base model yükle (dfn5b), sonra fine-tuned weights
+            model, _, preprocess_val = open_clip.create_model_and_transforms(
+                'ViT-H-14-378-quickgelu', 
+                pretrained="dfn5b",
+                device=device
+            )
+            
+            # Fine-tuned model varsa yükle
             try:
-                logger.info("DFN5B CLIP modeli yükleniyor (pretrained='dfn5b')...")
-                model, _, preprocess_val = open_clip.create_model_and_transforms(
-                    model_name="ViT-H-14-378-quickgelu",
-                    pretrained="dfn5b",  # Doğru pretrained tag
-                    device=device,
-                    jit=False
-                )
+                active_model_path = current_app.config['OPENCLIP_MODEL_ACTIVE_PATH']
+                model_file_path = os.path.join(active_model_path, 'open_clip_pytorch_model.bin')
                 
-                # Thread-safe cache'e kaydet
-                with _cache_lock:
-                    _models_cache[cache_key] = (model, preprocess_val)
-                
-                logger.info(f"✅ DFN5B CLIP modeli {device} üzerinde başarıyla yüklendi")
-                return model, preprocess_val
-                
-            except Exception as dfn5b_error:
-                logger.warning(f"DFN5B pretrained model yüklenemedi: {dfn5b_error}")
-                raise dfn5b_error
+                if os.path.exists(model_file_path):
+                    logger.info(f"Fine-tuned CLIP weights yükleniyor: {model_file_path}")
+                    checkpoint = torch.load(model_file_path, map_location=device)
+                    model.load_state_dict(checkpoint, strict=False)
+                    logger.info("Fine-tuned CLIP weights başarıyla yüklendi!")
+                else:
+                    logger.info("Fine-tuned CLIP weights bulunamadı, base model kullanılıyor")
+                    
+            except Exception as ft_error:
+                logger.warning(f"Fine-tuned weights yükleme hatası: {str(ft_error)}")
+                logger.info("Base model ile devam ediliyor...")
+            
+            model.eval()
+            
+            # Thread-safe cache'e kaydet
+            with _cache_lock:
+                _models_cache[cache_key] = (model, preprocess_val)
+            
+            logger.info(f"✅ CLIP modeli başarıyla yüklendi! Device: {device}")
+            return model, preprocess_val
                 
         except Exception as e:
             logger.error(f"CLIP model yükleme hatası: {str(e)}")

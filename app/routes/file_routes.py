@@ -103,7 +103,6 @@ def upload_file():
             file_path=safe_path,
             file_size=file_size,
             mime_type=file_info['detected_mime'],
-            file_type=file_info['file_type'],
             user_id=g.user.id if hasattr(g, 'user') else None
         )
         

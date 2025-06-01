@@ -27,9 +27,9 @@ class SecurityMiddleware:
         app.before_request(self.before_request)
         app.after_request(self.after_request)
         
-        # Configure security settings
-        app.config.setdefault('SECURITY_RATE_LIMIT_PER_MINUTE', 60)
-        app.config.setdefault('SECURITY_RATE_LIMIT_BURST', 10)
+        # Configure security settings - More permissive for development
+        app.config.setdefault('SECURITY_RATE_LIMIT_PER_MINUTE', 200)  # Increased from 60
+        app.config.setdefault('SECURITY_RATE_LIMIT_BURST', 50)  # Increased from 10
         app.config.setdefault('SECURITY_MAX_CONTENT_LENGTH', 100 * 1024 * 1024)  # 100MB
         app.config.setdefault('SECURITY_ALLOWED_HOSTS', [])
     
@@ -39,6 +39,10 @@ class SecurityMiddleware:
             # Get client IP
             client_ip = self.get_client_ip()
             g.client_ip = client_ip
+            
+            # Skip rate limiting for localhost in development and for file uploads
+            if self.should_skip_rate_limiting():
+                return None
             
             # Rate limiting
             if not self.check_rate_limit(client_ip):
@@ -68,7 +72,7 @@ class SecurityMiddleware:
                 'X-Frame-Options': 'DENY',
                 'X-XSS-Protection': '1; mode=block',
                 'Strict-Transport-Security': 'max-age=31536000; includeSubDomains',
-                'Content-Security-Policy': "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline';",
+                'Content-Security-Policy': "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdn.socket.io; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://fonts.googleapis.com; font-src 'self' https://cdnjs.cloudflare.com https://fonts.gstatic.com; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self' ws: wss:;",
                 'Referrer-Policy': 'strict-origin-when-cross-origin',
                 'Permissions-Policy': 'geolocation=(), microphone=(), camera=()'
             }
@@ -161,6 +165,24 @@ class SecurityMiddleware:
             
         except Exception as e:
             logger.error(f"Error sanitizing request args: {str(e)}")
+    
+    def should_skip_rate_limiting(self):
+        """Determine if rate limiting should be skipped for this request"""
+        # Skip for localhost in development
+        if request.remote_addr in ['127.0.0.1', '::1', 'localhost']:
+            # Skip rate limiting for file upload endpoints
+            if '/api/files/' in request.path:
+                return True
+            
+            # Skip for Socket.IO connections
+            if request.path.startswith('/socket.io/'):
+                return True
+                
+            # Skip for static files
+            if request.path.startswith('/static/'):
+                return True
+        
+        return False
 
 def require_json(f):
     """Decorator to ensure request has JSON content type"""
@@ -192,6 +214,10 @@ def rate_limit(requests_per_minute=60, burst_limit=10):
         def decorated_function(*args, **kwargs):
             client_ip = g.get('client_ip', request.remote_addr)
             endpoint_key = f"{client_ip}:{request.endpoint}"
+            
+            # Skip rate limiting for localhost file uploads
+            if client_ip in ['127.0.0.1', '::1'] and '/api/files/' in request.path:
+                return f(*args, **kwargs)
             
             current_time = time.time()
             window_start = current_time - 60

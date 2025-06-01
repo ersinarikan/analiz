@@ -56,6 +56,11 @@ def main(args):
     y_train_tensor = torch.tensor(y_train, dtype=torch.float32).to(device)
     X_val_tensor = torch.tensor(X_val, dtype=torch.float32).to(device)
     y_val_tensor = torch.tensor(y_val, dtype=torch.float32).to(device)
+    
+    # KRİTİK: EMBEDDING NORMALİZASYONU (inference ile tutarlılık için)
+    X_train_tensor = X_train_tensor / torch.norm(X_train_tensor, dim=1, keepdim=True)
+    X_val_tensor = X_val_tensor / torch.norm(X_val_tensor, dim=1, keepdim=True)
+    logger.info("Embeddings normalized during training (to match inference normalization)")
 
     train_dataset = TensorDataset(X_train_tensor, y_train_tensor)
     val_dataset = TensorDataset(X_val_tensor, y_val_tensor)

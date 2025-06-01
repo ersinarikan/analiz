@@ -148,9 +148,11 @@ def process_queue():
                            f"Süre: {elapsed_time:.2f}s, Mesaj: {message}")
                 
                 # Final durumu için yeni session
+                analysis_file_id = None
                 with database_session(app) as session:
                     analysis = Analysis.query.get(analysis_id)
                     if analysis:
+                        analysis_file_id = analysis.file_id  # file_id'yi önceden al
                         if success:
                             # analyze_file zaten status'u 'completed' yapmış olmalı
                             analysis.status_message = message or 'Analiz başarıyla tamamlandı'
@@ -160,7 +162,7 @@ def process_queue():
                         session.commit()
                 
                 # Socket bildirim gönder - completed/failed
-                _emit_analysis_completion(analysis_id, analysis.file_id, success, elapsed_time, message)
+                _emit_analysis_completion(analysis_id, analysis_file_id, success, elapsed_time, message)
                 
             except Exception as e:
                 logger.error(f"Analiz işleme hatası: #{analysis_id}, {str(e)}")
@@ -168,15 +170,17 @@ def process_queue():
                 
                 # Hata durumunda analizi başarısız olarak işaretle - yeni session ile
                 try:
+                    error_analysis_file_id = None
                     with database_session(app) as session:
                         analysis = Analysis.query.get(analysis_id)
                         if analysis:
+                            error_analysis_file_id = analysis.file_id  # file_id'yi önceden al
                             analysis.status = 'failed'
                             analysis.status_message = f"İşlem sırasında hata: {str(e)}"[:250]
                             session.commit()
                             
                         # Hata bildirimi
-                        _emit_analysis_completion(analysis_id, analysis.file_id if analysis else None, 
+                        _emit_analysis_completion(analysis_id, error_analysis_file_id, 
                                                 False, 0, f"İşlem hatası: {str(e)}")
                         
                 except Exception as db_err:
@@ -279,13 +283,27 @@ def _emit_analysis_completion(analysis_id, file_id, success, elapsed_time, messa
 
 def get_queue_status():
     """
-    Kuyruk durumunu döndürür
+    Kuyruk durumu bilgilerini döndürür
     
     Returns:
-        dict: Kuyruk durumu bilgileri
+        dict: Kuyruk durum bilgileri
     """
     return {
-        'active': is_processing,
-        'size': analysis_queue.qsize(),
-        'empty': analysis_queue.empty()
+        'queue_size': analysis_queue.qsize(),
+        'is_processing': is_processing,
+        'timestamp': time.time()
+    }
+
+def get_queue_stats():
+    """
+    Kuyruk istatistiklerini döndürür
+    
+    Returns:
+        dict: Kuyruk istatistikleri
+    """
+    return {
+        'queue_size': analysis_queue.qsize(),
+        'is_processing': is_processing,
+        'active_analyses': 1 if is_processing else 0,
+        'timestamp': time.time()
     } 

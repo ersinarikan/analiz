@@ -19,8 +19,8 @@ _model_lock = threading.Lock()
 
 MODEL_STATE = {
     'age': {
-        'active_version': 4,
-        'last_activation': '2025-05-30T03:14:14.881783'
+        'active_version': 0,  # Base model'e dön
+        'last_activation': None
     },
     'content': {
         'active_version': None,
@@ -30,7 +30,7 @@ MODEL_STATE = {
 
 # Bu satır Flask'ın dosya değişikliklerini algılaması için
 # Her model aktivasyonunda timestamp güncellenir
-LAST_UPDATE = "2025-05-30T03:14:14.881783"
+LAST_UPDATE = "2025-05-30T18:54:00.000000"
 
 def update_model_state(model_type, version_id):
     """
@@ -75,7 +75,7 @@ def reset_model_state():
     
     with _state_lock:
         MODEL_STATE = {
-            'age': {'active_version': None, 'last_activation': None},
+            'age': {'active_version': 0, 'last_activation': None},
             'content': {'active_version': None, 'last_activation': None}
         }
         LAST_UPDATE = datetime.now().isoformat()

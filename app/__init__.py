@@ -11,9 +11,13 @@ import logging
 import threading
 import importlib
 from app.middleware.security_middleware import SecurityMiddleware
-from app.middleware import register_json_middleware
-from app.services.analysis_service import AnalysisService
-from app.utils.memory_utils import initialize_memory_management
+from app.json_encoder import CustomJSONEncoder
+
+# Memory utils - optional import
+try:
+    from app.utils.memory_utils import initialize_memory_management
+except ImportError:
+    initialize_memory_management = None
 
 # Global extensions
 db = SQLAlchemy()
@@ -41,33 +45,95 @@ def create_app(config_name='default'):
     
     # Initialize memory management for performance optimization
     try:
-        initialize_memory_management()
-        print("✅ Memory management initialized")
+        if initialize_memory_management:
+            initialize_memory_management()
+            print("✅ Memory management initialized")
+        else:
+            print("⚠️ Memory management not available (optional dependency)")
     except Exception as e:
         print(f"⚠️ Memory management initialization failed: {e}")
     
-    # Register blueprints
-    from app.routes.main_routes import main_bp
-    from app.routes.file_routes import file_bp
-    from app.routes.analysis_routes import analysis_bp
-    from app.routes.feedback_routes import feedback_bp
-    from app.routes.settings_routes import settings_bp
-    from app.routes.model_management_routes import model_management_bp
-    from app.routes.model_routes import bp as model_bp  # Model routes
-    from app.routes.queue_routes import queue_bp
-    from app.routes.performance_routes import performance_bp  # Performance routes
-    from app.routes.clip_training_routes import clip_training_bp  # CLIP training routes
+    # Register blueprints with error handling
+    blueprints_to_register = []
     
-    app.register_blueprint(main_bp)
-    app.register_blueprint(file_bp)
-    app.register_blueprint(analysis_bp)
-    app.register_blueprint(feedback_bp)
-    app.register_blueprint(settings_bp)
-    app.register_blueprint(model_management_bp)
-    app.register_blueprint(model_bp)  # Register model routes
-    app.register_blueprint(queue_bp)
-    app.register_blueprint(performance_bp)  # Register performance routes
-    app.register_blueprint(clip_training_bp)  # Register CLIP training routes
+    try:
+        from app.routes.main_routes import main_bp
+        blueprints_to_register.append(main_bp)
+    except ImportError as e:
+        print(f"⚠️ main_routes import failed: {e}")
+    
+    try:
+        from app.routes.file_routes import bp as file_bp
+        blueprints_to_register.append(file_bp)
+    except ImportError as e:
+        print(f"⚠️ file_routes import failed: {e}")
+    
+    try:
+        from app.routes.analysis_routes import bp as analysis_bp
+        blueprints_to_register.append(analysis_bp)
+    except ImportError as e:
+        print(f"⚠️ analysis_routes import failed: {e}")
+    
+    try:
+        from app.routes.feedback_routes import bp as feedback_bp
+        blueprints_to_register.append(feedback_bp)
+    except ImportError as e:
+        print(f"⚠️ feedback_routes import failed: {e}")
+    
+    try:
+        from app.routes.settings_routes import bp as settings_bp
+        blueprints_to_register.append(settings_bp)
+    except ImportError as e:
+        print(f"⚠️ settings_routes import failed: {e}")
+    
+    try:
+        from app.routes.model_management_routes import model_management_bp
+        blueprints_to_register.append(model_management_bp)
+    except ImportError as e:
+        print(f"⚠️ model_management_routes import failed: {e}")
+    
+    try:
+        from app.routes.model_routes import bp as model_bp
+        blueprints_to_register.append(model_bp)
+    except ImportError as e:
+        print(f"⚠️ model_routes import failed: {e}")
+    
+    try:
+        from app.routes.queue_routes import queue_bp
+        blueprints_to_register.append(queue_bp)
+    except ImportError as e:
+        print(f"⚠️ queue_routes import failed: {e}")
+    
+    try:
+        from app.routes.performance_routes import performance_bp
+        blueprints_to_register.append(performance_bp)
+    except ImportError as e:
+        print(f"⚠️ performance_routes import failed: {e}")
+    
+    try:
+        from app.routes.clip_training_routes import clip_training_bp
+        blueprints_to_register.append(clip_training_bp)
+    except ImportError as e:
+        print(f"⚠️ clip_training_routes import failed: {e}")
+    
+    try:
+        from app.routes.debug_routes import bp as debug_bp
+        blueprints_to_register.append(debug_bp)
+    except ImportError as e:
+        print(f"⚠️ debug_routes import failed: {e}")
+    
+    try:
+        from app.routes.ensemble_routes import ensemble_bp
+        blueprints_to_register.append(ensemble_bp)
+    except ImportError as e:
+        print(f"⚠️ ensemble_routes import failed: {e}")
+    
+    # Register successfully imported blueprints
+    for bp in blueprints_to_register:
+        app.register_blueprint(bp)
+        print(f"✅ Blueprint registered: {bp.name}")
+    
+    print(f"📋 Total blueprints registered: {len(blueprints_to_register)}")
     
     # Socket.IO event handlers
     register_socketio_events(app)
@@ -561,4 +627,21 @@ def register_global_routes(app):
     @app.route('/processed/<path:filename>')
     def serve_processed_file(filename):
         processed_folder = os.path.join(app.config['STORAGE_FOLDER'], 'processed')
-        return send_from_directory(processed_folder, filename) 
+        return send_from_directory(processed_folder, filename)
+
+def register_socketio_events(app):
+    """Register SocketIO event handlers"""
+    # SocketIO event handlers placeholder
+    pass
+
+def register_error_handlers(app):
+    """Register error handlers"""
+    @app.errorhandler(404)
+    def page_not_found(e):
+        from flask import jsonify
+        return jsonify({'error': 'Not found'}), 404
+
+    @app.errorhandler(500)
+    def internal_server_error(e):
+        from flask import jsonify
+        return jsonify({'error': 'Internal server error'}), 500 

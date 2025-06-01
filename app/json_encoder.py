@@ -16,11 +16,14 @@ class NumPyJSONEncoder(json.JSONEncoder):
         elif isinstance(obj, (complex, np.complex128, np.complex64)):
             return {'real': obj.real, 'imag': obj.imag}
         elif hasattr(obj, 'dtype') and hasattr(obj, 'item'):
-            # Genel NumPy skaler tipi için item() metodunu kullan
+            # Genel NumPy skalar tipi için item() metodunu kullan
             return obj.item()
         elif hasattr(obj, 'to_dict'):
             return obj.to_dict()
         return super(NumPyJSONEncoder, self).default(obj)
+
+# Alias for Flask compatibility
+CustomJSONEncoder = NumPyJSONEncoder
 
 def json_dumps_numpy(obj):
     """NumPy dizilerini içeren nesneleri JSON'a dönüştürür."""
