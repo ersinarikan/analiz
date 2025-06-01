@@ -647,14 +647,17 @@
                                     </div>
 
                                     <div class="d-grid gap-2">
-                                        <button class="btn btn-success" onclick="trainModelFromModal('age')">
-                                            <i class="fas fa-play me-2"></i>Yeni Eğitim Başlat
+                                        <button class="btn btn-success" onclick="trainModelFromModal('age')" 
+                                                title="Yeni feedback'leri sisteme entegre eder (anında, yeniden eğitim olmadan)">
+                                            <i class="fas fa-refresh me-2"></i>Corrections Yenile
                                         </button>
-                                        <button class="btn btn-warning" onclick="resetModelFromModal('age')">
-                                            <i class="fas fa-undo me-2"></i>Modeli Sıfırla
+                                        <button class="btn btn-warning" onclick="resetModelFromModal('age')" 
+                                                title="Ensemble düzeltmelerini temizler, base model'e döner">
+                                            <i class="fas fa-undo me-2"></i>Ensemble Sıfırla
                                         </button>
-                                        <button class="btn btn-danger" onclick="deleteLatestModelVersion('age')" id="deleteLatestVersionBtn">
-                                            <i class="fas fa-trash me-2"></i>En Son Versiyonu Sil
+                                        <button class="btn btn-danger" onclick="deleteLatestModelVersion('age')" id="deleteLatestVersionBtn" 
+                                                title="Yaş modeli ensemble düzeltmelerini temizler. Base model aktif hale gelir. (Geri alınabilir)">
+                                            <i class="fas fa-trash me-2"></i>Ensemble Düzeltmeleri Temizle
                                         </button>
                                     </div>
                                 </div>
@@ -702,11 +705,13 @@
                                     </div>
 
                                     <div class="d-grid gap-2">
-                                        <button class="btn btn-success" onclick="trainModelFromModal('content')">
-                                            <i class="fas fa-play me-2"></i>Yeni Eğitim Başlat
+                                        <button class="btn btn-success" onclick="trainModelFromModal('content')" 
+                                                title="CLIP feedback'lerini sisteme entegre eder (anında)">
+                                            <i class="fas fa-refresh me-2"></i>CLIP Corrections Yenile
                                         </button>
-                                        <button class="btn btn-warning" onclick="resetModelFromModal('content')">
-                                            <i class="fas fa-undo me-2"></i>Modeli Sıfırla
+                                        <button class="btn btn-warning" onclick="resetModelFromModal('content')" 
+                                                title="CLIP ensemble düzeltmelerini temizler, base OpenCLIP'e döner">
+                                            <i class="fas fa-undo me-2"></i>CLIP Ensemble Sıfırla
                                         </button>
                                     </div>
                                 </div>
@@ -920,6 +925,9 @@
                                     <div class="card mt-3">
                                         <div class="card-header">
                                             <h5 class="mb-0">Yaş Dağılımı</h5>
+                                        </div>
+                                        <div class="card-body">
+                                            <canvas id="ageDistributionChart"></canvas>
                                         </div>
                                     </div>
                                 </div>

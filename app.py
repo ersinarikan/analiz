@@ -65,7 +65,7 @@ if __name__ == "__main__":
         print("🤖 CLIP Monitoring: http://localhost:5000/clip-monitoring")
         print("⏹️  Durdurmak için: Ctrl+C")
         
-        socketio.run(app, debug=True, host="0.0.0.0", port=5000, log_output=False)
+        socketio.run(app, debug=False, host="0.0.0.0", port=5000, log_output=False)
         
     except Exception as e:
         print(f"❌ Uygulama başlatılırken hata: {e}")
