@@ -306,4 +306,31 @@ def get_queue_stats():
         'is_processing': is_processing,
         'active_analyses': 1 if is_processing else 0,
         'timestamp': time.time()
-    } 
+    }
+
+def cleanup_queue_service():
+    """
+    Queue service'yi temizle ve background thread'leri durdur
+    """
+    global is_processing
+    
+    try:
+        logger.info("🧹 Queue service cleanup başlatılıyor...")
+        
+        # İşleme durumunu durdur
+        with processing_lock:
+            is_processing = False
+            
+        # Kuyruktaki bekleyen işleri temizle
+        while not analysis_queue.empty():
+            try:
+                analysis_id = analysis_queue.get_nowait()
+                logger.info(f"Kuyruktan temizlenen analiz: {analysis_id}")
+                analysis_queue.task_done()
+            except queue.Empty:
+                break
+                
+        logger.info("✅ Queue service cleanup tamamlandı!")
+        
+    except Exception as e:
+        logger.error(f"⚠️ Queue service cleanup hatası: {e}") 

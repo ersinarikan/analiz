@@ -28,8 +28,8 @@ class SecurityMiddleware:
         app.after_request(self.after_request)
         
         # Configure security settings - More permissive for development
-        app.config.setdefault('SECURITY_RATE_LIMIT_PER_MINUTE', 200)  # Increased from 60
-        app.config.setdefault('SECURITY_RATE_LIMIT_BURST', 50)  # Increased from 10
+        app.config.setdefault('SECURITY_RATE_LIMIT_PER_MINUTE', 500)  # Increased from 200 for analysis operations
+        app.config.setdefault('SECURITY_RATE_LIMIT_BURST', 100)  # Increased from 50 for analysis operations
         app.config.setdefault('SECURITY_MAX_CONTENT_LENGTH', 100 * 1024 * 1024)  # 100MB
         app.config.setdefault('SECURITY_ALLOWED_HOSTS', [])
     
@@ -180,6 +180,14 @@ class SecurityMiddleware:
                 
             # Skip for static files
             if request.path.startswith('/static/'):
+                return True
+                
+            # Skip for analysis status checks to prevent polling issues
+            if '/api/analysis/' in request.path and '/status' in request.path:
+                return True
+                
+            # Skip for debug queue status checks
+            if '/api/debug/queue-status' in request.path:
                 return True
         
         return False

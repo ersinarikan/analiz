@@ -48,7 +48,40 @@ except ImportError as e:
     print("   source venv/bin/activate  (Linux/Mac)")
     sys.exit(1)
 
+def signal_handler(signum, frame):
+    """Graceful shutdown handler"""
+    print("\n🛑 Shutdown signal alındı...")
+    
+    try:
+        # Background services'ları kapat
+        print("📊 Background servisler kapatılıyor...")
+        
+        # Queue service'yi kapat
+        try:
+            from app.services.queue_service import cleanup_queue_service
+            cleanup_queue_service()
+        except Exception as e:
+            print(f"⚠️ Queue service kapatma hatası: {e}")
+        
+        # Memory cleanup
+        print("🧹 Memory cleanup yapılıyor...")
+        import gc
+        gc.collect()
+        
+        print("✅ Graceful shutdown tamamlandı!")
+        
+    except Exception as e:
+        print(f"⚠️ Shutdown sırasında hata: {e}")
+    finally:
+        os._exit(0)  # Force exit
+
 if __name__ == "__main__":
+    import signal
+    
+    # Signal handlers ekle
+    signal.signal(signal.SIGINT, signal_handler)  # Ctrl+C
+    signal.signal(signal.SIGTERM, signal_handler)  # Terminal
+    
     try:
         print("🚀 WSANALIZ Flask Uygulaması Başlatılıyor...")
         
@@ -67,6 +100,9 @@ if __name__ == "__main__":
         
         socketio.run(app, debug=False, host="0.0.0.0", port=5000, log_output=False)
         
+    except KeyboardInterrupt:
+        print("\n🛑 Keyboard interrupt alındı...")
+        signal_handler(signal.SIGINT, None)
     except Exception as e:
         print(f"❌ Uygulama başlatılırken hata: {e}")
         print("💡 Çözüm önerileri:")

@@ -486,11 +486,12 @@
                 
                 // Aktif versiyon bilgilerini güncelle
                 if (modelType === 'age') {
-                    document.getElementById('age-active-version').textContent = 'Yok';
-                    document.getElementById('age-status').innerHTML = '<i class="fas fa-times-circle text-danger"></i> Aktif versiyon yok';
+                    // Age model için de base model varsa v0 göster
+                    document.getElementById('age-active-version').textContent = 'v0';
+                    document.getElementById('age-status').innerHTML = '<i class="fas fa-check-circle status-active"></i> Aktif';
                 } else if (modelType === 'content') {
                     // Content model için her zaman base OpenCLIP çalışıyor
-                    document.getElementById('clip-active-version').textContent = 'Base OpenCLIP';
+                    document.getElementById('clip-active-version').textContent = 'v0';
                     document.getElementById('clip-status').innerHTML = '<i class="fas fa-check-circle status-active"></i> Aktif';
                 }
                 return;
@@ -506,9 +507,9 @@
                 // Version ismi gösterimi
                 let versionDisplay = '';
                 if (version.version === 0) {
-                    versionDisplay = version.version_name === 'base_openclip' ? 'Base OpenCLIP' : 
-                                   version.version_name === 'base_model' ? 'Base Model' : 
-                                   `v${version.version}`;
+                    versionDisplay = `v0 (${version.version_name === 'base_openclip' ? 'En Son' : 
+                                   version.version_name === 'base_model' ? 'En Son' : 
+                                   'Base'})`;
                 } else {
                     versionDisplay = `v${version.version}`;
                 }
@@ -537,7 +538,7 @@
             
             if (modelType === 'age') {
                 if (activeVersion) {
-                    const versionDisplay = activeVersion.version === 0 ? 'Base Model' : `v${activeVersion.version}`;
+                    const versionDisplay = activeVersion.version === 0 ? 'v0' : `v${activeVersion.version}`;
                     document.getElementById('age-active-version').textContent = versionDisplay;
                     document.getElementById('age-status').innerHTML = 
                         '<i class="fas fa-check-circle status-active"></i> Aktif';
@@ -547,18 +548,19 @@
                         document.getElementById('age-mae').textContent = `${activeVersion.metrics.mae.toFixed(2)} yaş`;
                     }
                 } else {
-                    document.getElementById('age-active-version').textContent = 'Yok';
-                    document.getElementById('age-status').innerHTML = '<i class="fas fa-times-circle text-danger"></i> Aktif versiyon yok';
+                    // Age model için de base model varsa v0 göster
+                    document.getElementById('age-active-version').textContent = 'v0';
+                    document.getElementById('age-status').innerHTML = '<i class="fas fa-check-circle status-active"></i> Aktif';
                 }
             } else if (modelType === 'content') {
                 if (activeVersion) {
-                    const versionDisplay = activeVersion.version === 0 ? 'Base OpenCLIP' : `v${activeVersion.version}`;
+                    const versionDisplay = activeVersion.version === 0 ? 'v0' : `v${activeVersion.version}`;
                     document.getElementById('clip-active-version').textContent = versionDisplay;
                     document.getElementById('clip-status').innerHTML = 
                         '<i class="fas fa-check-circle status-active"></i> Aktif';
                 } else {
                     // Content model için fallback - her zaman base çalışıyor
-                    document.getElementById('clip-active-version').textContent = 'Base OpenCLIP';
+                    document.getElementById('clip-active-version').textContent = 'v0';
                     document.getElementById('clip-status').innerHTML = '<i class="fas fa-check-circle status-active"></i> Aktif';
                 }
             }

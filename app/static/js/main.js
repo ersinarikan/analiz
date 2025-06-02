@@ -692,8 +692,8 @@ function startQueueStatusChecker() {
     // İlk kontrol
     checkQueueStatus();
     
-    // 5 saniyede bir kontrol et
-    mainQueueStatusInterval = setInterval(checkQueueStatus, 5000);
+    // 10 saniyede bir kontrol et (5000'den 10000'e çıkarıldı)
+    mainQueueStatusInterval = setInterval(checkQueueStatus, 10000);
 }
 
 function stopQueueStatusChecker() {
@@ -1199,13 +1199,13 @@ function checkAnalysisStatus(analysisId, fileId) {
             updateFileStatus(fileId, queueMessage, 0);
             
             // Kuyrukta bekleyen öğeyi kontrol etmeye devam et
-            setTimeout(() => checkAnalysisStatus(analysisId, fileId), 2000);
+            setTimeout(() => checkAnalysisStatus(analysisId, fileId), 5000);
         } else if (status === "processing") {
             // İşlem yapılıyorsa ilerleyişi göster
             updateFileStatus(fileId, status, progress);
             
             // Analiz devam ediyorsa durumu kontrol etmeye devam et
-            setTimeout(() => checkAnalysisStatus(analysisId, fileId), 2000);
+            setTimeout(() => checkAnalysisStatus(analysisId, fileId), 5000);
         } else if (status === "completed") {
             // Analiz tamamlandıysa sonuçları göster
             updateFileStatus(fileId, status, 100);
@@ -1221,7 +1221,7 @@ function checkAnalysisStatus(analysisId, fileId) {
             
             // İşlem devam ediyorsa kontrol etmeye devam et
             if (status !== "completed" && status !== "failed") {
-                setTimeout(() => checkAnalysisStatus(analysisId, fileId), 2000);
+                setTimeout(() => checkAnalysisStatus(analysisId, fileId), 5000);
             }
         }
         
@@ -1235,7 +1235,7 @@ function checkAnalysisStatus(analysisId, fileId) {
         fileErrorCounts.set(fileId, errorCount + 1);
         
         // Bir süre bekleyip tekrar dene
-        setTimeout(() => checkAnalysisStatus(analysisId, fileId), 5000);
+        setTimeout(() => checkAnalysisStatus(analysisId, fileId), 10000);
     });
 }
 
@@ -3745,8 +3745,8 @@ function startModalQueueStatusChecker() {
     // İlk kontrol
     checkModalQueueStatus();
     
-    // 5 saniyede bir kontrol et
-    modalQueueStatusInterval = setInterval(checkModalQueueStatus, 5000);
+    // 10 saniyede bir kontrol et (rate limiting için azaltıldı)
+    modalQueueStatusInterval = setInterval(checkModalQueueStatus, 10000);
 }
 
 // Modal kuyruk durumunu kontrol et
@@ -3943,12 +3943,16 @@ function displayModalVersions(modelType, versions) {
         const deleteBtn = document.getElementById('deleteLatestVersionBtn');
         if (deleteBtn) {
             const latestVersion = sortedVersions[0];
-            // En son versiyon aktifse veya sadece 1 versiyon varsa silme butonunu devre dışı bırak
-            if (latestVersion.is_active || versions.length <= 1) {
+            // Base model (v0) veya aktif versiyon veya sadece 1 versiyon varsa silme butonunu devre dışı bırak
+            if (latestVersion.version === 0 || latestVersion.is_active || versions.length <= 1) {
                 deleteBtn.disabled = true;
-                deleteBtn.title = latestVersion.is_active ? 
-                    'Aktif versiyon silinemez' : 
-                    'En az bir versiyon bulunmalıdır';
+                if (latestVersion.version === 0) {
+                    deleteBtn.title = 'Base model (v0) silinemez';
+                } else if (latestVersion.is_active) {
+                    deleteBtn.title = 'Aktif versiyon silinemez';
+                } else {
+                    deleteBtn.title = 'En az bir versiyon bulunmalıdır';
+                }
             } else {
                 deleteBtn.disabled = false;
                 deleteBtn.title = `v${latestVersion.version} versiyonunu sil`;
@@ -3962,7 +3966,8 @@ function displayModalVersions(modelType, versions) {
         console.log('Modal - Active version found:', activeVersion);
         
         if (activeVersion) {
-            document.getElementById('modal-age-active-version').textContent = `v${activeVersion.version}`;
+            const versionDisplay = activeVersion.version === 0 ? 'v0' : `v${activeVersion.version}`;
+            document.getElementById('modal-age-active-version').textContent = versionDisplay;
             document.getElementById('modal-age-status').innerHTML = 
                 '<i class="fas fa-check-circle status-active"></i> Aktif';
             
@@ -3970,15 +3975,17 @@ function displayModalVersions(modelType, versions) {
                 document.getElementById('modal-age-mae').textContent = `${activeVersion.metrics.mae.toFixed(2)} yaş`;
             }
         } else {
-            document.getElementById('modal-age-active-version').textContent = 'Yok';
-            document.getElementById('modal-age-status').innerHTML = '<i class="fas fa-times-circle text-danger"></i> Aktif versiyon yok';
+            // Age model için de base model varsa v0 göster
+            document.getElementById('modal-age-active-version').textContent = 'v0';
+            document.getElementById('modal-age-status').innerHTML = '<i class="fas fa-check-circle status-active"></i> Aktif';
         }
     } else if (modelType === 'content') {
         const activeVersion = versions.find(v => v.is_active);
         console.log('Modal - Content active version found:', activeVersion);
         
         if (activeVersion) {
-            document.getElementById('modal-content-active-version').textContent = `v${activeVersion.version}`;
+            const versionDisplay = activeVersion.version === 0 ? 'v0' : `v${activeVersion.version}`;
+            document.getElementById('modal-content-active-version').textContent = versionDisplay;
             document.getElementById('modal-content-status').innerHTML = 
                 '<i class="fas fa-check-circle status-active"></i> Aktif';
             
@@ -3986,8 +3993,9 @@ function displayModalVersions(modelType, versions) {
                 document.getElementById('modal-content-accuracy').textContent = `${(activeVersion.metrics.accuracy * 100).toFixed(1)}%`;
             }
         } else {
-            document.getElementById('modal-content-active-version').textContent = 'Yok';
-            document.getElementById('modal-content-status').innerHTML = '<i class="fas fa-times-circle text-danger"></i> Aktif versiyon yok';
+            // Content model için de base model varsa v0 göster
+            document.getElementById('modal-content-active-version').textContent = 'v0';
+            document.getElementById('modal-content-status').innerHTML = '<i class="fas fa-check-circle status-active"></i> Aktif';
         }
     }
 }
@@ -4298,9 +4306,15 @@ async function deleteLatestModelVersion(modelType) {
             return;
         }
         
-        // En son versiyonun aktif olup olmadığını kontrol et
+        // En son versiyonun aktif olup olmadığını ve base model olup olmadığını kontrol et
         const sortedVersions = versions.sort((a, b) => b.version - a.version);
         const latestVersion = sortedVersions[0];
+        
+        // Base model (v0) silinemez
+        if (latestVersion.version === 0) {
+            alert('Base model (v0) silinemez! Bu model sistemin temel modelidir.');
+            return;
+        }
         
         if (latestVersion.is_active) {
             alert('Aktif model versiyonu silinemez! Önce başka bir versiyonu aktif yapın.');

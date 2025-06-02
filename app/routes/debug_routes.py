@@ -229,6 +229,60 @@ def uploaded_files_count():
         logger.error(f"Yüklü dosya sayısı alınırken hata: {str(e)}")
         return jsonify({'error': f'Yüklü dosya sayısı alınırken bir hata oluştu: {str(e)}'}), 500
 
+@bp.route('/repair-stuck-analyses', methods=['POST'])
+def repair_stuck_analyses_endpoint():
+    """Takılmış analizleri düzeltir"""
+    try:
+        from app.services.debug_service import repair_stuck_analyses
+        repair_stuck_analyses()
+        
+        return jsonify({
+            'status': 'success',
+            'message': 'Takılmış analizler kontrol edildi ve düzeltildi'
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Takılmış analizleri düzeltirken hata: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+
+@bp.route('/test-age-base-model', methods=['GET'])
+def test_age_base_model():
+    """Yaş base model kontrolünü test et"""
+    try:
+        from flask import current_app
+        import os
+        
+        base_model_path = current_app.config['AGE_MODEL_BASE_PATH']
+        buffalo_path = current_app.config['INSIGHTFACE_AGE_MODEL_BASE_PATH']
+        
+        custom_age_file = os.path.join(base_model_path, 'model.pth')
+        buffalo_file = os.path.join(buffalo_path, 'w600k_r50.onnx')
+        
+        custom_age_exists = os.path.exists(custom_age_file)
+        buffalo_exists = os.path.exists(buffalo_file)
+        base_model_exists = custom_age_exists and buffalo_exists
+        
+        return jsonify({
+            'status': 'success',
+            'base_model_path': base_model_path,
+            'buffalo_path': buffalo_path,
+            'custom_age_file': custom_age_file,
+            'buffalo_file': buffalo_file,
+            'custom_age_exists': custom_age_exists,
+            'buffalo_exists': buffalo_exists,
+            'base_model_exists': base_model_exists
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Base model test hatası: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+
 @bp.route('/health')
 def health_check():
     """Sağlık kontrolü endpoint'i"""
