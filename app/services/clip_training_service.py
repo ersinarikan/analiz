@@ -385,29 +385,30 @@ class CLIPTrainingService:
                     if category not in feedback.category_feedback:
                         continue
                         
-                    user_score = feedback.category_feedback[category].get('user_score', 0.5)
+                    category_value = feedback.category_feedback[category]
                     
-                    # Pozitif çiftler (yüksek skor = bu kategori var)
-                    if user_score > 0.6:
-                        pairs.append({
-                            'image_path': image_path,
-                            'text': self._get_positive_prompt(category),
-                            'label': 1,
-                            'category': category,
-                            'score': user_score,
-                            'feedback_id': feedback.id
-                        })
-                        
-                    # Negatif çiftler (düşük skor = bu kategori yok)
-                    elif user_score < 0.4:
-                        pairs.append({
-                            'image_path': image_path,
-                            'text': self._get_negative_prompt(category),
-                            'label': 0,
-                            'category': category,
-                            'score': user_score,
-                            'feedback_id': feedback.id
-                        })
+                    # String değerden pozitif/negatif çiftler oluştur
+                    if category_value and category_value.strip():
+                        if category_value in ['true_positive', 'score_too_high']:
+                            # Pozitif çift: bu kategori VAR
+                            pairs.append({
+                                'image_path': image_path,
+                                'text': self._get_positive_prompt(category),
+                                'label': 1,
+                                'category': category,
+                                'feedback_value': category_value,
+                                'feedback_id': feedback.id
+                            })
+                        elif category_value in ['false_positive', 'score_too_low']:
+                            # Negatif çift: bu kategori YOK
+                            pairs.append({
+                                'image_path': image_path,
+                                'text': self._get_negative_prompt(category),
+                                'label': 0,
+                                'category': category,
+                                'feedback_value': category_value,
+                                'feedback_id': feedback.id
+                            })
             
             self.logger.info(f"Toplam {len(pairs)} contrastive pair oluşturuldu")
             return pairs, None
@@ -530,13 +531,17 @@ class CLIPTrainingService:
                     if not feedback.category_feedback or category not in feedback.category_feedback:
                         continue
                         
-                    user_score = feedback.category_feedback[category].get('user_score', 0.5)
-                    if user_score > 0.6:
-                        stats['category_distribution'][category]['high_score'] += 1
-                    elif user_score < 0.4:
-                        stats['category_distribution'][category]['low_score'] += 1
-                    else:
-                        stats['category_distribution'][category]['medium_score'] += 1
+                    # category_feedback[category] string değeri döndürür, dict değil
+                    category_value = feedback.category_feedback[category]
+                    
+                    # String değerden skor kategorisi belirle
+                    if category_value and category_value.strip():
+                        if category_value in ['true_positive', 'flagged', 'positive', 'score_too_high']:
+                            stats['category_distribution'][category]['high_score'] += 1
+                        elif category_value in ['false_positive', 'safe', 'negative', 'score_too_low']:
+                            stats['category_distribution'][category]['low_score'] += 1
+                        elif category_value in ['correct', 'medium']:
+                            stats['category_distribution'][category]['medium_score'] += 1
             
             return stats, None
             
