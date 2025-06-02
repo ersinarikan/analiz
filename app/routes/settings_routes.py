@@ -1,5 +1,6 @@
 import re
 import os
+import signal
 from flask import Blueprint, request, jsonify, current_app
 from config import Config # config.py'''daki ana Config sınıfını import ediyoruz
 import datetime
@@ -248,8 +249,18 @@ def set_analysis_params():
         # Settings state dosyasını güncelle (Flask auto-reload için)
         update_settings_state_file(params_to_update_in_file)
         
+        # Environment'a göre response mesajı
+        environment = os.environ.get('FLASK_ENV', 'development')
+        if environment == 'development':
+            message = "Analysis parameters saved successfully."
+        else:
+            message = "Analysis parameters saved successfully. Manual restart required for production."
+        
         # Parametreler başarıyla kaydedildi
-        response_data = {"message": "Analysis parameters saved successfully."}
+        response_data = {
+            "message": message,
+            "restart_required": environment != 'development'
+        }
         response = jsonify(response_data)
         
         return response, 200
@@ -257,3 +268,44 @@ def set_analysis_params():
         # Potentially revert app.config changes if file write fails? For simplicity, not doing it now.
         current_app.logger.error(f"Failed to save parameters to config.py: {message}. app.config might be out of sync with config.py.")
         return jsonify({"error": f"Failed to save parameters to config.py: {message}. Live configuration was updated but changes could not be persisted."}), 500 
+
+@bp.route('/restart_server', methods=['POST'])
+def restart_server():
+    """
+    Production ortamında manuel server restart endpoint'i
+    """
+    try:
+        # Sadece production ortamında izin ver
+        environment = os.environ.get('FLASK_ENV', 'development')
+        
+        if environment == 'development':
+            return jsonify({
+                "error": "Manual restart not needed in development mode. Use auto-reload instead."
+            }), 400
+        
+        current_app.logger.info("Manual server restart başlatılıyor...")
+        
+        # Güvenli restart için timer kullan
+        def delayed_restart():
+            import time
+            time.sleep(2)  # Response gönderilmesi için bekle
+            current_app.logger.info("Server restart signal gönderiliyor...")
+            os.kill(os.getpid(), signal.SIGTERM)
+        
+        # Background thread'de restart
+        import threading
+        restart_thread = threading.Thread(target=delayed_restart)
+        restart_thread.daemon = True
+        restart_thread.start()
+        
+        return jsonify({
+            "message": "Server restart başlatıldı. Lütfen birkaç saniye bekleyin...",
+            "success": True
+        }), 200
+        
+    except Exception as e:
+        current_app.logger.error(f"Manual restart hatası: {str(e)}")
+        return jsonify({
+            "error": f"Restart failed: {str(e)}",
+            "success": False
+        }), 500 

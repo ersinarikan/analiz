@@ -29,6 +29,50 @@ function handleParamsAlert(e) {
     alert('Analiz parametrelerini değiştirmeden önce lütfen yüklenmiş dosyaları kaldırın veya analizi tamamlayın.');
 }
 
+// Manual server restart fonksiyonu (production için)
+function manualServerRestart() {
+    const restartBtn = document.querySelector('.restart-btn');
+    if (restartBtn) {
+        restartBtn.disabled = true;
+        restartBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Yeniden Başlatılıyor...';
+    }
+    
+    showToast('Bilgi', 'Sunucu yeniden başlatılıyor...', 'info');
+    
+    fetch('/api/restart_server', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            showToast('Bilgi', 'Sunucu yeniden başlatıldı. Sayfa yenileniyor...', 'success');
+            
+            // 3 saniye sonra sayfayı yenile
+            setTimeout(() => {
+                window.location.reload();
+            }, 3000);
+        } else {
+            showToast('Hata', 'Restart hatası: ' + (data.error || 'Bilinmeyen hata'), 'error');
+            if (restartBtn) {
+                restartBtn.disabled = false;
+                restartBtn.innerHTML = '<i class="fas fa-sync me-2"></i>Sunucuyu Yeniden Başlat';
+            }
+        }
+    })
+    .catch(error => {
+        console.error('Manual restart error:', error);
+        // Restart başarılı olmuş olabilir, connection error olabilir
+        showToast('Bilgi', 'Restart signal gönderildi. Sayfa yenileniyor...', 'info');
+        
+        setTimeout(() => {
+            window.location.reload();
+        }, 5000);
+    });
+}
+
 // Model butonları için uyarı gösterme fonksiyonu
 function handleModelAlert(e) {
     e.preventDefault();
@@ -313,9 +357,35 @@ document.addEventListener('DOMContentLoaded', () => {
                 .then(response => response.json().then(data => ({ status: response.status, body: data })))
                 .then(({ status, body }) => {
                     if (status === 200 && body.message) {
-                        showToast('Bilgi', body.message + ' Sunucu yeniden başlatılıyor, lütfen bekleyin...', 'info');
-                        // Yükleyici zaten gösteriliyor, WebSocket bağlantısı ve modalın kapanması bekleniyor.
-                        // globalAnalysisParamsModal.hide(); // Hemen gizleme, socket connect'te gizlenecek
+                        if (body.restart_required) {
+                            // Production mode - manual restart gerekli
+                            showToast('Bilgi', body.message, 'warning');
+                            
+                            // Manual restart butonu göster
+                            const restartBtn = document.createElement('button');
+                            restartBtn.className = 'btn btn-warning mt-2';
+                            restartBtn.innerHTML = '<i class="fas fa-sync me-2"></i>Sunucuyu Yeniden Başlat';
+                            restartBtn.onclick = () => manualServerRestart();
+                            
+                            // Modal içinde restart butonu göster
+                            const modalBody = document.querySelector('#analysisParamsModal .modal-body');
+                            if (modalBody) {
+                                // Önceki restart butonunu kaldır
+                                const existingBtn = modalBody.querySelector('.restart-btn');
+                                if (existingBtn) existingBtn.remove();
+                                
+                                restartBtn.classList.add('restart-btn');
+                                modalBody.appendChild(restartBtn);
+                            }
+                            
+                            // Loader'ı gizle
+                            if(settingsSaveLoader) settingsSaveLoader.style.display = 'none';
+                        } else {
+                            // Development mode - auto reload
+                            showToast('Bilgi', body.message + ' Sunucu yeniden başlatılıyor, lütfen bekleyin...', 'info');
+                            // Yükleyici zaten gösteriliyor, WebSocket bağlantısı ve modalın kapanması bekleniyor.
+                            // globalAnalysisParamsModal.hide(); // Hemen gizleme, socket connect'te gizlenecek
+                        }
                     } else {
                         if(settingsSaveLoader) settingsSaveLoader.style.display = 'none';
                         if (hideLoaderTimeout) { // Add this check

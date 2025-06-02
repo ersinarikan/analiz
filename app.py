@@ -92,13 +92,22 @@ if __name__ == "__main__":
         log = logging.getLogger('werkzeug')
         log.setLevel(logging.ERROR)
         
+        # Environment'a göre debug mode belirle
+        environment = os.environ.get('FLASK_ENV', 'development')
+        is_debug = environment == 'development'
+        
+        if is_debug:
+            print("🔧 Development mode: Debug ve auto-reload aktif")
+        else:
+            print("🚀 Production mode: Debug kapalı, performans optimized")
+        
         print("✅ Uygulama başarıyla başlatıldı!")
         print("🌐 Erişim: http://localhost:5000")
         print("📊 Model Yönetimi: http://localhost:5000/model-management")
         print("🤖 CLIP Monitoring: http://localhost:5000/clip-monitoring")
         print("⏹️  Durdurmak için: Ctrl+C")
         
-        socketio.run(app, debug=False, host="0.0.0.0", port=5000, log_output=False)
+        socketio.run(app, debug=is_debug, host="0.0.0.0", port=5000, log_output=False)
         
     except KeyboardInterrupt:
         print("\n🛑 Keyboard interrupt alındı...")

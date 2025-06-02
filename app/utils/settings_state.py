@@ -12,4 +12,4 @@ SETTINGS_STATE = {
 
 # Bu satır Flask'ın dosya değişikliklerini algılaması için
 # Her parametre değişikliğinde timestamp güncellenir
-LAST_UPDATE = "2025-05-28T02:57:49.901542"
+LAST_UPDATE = "2025-06-02T18:47:48.448006"
