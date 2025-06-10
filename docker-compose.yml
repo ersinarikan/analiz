@@ -1,0 +1,54 @@
+version: '3.8'
+
+services:
+  wsanaliz:
+    build: .
+    ports:
+      - "5000:5000"
+    environment:
+      - FLASK_ENV=production
+      - SECRET_KEY=${SECRET_KEY:-your-secret-key-here}
+      - DATABASE_URL=sqlite:///wsanaliz.db
+      - USE_GPU=false
+    volumes:
+      - ./storage:/app/storage
+      - ./logs:/app/logs
+      - wsanaliz_data:/app/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # PostgreSQL veritabanı (opsiyonel)
+  postgres:
+    image: postgres:13
+    environment:
+      POSTGRES_DB: wsanaliz
+      POSTGRES_USER: wsanaliz
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-wsanaliz123}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    restart: unless-stopped
+    profiles:
+      - postgres
+
+  # Redis (opsiyonel - cache için)
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    profiles:
+      - redis
+
+volumes:
+  wsanaliz_data:
+  postgres_data:
+  redis_data: 
