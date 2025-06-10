@@ -59,11 +59,34 @@ storage/processed/*
 !storage/uploads/.gitkeep
 !storage/processed/.gitkeep
 
-# Yapay zeka modelleri
+# Yapay zeka modelleri - Tüm büyük model dosyaları
 storage/models/*
 !storage/models/.gitkeep
 app/static/models/*
 !app/static/models/.gitkeep
+
+# YOLO modelleri (büyük dosyalar)
+*.pt
+yolov8*.pt
+yolov8x.pt
+
+# Diğer AI model dosyaları
+*.onnx
+*.bin
+*.safetensors
+*.h5
+*.hdf5
+*.pkl
+*.pickle
+
+# Büyük dataset dosyaları
+*.tar.gz
+*.zip
+*.7z
+*.rar
+
+# Virtual environment
+venv/
 
 # Logs
 logs/
