@@ -3385,107 +3385,55 @@ function displayHighestRiskFrame(results) {
 function displayHighRiskFramesByCategory(results) {
     console.log("Tespit edilen skorlar:", results.overall_scores);
     
-    // En yüksek skorları ve kare bilgilerini saklayacak objeler
-    let highestScores = {
-        violence: 0,
-        adult_content: 0,
-        harassment: 0,
-        weapon: 0,
-        drug: 0,
-        safe: 0
-    };
-    
-    let highestFrames = {
-        violence: null,
-        adult_content: null,
-        harassment: null,
-        weapon: null,
-        drug: null,
-        safe: null
-    };
-    
-    // İçerik tespitlerini gözden geçir ve en yüksek skorları bul
-    if (results.content_detections && results.content_detections.length > 0) {
-        results.content_detections.forEach(detection => {
-            // Her kategori için en yüksek skoru kontrol et
-            if (detection.violence_score > highestScores.violence) {
-                highestScores.violence = detection.violence_score;
-                highestFrames.violence = {
-                    processed_image_path: detection.processed_image_path,
-                    timestamp: detection.frame_timestamp
-                };
-            }
-            
-            if (detection.adult_content_score > highestScores.adult_content) {
-                highestScores.adult_content = detection.adult_content_score;
-                highestFrames.adult_content = {
-                    processed_image_path: detection.processed_image_path,
-                    timestamp: detection.frame_timestamp
-                };
-            }
-            
-            if (detection.harassment_score > highestScores.harassment) {
-                highestScores.harassment = detection.harassment_score;
-                highestFrames.harassment = {
-                    processed_image_path: detection.processed_image_path,
-                    timestamp: detection.frame_timestamp
-                };
-            }
-            
-            if (detection.weapon_score > highestScores.weapon) {
-                highestScores.weapon = detection.weapon_score;
-                highestFrames.weapon = {
-                    processed_image_path: detection.processed_image_path,
-                    timestamp: detection.frame_timestamp
-                };
-            }
-            
-            if (detection.drug_score > highestScores.drug) {
-                highestScores.drug = detection.drug_score;
-                highestFrames.drug = {
-                    processed_image_path: detection.processed_image_path,
-                    timestamp: detection.frame_timestamp
-                };
-            }
-            
-            if (detection.safe_score > highestScores.safe) {
-                highestScores.safe = detection.safe_score;
-                highestFrames.safe = {
-                    processed_image_path: detection.processed_image_path,
-                    timestamp: detection.frame_timestamp
-                };
-            }
-        });
-    }
-    
-    console.log("Bulunan en yüksek kategoriler:", highestFrames);
-    
-    // Her kategori için en yüksek riskli kareyi göster
-    const categories = ['violence', 'adult_content', 'harassment', 'weapon', 'drug', 'safe'];
     const grid = document.getElementById('categoryFramesGrid');
     if (!grid) return;
     
     grid.innerHTML = '';
     
-    categories.forEach(category => {
-        // Güvenli kategori için farklı eşik değeri (en az %50)
-        const threshold = category === 'safe' ? 0.5 : 0.3;
+    // Yeni sistem: category_specific_highest_risks_data kullan
+    let categorySpecificHighestRisks = {};
+    if (results.category_specific_highest_risks_data) {
+        try {
+            categorySpecificHighestRisks = JSON.parse(results.category_specific_highest_risks_data);
+            console.log('[DEBUG] Using category_specific_highest_risks_data:', categorySpecificHighestRisks);
+        } catch (e) {
+            console.error("Error parsing category_specific_highest_risks_data:", e);
+            // Fallback to old method
+            categorySpecificHighestRisks = null;
+        }
+    }
+
+    // Eğer yeni sistem verisi varsa onu kullan, yoksa eski yöntemi kullan
+    if (categorySpecificHighestRisks) {
+        // YENİ SİSTEM: Backend'den gelen category_specific_highest_risks_data
+        const categories = ['violence', 'adult_content', 'harassment', 'weapon', 'drug', 'safe'];
         
-        if (highestScores[category] >= threshold) { 
-            const frameData = highestFrames[category];
-            if (!frameData || !frameData.processed_image_path) return;
+        categories.forEach(category => {
+            const categoryData = categorySpecificHighestRisks[category];
+            if (!categoryData || categoryData.score <= 0) return;
             
-            let categoryName = getCategoryDisplayName(category);
-            const cardDiv = document.createElement('div');
-            cardDiv.className = 'col-md-4 mb-4';
+            // Güvenli kategori için farklı eşik değeri (en az %50)
+            const threshold = category === 'safe' ? 0.5 : 0.3;
             
-            const frameUrl = `/api/files/${normalizePath(frameData.processed_image_path).replace(/^\/+|\/+/g, '/')}`;  // /api/files/ prefix'ini kaldırdık
-            console.log(`${categoryName} için frame URL:`, frameUrl);
-            console.log('[LOG][FRONTEND] Backendden gelen processed_image_path:', frameData.processed_image_path);
-            console.log('[LOG][FRONTEND] Frontendde gösterilen img src:', frameUrl);
+            if (categoryData.score < threshold) return;
             
-            // Kategori badge'inin rengini belirle
+            // UI için skorları yüzdelik sisteme dönüştür
+            const score = categoryData.score;
+            const frameUrl = `/api/files/${normalizePath(categoryData.frame_path)}`;
+            
+            const categoryName = getCategoryDisplayName(category);
             let badgeClass = getCategoryBadgeClass(category);
+            
+            const cardDiv = document.createElement('div');
+            cardDiv.className = 'col-lg-4 col-md-6 mb-4';
+            
+            console.log('[LOG][FRONTEND] Kategori kartı oluşturuluyor:', {
+                category, 
+                score: score,
+                timestamp: categoryData.timestamp,
+                frame_path: categoryData.frame_path,
+                frameUrl: frameUrl
+            });
             
             cardDiv.innerHTML = `
                 <div class="card h-100">
@@ -3496,19 +3444,19 @@ function displayHighRiskFramesByCategory(results) {
                                 onerror="this.onerror=null;this.src='/static/img/image-not-found.svg';">
                         </div>
                         <span class="position-absolute top-0 end-0 m-2 badge ${badgeClass}">${categoryName}</span>
-                        ${frameData.timestamp ? `<span class="position-absolute bottom-0 start-0 m-2 badge bg-dark">${formatTime(frameData.timestamp)}</span>` : ''}
+                        ${categoryData.timestamp !== null && categoryData.timestamp !== undefined ? `<span class="position-absolute bottom-0 start-0 m-2 badge bg-dark">${formatTime(categoryData.timestamp)}</span>` : ''}
                     </div>
                     <div class="card-body">
                         <h6 class="card-title">${categoryName}</h6>
                         <div class="d-flex justify-content-between mb-1">
                             <span>${category === 'safe' ? 'Güven Skoru:' : 'Risk Skoru:'}</span>
-                            <strong>${highestScores[category].toFixed(0)}%</strong>
+                            <strong>${Math.round(score * 100)}%</strong>
                         </div>
                         <div class="progress">
                             <div class="progress-bar ${badgeClass}" 
-                                style="width: ${highestScores[category]}%" 
+                                style="width: ${score * 100}%" 
                                 role="progressbar" 
-                                aria-valuenow="${highestScores[category]}" 
+                                aria-valuenow="${score * 100}" 
                                 aria-valuemin="0" 
                                 aria-valuemax="100">
                             </div>
@@ -3518,8 +3466,138 @@ function displayHighRiskFramesByCategory(results) {
             `;
             
             grid.appendChild(cardDiv);
+        });
+    } else {
+        // ESKİ SİSTEM: Fallback
+        console.log("Fallback to old detection method");
+        
+        // En yüksek skorları ve kare bilgilerini saklayacak objeler
+        let highestScores = {
+            violence: 0,
+            adult_content: 0,
+            harassment: 0,
+            weapon: 0,
+            drug: 0,
+            safe: 0
+        };
+        
+        let highestFrames = {
+            violence: null,
+            adult_content: null,
+            harassment: null,
+            weapon: null,
+            drug: null,
+            safe: null
+        };
+        
+        // İçerik tespitlerini gözden geçir ve en yüksek skorları bul
+        if (results.content_detections && results.content_detections.length > 0) {
+            results.content_detections.forEach(detection => {
+                // Her kategori için en yüksek skoru kontrol et
+                if (detection.violence_score > highestScores.violence) {
+                    highestScores.violence = detection.violence_score;
+                    highestFrames.violence = {
+                        processed_image_path: detection.processed_image_path,
+                        timestamp: detection.frame_timestamp
+                    };
+                }
+                
+                if (detection.adult_content_score > highestScores.adult_content) {
+                    highestScores.adult_content = detection.adult_content_score;
+                    highestFrames.adult_content = {
+                        processed_image_path: detection.processed_image_path,
+                        timestamp: detection.frame_timestamp
+                    };
+                }
+                
+                if (detection.harassment_score > highestScores.harassment) {
+                    highestScores.harassment = detection.harassment_score;
+                    highestFrames.harassment = {
+                        processed_image_path: detection.processed_image_path,
+                        timestamp: detection.frame_timestamp
+                    };
+                }
+                
+                if (detection.weapon_score > highestScores.weapon) {
+                    highestScores.weapon = detection.weapon_score;
+                    highestFrames.weapon = {
+                        processed_image_path: detection.processed_image_path,
+                        timestamp: detection.frame_timestamp
+                    };
+                }
+                
+                if (detection.drug_score > highestScores.drug) {
+                    highestScores.drug = detection.drug_score;
+                    highestFrames.drug = {
+                        processed_image_path: detection.processed_image_path,
+                        timestamp: detection.frame_timestamp
+                    };
+                }
+                
+                if (detection.safe_score > highestScores.safe) {
+                    highestScores.safe = detection.safe_score;
+                    highestFrames.safe = {
+                        processed_image_path: detection.processed_image_path,
+                        timestamp: detection.frame_timestamp
+                    };
+                }
+            });
         }
-    });
+        
+        console.log("Fallback: Bulunan en yüksek kategoriler:", highestFrames);
+        
+        // Her kategori için en yüksek riskli kareyi göster
+        const categories = ['violence', 'adult_content', 'harassment', 'weapon', 'drug', 'safe'];
+        
+        categories.forEach(category => {
+            // Güvenli kategori için farklı eşik değeri (en az %50)
+            const threshold = category === 'safe' ? 0.5 : 0.3;
+            
+            if (highestScores[category] >= threshold) { 
+                const frameData = highestFrames[category];
+                if (!frameData || !frameData.processed_image_path) return;
+                
+                let categoryName = getCategoryDisplayName(category);
+                const cardDiv = document.createElement('div');
+                cardDiv.className = 'col-lg-4 col-md-6 mb-4';
+                
+                const frameUrl = `/api/files/${normalizePath(frameData.processed_image_path)}`;
+                let badgeClass = getCategoryBadgeClass(category);
+                
+                cardDiv.innerHTML = `
+                    <div class="card h-100">
+                        <div class="position-relative">
+                            <div style="height: 240px; overflow: hidden;">
+                                <img src="${frameUrl}" class="card-img-top detection-img" alt="${categoryName}" 
+                                    style="width: 100%; height: 100%; object-fit: cover;"
+                                    onerror="this.onerror=null;this.src='/static/img/image-not-found.svg';">
+                            </div>
+                            <span class="position-absolute top-0 end-0 m-2 badge ${badgeClass}">${categoryName}</span>
+                            ${frameData.timestamp ? `<span class="position-absolute bottom-0 start-0 m-2 badge bg-dark">${formatTime(frameData.timestamp)}</span>` : ''}
+                        </div>
+                        <div class="card-body">
+                            <h6 class="card-title">${categoryName}</h6>
+                            <div class="d-flex justify-content-between mb-1">
+                                <span>${category === 'safe' ? 'Güven Skoru:' : 'Risk Skoru:'}</span>
+                                <strong>${Math.round(highestScores[category] * 100)}%</strong>
+                            </div>
+                            <div class="progress">
+                                <div class="progress-bar ${badgeClass}" 
+                                    style="width: ${highestScores[category] * 100}%" 
+                                    role="progressbar" 
+                                    aria-valuenow="${highestScores[category] * 100}" 
+                                    aria-valuemin="0" 
+                                    aria-valuemax="100">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                
+                grid.appendChild(cardDiv);
+            }
+        });
+    }
     
     // Eğer hiç kart eklenmemişse bilgi mesajı göster
     if (grid.children.length === 0) {

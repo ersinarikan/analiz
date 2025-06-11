@@ -86,14 +86,19 @@ def cleanup_memory(force=False):
             torch.cuda.empty_cache()
             logger.debug("GPU cache temizlendi")
         
-        # Clear model cache if memory usage is high
+        # Clear model cache if memory usage is critically high
         memory_stats = get_memory_usage()
-        if memory_stats.get('system', {}).get('percentage', 0) > 85:
-            logger.warning("High memory usage detected, clearing model cache")
+        if memory_stats.get('system', {}).get('percentage', 0) > 92:
+            logger.warning("Critical memory usage detected, clearing model cache")
             from app.utils.model_state import clear_model_cache
             clear_model_cache()
+        elif memory_stats.get('system', {}).get('percentage', 0) > 88:
+            # Sadece GPU cache temizle, model instance'ları korur
+            logger.warning("High memory usage detected, clearing GPU cache only")
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
             
-            # Clear database query cache
+            # Clear database query cache only on critical memory
             from app.services.db_service import clear_query_cache
             clear_query_cache()
         

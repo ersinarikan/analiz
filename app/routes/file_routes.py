@@ -456,30 +456,31 @@ def serve_analysis_frame(analysis_id, frame_file):
         # Temizlenmiş dosya adı
         clean_frame = frame_file.split('/')[-1].split('\\')[-1]
         
-        # Olası dosya yolları
-        possible_paths = [
-            os.path.join(processed_folder, clean_frame),  # Ana işlenmiş klasöründe
-            os.path.join(processed_folder, f"frames_{analysis_id}", clean_frame),  # UUID bazlı alt klasörde
-            os.path.join(processed_folder, "frames", clean_frame)  # Genel frames klasöründe
-        ]
+        # Öncelikle UUID bazlı klasörde ara (en muhtemel konum)
+        primary_path = os.path.join(processed_folder, f"frames_{analysis_id}", clean_frame)
         
-        # Log bilgisi
-        current_app.logger.info(f"Kare dosyası aranıyor: {clean_frame}, Analiz ID: {analysis_id}")
-        current_app.logger.info(f"Aranan konumlar: {possible_paths}")
+        if os.path.exists(primary_path):
+            current_app.logger.debug(f"Kare dosyası bulundu: {primary_path}")
+            
+            # MIME tipini belirle
+            mime_type = 'image/jpeg'  # Varsayılan olarak JPEG
+            if clean_frame.lower().endswith('.png'):
+                mime_type = 'image/png'
+            elif clean_frame.lower().endswith('.gif'):
+                mime_type = 'image/gif'
+            
+            return send_file(primary_path, mimetype=mime_type)
         
-        # Olası yolları kontrol et
-        for path in possible_paths:
-            if os.path.exists(path):
-                current_app.logger.info(f"Kare dosyası bulundu: {path}")
-                
-                # MIME tipini belirle
-                mime_type = 'image/jpeg'  # Varsayılan olarak JPEG
-                if clean_frame.lower().endswith('.png'):
-                    mime_type = 'image/png'
-                elif clean_frame.lower().endswith('.gif'):
-                    mime_type = 'image/gif'
-                
-                return send_file(path, mimetype=mime_type)
+        # Fallback: Ana klasörde ara
+        fallback_path = os.path.join(processed_folder, clean_frame)
+        if os.path.exists(fallback_path):
+            current_app.logger.debug(f"Kare dosyası fallback konumunda bulundu: {fallback_path}")
+            mime_type = 'image/jpeg'
+            if clean_frame.lower().endswith('.png'):
+                mime_type = 'image/png'
+            elif clean_frame.lower().endswith('.gif'):
+                mime_type = 'image/gif'
+            return send_file(fallback_path, mimetype=mime_type)
         
         # Bulunamadı
         current_app.logger.error(f"Kare dosyası bulunamadı: {clean_frame}")

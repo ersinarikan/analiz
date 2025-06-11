@@ -10,7 +10,6 @@ import tensorflow as tf
 tf.get_logger().setLevel('ERROR')
 from ultralytics import YOLO
 import torch
-import clip
 import open_clip
 from PIL import Image  # CLIP için PIL gerekiyor
 import shutil

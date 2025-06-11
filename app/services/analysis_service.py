@@ -371,7 +371,8 @@ def analyze_image(analysis):
         
         # Eğer yaş analizi isteniyorsa, yüzleri tespit et ve yaşları tahmin et
         if analysis.include_age_analysis:
-            age_estimator = InsightFaceAgeEstimator()
+            from app.utils.model_state import get_age_estimator
+            age_estimator = get_age_estimator()
             faces = age_estimator.model.get(image)
             persons = {}
             for i, face in enumerate(faces):
@@ -621,7 +622,9 @@ def analyze_video(analysis):
             if not ret:
                 break
             timestamp = frame_idx / fps
-            frame_path = os.path.join(frames_dir, f"frame_{frame_idx:06d}_{timestamp:.2f}.jpg")
+            # Timestamp'i tutarlı formatta kaydet (her zaman .XX formatı)
+            timestamp_str = f"{timestamp:.2f}" if timestamp % 1 != 0 else f"{timestamp:.0f}.00"
+            frame_path = os.path.join(frames_dir, f"frame_{frame_idx:06d}_{timestamp_str}.jpg")
             cv2.imwrite(frame_path, frame)
             frame_paths.append(frame_path)
         
@@ -640,7 +643,8 @@ def analyze_video(analysis):
 
         if analysis.include_age_analysis:
             try:
-                age_estimator = model_state_get_age_estimator() # model_state'den alınıyor
+                from app.utils.model_state import get_age_estimator
+                age_estimator = get_age_estimator() # model_state'den alınıyor
                 logger.info(f"Yaş tahmin modeli yüklendi: Analiz #{analysis.id}")
                 
                 # Config'den takip parametrelerini oku
@@ -693,7 +697,9 @@ def analyze_video(analysis):
                 
                 # Kareyi kaydet
                 if i >= 30:  # İlk 30 kare zaten kaydedilmişti
-                    frame_path = os.path.join(frames_dir, f"frame_{frame_idx:06d}_{timestamp:.2f}.jpg")
+                    # Timestamp'i tutarlı formatta kaydet
+                    timestamp_str = f"{timestamp:.2f}" if timestamp % 1 != 0 else f"{timestamp:.0f}.00"
+                    frame_path = os.path.join(frames_dir, f"frame_{frame_idx:06d}_{timestamp_str}.jpg")
                     cv2.imwrite(frame_path, image)
                     frame_paths.append(frame_path)
                 else:
@@ -871,6 +877,7 @@ def analyze_video(analysis):
                                             analysis_id=analysis.id,
                                             person_id=track_id_str,
                                             frame_path=frame_path,
+                                            frame_timestamp=timestamp,  # Timestamp eklendi
                                             estimated_age=age,
                                             confidence_score=confidence,
                                             frame_number=frame_idx,
@@ -881,6 +888,7 @@ def analyze_video(analysis):
                                     else:
                                         if confidence > age_est.confidence_score:
                                             age_est.frame_path = frame_path
+                                            age_est.frame_timestamp = timestamp  # Timestamp eklendi
                                             age_est.estimated_age = age
                                             age_est.confidence_score = confidence
                                             age_est.frame_number = frame_idx
@@ -1421,9 +1429,17 @@ def get_analysis_results(analysis_id):
         logger.info(f"[SVC_LOG][RESULTS] get_analysis_results: {len(persons)} kişiye göre gruplandı.")
         best_estimations = []
         for person_id, estimations in persons.items():
-            best_estimation = max(estimations, key=lambda e: e['confidence_score'])
-            logger.info(f"[SVC_LOG][RESULTS] get_analysis_results: Kişi {person_id} için en iyi tahmin seçildi (Güven: {best_estimation['confidence_score']:.4f}).")
-            logger.info(f"DEBUG - Frontend'e gönderilecek yaş: person_id={person_id}, estimated_age={best_estimation.get('estimated_age')}, all_estimations_for_person={[(e.get('estimated_age'), e.get('confidence_score')) for e in estimations]}")
+            if not estimations:  # Boş liste kontrolü
+                logger.warning(f"[SVC_LOG][RESULTS] Kişi {person_id} için tahmin listesi boş, atlanıyor.")
+                continue
+                
+            best_estimation = max(estimations, key=lambda e: e.get('confidence_score', 0) if e else 0)
+            if not best_estimation:  # None kontrolü
+                logger.warning(f"[SVC_LOG][RESULTS] Kişi {person_id} için en iyi tahmin None, atlanıyor.")
+                continue
+                
+            logger.info(f"[SVC_LOG][RESULTS] get_analysis_results: Kişi {person_id} için en iyi tahmin seçildi (Güven: {best_estimation.get('confidence_score', 0):.4f}).")
+            logger.info(f"DEBUG - Frontend'e gönderilecek yaş: person_id={person_id}, estimated_age={best_estimation.get('estimated_age', 'N/A')}, all_estimations_for_person={[(e.get('estimated_age', 'N/A') if e else 'None', e.get('confidence_score', 0) if e else 0) for e in estimations]}")
             logger.info(f"DEBUG - best_estimation tüm alanları: {best_estimation}")
             best_estimations.append(best_estimation)
         result['age_estimations'] = best_estimations

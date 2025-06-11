@@ -6,7 +6,6 @@ import torch
 import re
 import logging
 from config import Config
-# import clip  # REMOVING as open_clip will be used for tokenization too
 from PIL import Image  # PIL kütüphanesini ekliyoruz
 import math
 from flask import current_app # current_app import edildi

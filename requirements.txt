@@ -81,7 +81,7 @@ scikit-image==0.25.2
 
 # ONNX Runtime
 onnx==1.18.0
-onnxruntime==1.15.1
+onnxruntime==1.22.0
 
 # Hugging Face
 huggingface-hub==0.32.2
@@ -194,5 +194,3 @@ structlog==23.1.0
 loguru==0.7.0
 prometheus-client==0.17.1
 
-# Clip-by-OpenAI
-clip-by-openai==1.0 
