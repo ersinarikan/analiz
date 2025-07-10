@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>WS Analiz - İçerik Analiz Platformu</title>
+            <title>T.C. Aile ve Sosyal Hizmetler Bakanlığı - İçerik Güvenlik Analiz Sistemi</title>
     
     <!-- Favicon -->
     <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}" type="image/x-icon">
@@ -16,7 +16,7 @@
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
     
     <!-- Google Fonts -->
-    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     
     <!-- Custom CSS -->
     <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
@@ -78,7 +78,7 @@
         <div class="container">
             <a class="navbar-brand" href="/">
                 <i class="fas fa-shield-alt me-2"></i>
-                WS<span>Analiz</span>
+                İçerik<span>Güvenlik</span>
             </a>
             <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
                 <span class="navbar-toggler-icon"></span>
@@ -108,6 +108,79 @@
     </nav>
     
     <div class="container-fluid">
+        <!-- 🎯 Hero Section -->
+        <div class="hero-section mb-5">
+            <div class="row align-items-center">
+                <div class="col-lg-6 mb-4 mb-lg-0">
+                    <div class="hero-content">
+                        <div class="official-header mb-4">
+                            <div class="tc-logo">
+                                <img src="/static/img/logo-department.svg" alt="T.C. Aile ve Sosyal Hizmetler Bakanlığı" class="tc-emblem-real">
+                            </div>
+                            <div class="ministry-info">
+                                <h6 class="republic-title">TÜRKİYE CUMHURİYETİ</h6>
+                                <h5 class="ministry-title">AİLE VE SOSYAL HİZMETLER BAKANLIĞI</h5>
+                            </div>
+                        </div>
+                        <h1 class="hero-title">
+                            <span class="system-name">İçerik Güvenlik</span>
+                            <br>Analiz Sistemi
+                        </h1>
+                        <p class="hero-description">
+                            Dijital içeriklerin güvenlik analizi ve değerlendirmesi için geliştirilmiş resmi platform. 
+                            Çocukların korunması ve aile güvenliği kapsamında içerik denetimi yapılmaktadır.
+                        </p>
+                        <div class="hero-stats">
+                            <div class="stat-item">
+                                <span class="stat-number official-red">Güvenli</span>
+                                <span class="stat-label">İçerik Analizi</span>
+                            </div>
+                            <div class="stat-item">
+                                <span class="stat-number official-red">Hızlı</span>
+                                <span class="stat-label">Değerlendirme</span>
+                            </div>
+                            <div class="stat-item">
+                                <span class="stat-number official-red">Güvenilir</span>
+                                <span class="stat-label">Sonuçlar</span>
+                            </div>
+                        </div>
+                        <div class="hero-actions">
+                            <button class="btn btn-primary btn-lg me-3" onclick="document.getElementById('uploadFileBtn').click()">
+                                <i class="fas fa-shield-alt me-2"></i>Analiz Başlat
+                            </button>
+                            <button class="btn btn-outline-primary btn-lg" data-bs-toggle="modal" data-bs-target="#helpModal">
+                                <i class="fas fa-info-circle me-2"></i>Kullanım Kılavuzu
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-lg-6">
+                    <div class="hero-visual">
+                        <div class="floating-card card-1">
+                            <i class="fas fa-shield-alt"></i>
+                            <span>Çocuk Koruması</span>
+                        </div>
+                        <div class="floating-card card-2">
+                            <i class="fas fa-search"></i>
+                            <span>İçerik Denetimi</span>
+                        </div>
+                        <div class="floating-card card-3">
+                            <i class="fas fa-balance-scale"></i>
+                            <span>Hukuki Uygunluk</span>
+                        </div>
+                        <div class="hero-graphic">
+                            <div class="pulse-ring"></div>
+                            <div class="pulse-ring delay-1"></div>
+                            <div class="pulse-ring delay-2"></div>
+                            <div class="center-icon">
+                                <i class="fas fa-robot"></i>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- Ana İçerik -->
         <div class="row">
             <!-- Dosya Yükleme Alanı -->
@@ -117,18 +190,74 @@
                         <i class="fas fa-upload me-2"></i> İçerik Yükleme
                     </div>
                     <div class="card-body">
-                        <div id="uploadArea" class="upload-area">
-                            <i class="fas fa-cloud-upload-alt"></i>
-                            <h4>Dosyaları Buraya Sürükleyip Bırakın</h4>
-                            <p>veya aşağıdaki butonları kullanarak dosya/klasör seçin</p>
-                            <div class="d-flex justify-content-center">
-                                <button id="uploadFileBtn" class="btn btn-primary me-3">
-                                    <i class="fas fa-file text-white"></i> Dosya Seç
-                                </button>
-                                <button id="uploadFolderBtn" class="btn btn-primary">
-                                    <i class="fas fa-folder text-warning"></i> Klasör Seç
-                                </button>
+                        <div id="uploadArea" class="upload-area modern-upload">
+                            <div class="upload-backdrop"></div>
+                            <div class="upload-content">
+                                <div class="upload-icon-container">
+                                    <i class="fas fa-cloud-upload-alt upload-icon"></i>
+                                    <div class="upload-progress-ring">
+                                        <svg class="progress-ring" width="80" height="80">
+                                            <circle class="progress-ring-circle" cx="40" cy="40" r="36" />
+                                        </svg>
+                                    </div>
+                                </div>
+                                <h4 class="upload-title">Dosyaları Buraya Sürükleyip Bırakın</h4>
+                                <p class="upload-description">veya aşağıdaki butonları kullanarak dosya/klasör seçin</p>
+                                
+                                <div class="upload-buttons d-flex justify-content-center">
+                                    <button id="uploadFileBtn" class="btn btn-primary modern-btn me-3">
+                                        <span class="btn-content">
+                                            <i class="fas fa-file me-2"></i>Dosya Seç
+                                        </span>
+                                        <div class="btn-loading">
+                                            <i class="fas fa-spinner fa-spin me-2"></i>Yükleniyor...
+                                        </div>
+                                    </button>
+                                    <button id="uploadFolderBtn" class="btn btn-success modern-btn">
+                                        <span class="btn-content">
+                                            <i class="fas fa-folder me-2"></i>Klasör Seç
+                                        </span>
+                                        <div class="btn-loading">
+                                            <i class="fas fa-spinner fa-spin me-2"></i>Yükleniyor...
+                                        </div>
+                                    </button>
+                                </div>
+                                
+                                <div class="upload-formats mt-3">
+                                    <div class="format-tags">
+                                        <span class="format-tag">JPG</span>
+                                        <span class="format-tag">PNG</span>
+                                        <span class="format-tag">GIF</span>
+                                        <span class="format-tag">MP4</span>
+                                        <span class="format-tag">AVI</span>
+                                        <span class="format-tag">MOV</span>
+                                    </div>
+                                    <small class="format-info">Maksimum dosya boyutu: 100MB</small>
+                                </div>
                             </div>
+                            
+                            <!-- Upload Status Indicators -->
+                            <div class="upload-status" id="uploadStatus">
+                                <div class="status-item status-processing">
+                                    <div class="status-icon">
+                                        <i class="fas fa-cog fa-spin"></i>
+                                    </div>
+                                    <span>İşleniyor...</span>
+                                </div>
+                                <div class="status-item status-success">
+                                    <div class="status-icon">
+                                        <i class="fas fa-check-circle"></i>
+                                    </div>
+                                    <span>Başarılı!</span>
+                                </div>
+                                <div class="status-item status-error">
+                                    <div class="status-icon">
+                                        <i class="fas fa-exclamation-triangle"></i>
+                                    </div>
+                                    <span>Hata oluştu!</span>
+                                </div>
+                            </div>
+                            
                             <input type="file" id="fileInput" style="display: none;" multiple accept="image/*,video/*">
                             <input type="file" id="folderInput" style="display: none;" multiple accept="image/*,video/*" webkitdirectory directory>
                         </div>
@@ -195,6 +324,39 @@
                 </div>
             </div>
         </div>
+    </div>
+    
+    <!-- 🏛️ Resmi Footer -->
+    <footer class="official-footer">
+        <div class="container-fluid">
+            <div class="footer-content">
+                <div class="footer-section">
+                    <h6>T.C. Aile ve Sosyal Hizmetler Bakanlığı</h6>
+                    <p>Çocukların korunması ve aile güvenliği kapsamında<br>
+                    dijital içerik denetimi hizmeti sunulmaktadır.</p>
+                </div>
+                <div class="footer-section">
+                    <h6>İletişim</h6>
+                    <p>Adres: Eskişehir Yolu 9. Km, Söğütözü/ANKARA<br>
+                    Telefon: 0312 705 50 00<br>
+                    E-posta: bilgi@aile.gov.tr</p>
+                </div>
+                <div class="footer-section">
+                    <h6>Hukuki Bilgiler</h6>
+                    <p><a href="#">Gizlilik Politikası</a><br>
+                    <a href="#">Kullanım Koşulları</a><br>
+                    <a href="#">Kişisel Verilerin Korunması</a></p>
+                </div>
+            </div>
+            <div class="footer-bottom">
+                <p>&copy; 2025 T.C. Aile ve Sosyal Hizmetler Bakanlığı. Tüm hakları saklıdır.</p>
+            </div>
+        </div>
+    </footer>
+    
+    <!-- 🍞 Toast Notification Container -->
+    <div class="toast-container" id="toastContainer">
+        <!-- Dynamic toasts will be added here -->
     </div>
     
     <!-- Dosya Kartı Template -->
