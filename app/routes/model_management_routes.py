@@ -1,6 +1,11 @@
 from flask import Blueprint, jsonify, request, current_app
 from app.services import model_service
 import logging
+import os
+from app.models import Feedback
+from app.models.content import ModelVersion
+from app import db
+from app.services.model_service import ModelService
 
 logger = logging.getLogger(__name__)
 model_management_bp = Blueprint('model_management_bp', __name__, url_prefix='/api/models')
@@ -128,3 +133,225 @@ def reload_content_analyzer():
     except Exception as e:
         logger.error(f"ContentAnalyzer yeniden yükleme hatası: {str(e)}")
         return jsonify({"error": f"Yeniden yükleme hatası: {str(e)}"}), 500 
+
+@model_management_bp.route('/api/model-management/cleanup', methods=['POST'])
+def cleanup_system():
+    """Sistem temizliği endpoint'i"""
+    try:
+        data = request.get_json() or {}
+        
+        # Temizlik konfigürasyonu
+        cleanup_config = {
+            'age_model_versions': data.get('age_model_versions', 5),
+            'content_model_versions': data.get('content_model_versions', 5),
+            'age_feedback_records': data.get('age_feedback_records', 100),
+            'content_feedback_records': data.get('content_feedback_records', 100),
+            'ensemble_age_versions': data.get('ensemble_age_versions', 3),
+            'ensemble_content_versions': data.get('ensemble_content_versions', 3),
+            'unused_frames_days': data.get('unused_frames_days', 30),
+            'vacuum_database': data.get('vacuum_database', True)
+        }
+        
+        # Kapsamlı temizlik gerçekleştir
+        model_service = ModelService()
+        result = model_service.comprehensive_cleanup(cleanup_config)
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        logger.error(f"Sistem temizliği hatası: {str(e)}")
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+@model_management_bp.route('/api/model-management/cleanup/feedback', methods=['POST'])
+def cleanup_feedback():
+    """Feedback kayıtlarını temizle"""
+    try:
+        data = request.get_json() or {}
+        model_type = data.get('model_type', 'age')  # 'age' veya 'content'
+        keep_count = data.get('keep_count', 100)
+        
+        if model_type not in ['age', 'content']:
+            return jsonify({
+                "success": False,
+                "error": "Model türü 'age' veya 'content' olmalıdır"
+            }), 400
+        
+        model_service = ModelService()
+        result = model_service.cleanup_ensemble_feedback_records(model_type, keep_count)
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        logger.error(f"Feedback temizliği hatası: {str(e)}")
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+@model_management_bp.route('/api/model-management/cleanup/ensemble-files', methods=['POST'])
+def cleanup_ensemble_files():
+    """Ensemble model dosyalarını temizle"""
+    try:
+        data = request.get_json() or {}
+        model_type = data.get('model_type', 'age')  # 'age' veya 'content'
+        keep_count = data.get('keep_count', 3)
+        
+        if model_type not in ['age', 'content']:
+            return jsonify({
+                "success": False,
+                "error": "Model türü 'age' veya 'content' olmalıdır"
+            }), 400
+        
+        model_service = ModelService()
+        result = model_service.cleanup_ensemble_model_files(model_type, keep_count)
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        logger.error(f"Ensemble dosya temizliği hatası: {str(e)}")
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+@model_management_bp.route('/api/model-management/cleanup/unused-frames', methods=['POST'])
+def cleanup_unused_frames():
+    """Kullanılmayan frame'leri temizle"""
+    try:
+        data = request.get_json() or {}
+        days_old = data.get('days_old', 30)
+        
+        model_service = ModelService()
+        result = model_service.cleanup_unused_analysis_frames(days_old)
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        logger.error(f"Kullanılmayan frame temizliği hatası: {str(e)}")
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+@model_management_bp.route('/api/model-management/database/vacuum', methods=['POST'])
+def vacuum_database():
+    """Veritabanını optimize et"""
+    try:
+        model_service = ModelService()
+        success = model_service.vacuum_database()
+        
+        if success:
+            return jsonify({
+                "success": True,
+                "message": "Veritabanı başarıyla optimize edildi",
+                "database_size": model_service.get_database_size()
+            })
+        else:
+            return jsonify({
+                "success": False,
+                "error": "Veritabanı optimize edilemedi"
+            }), 500
+        
+    except Exception as e:
+        logger.error(f"Veritabanı optimize hatası: {str(e)}")
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+@model_management_bp.route('/api/model-management/database/size', methods=['GET'])
+def get_database_size():
+    """Veritabanı boyutunu getir"""
+    try:
+        model_service = ModelService()
+        size_mb = model_service.get_database_size()
+        
+        return jsonify({
+            "success": True,
+            "size_mb": size_mb
+        })
+        
+    except Exception as e:
+        logger.error(f"Veritabanı boyutu alma hatası: {str(e)}")
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+@model_management_bp.route('/api/model-management/cleanup/status', methods=['GET'])
+def get_cleanup_status():
+    """Temizlik durumunu getir"""
+    try:
+        model_service = ModelService()
+        
+        # Ensemble feedback istatistikleri
+        age_feedback_count = db.session.query(Feedback).filter(
+            Feedback.used_in_ensemble == True,
+            Feedback.feedback_type == 'age'
+        ).count()
+        
+        content_feedback_count = db.session.query(Feedback).filter(
+            Feedback.used_in_ensemble == True,
+            Feedback.feedback_type == 'content'
+        ).count()
+        
+        # Model versiyon sayıları
+        age_versions = db.session.query(ModelVersion).filter(
+            ModelVersion.model_type == 'age'
+        ).count()
+        
+        content_versions = db.session.query(ModelVersion).filter(
+            ModelVersion.model_type == 'content'
+        ).count()
+        
+        # Ensemble klasör boyutları
+        ensemble_age_dir = os.path.join(
+            current_app.config['MODELS_FOLDER'],
+            'age',
+            'ensemble_versions'
+        )
+        
+        ensemble_content_dir = os.path.join(
+            current_app.config['MODELS_FOLDER'],
+            'content',
+            'ensemble_versions'
+        )
+        
+        def get_dir_size(path):
+            if not os.path.exists(path):
+                return 0
+            total_size = 0
+            for dirpath, dirnames, filenames in os.walk(path):
+                for filename in filenames:
+                    filepath = os.path.join(dirpath, filename)
+                    total_size += os.path.getsize(filepath)
+            return total_size / (1024 * 1024)  # MB
+        
+        return jsonify({
+            "success": True,
+            "status": {
+                "database_size_mb": model_service.get_database_size(),
+                "feedback_records": {
+                    "age": age_feedback_count,
+                    "content": content_feedback_count
+                },
+                "model_versions": {
+                    "age": age_versions,
+                    "content": content_versions
+                },
+                "ensemble_storage_mb": {
+                    "age": round(get_dir_size(ensemble_age_dir), 2),
+                    "content": round(get_dir_size(ensemble_content_dir), 2)
+                }
+            }
+        })
+        
+    except Exception as e:
+        logger.error(f"Temizlik durumu alma hatası: {str(e)}")
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500 

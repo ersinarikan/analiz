@@ -18,22 +18,22 @@ class TestContentAnalyzer:
         with app.app_context():
             with patch('torch.device'), \
                  patch('open_clip.create_model_and_transforms', return_value=(MagicMock(), None, MagicMock())):
-                from app.ai.content_analyzer import ContentAnalyzer
-                analyzer = ContentAnalyzer()
-                assert analyzer is not None
+            from app.ai.content_analyzer import ContentAnalyzer
+            analyzer = ContentAnalyzer()
+            assert analyzer is not None
 
     def test_analyze_content_basic(self, app):
         """Test basic content analysis"""
         from app.ai.content_analyzer import ContentAnalyzer
         mock_image = np.zeros((224, 224, 3), dtype=np.uint8)
         with app.app_context():
-            with patch.object(ContentAnalyzer, '__init__', return_value=None):
-                analyzer = ContentAnalyzer()
+        with patch.object(ContentAnalyzer, '__init__', return_value=None):
+            analyzer = ContentAnalyzer()
                 analyzer.yolo_model = MagicMock()
                 analyzer.clip_model = MagicMock()
                 analyzer.clip_preprocess = MagicMock(return_value=MagicMock())
-                analyzer.tokenizer = MagicMock()
-                analyzer.device = 'cpu'
+            analyzer.tokenizer = MagicMock()
+            analyzer.device = 'cpu'
                 analyzer.classification_head = None
                 analyzer.category_prompts = {
                     "violence": {"positive": ["violence"], "negative": ["peace"]},
@@ -106,18 +106,18 @@ class TestInsightFaceAgeEstimator:
     def test_age_estimator_init(self, app):
         """Test AgeEstimator initialization"""
         with app.app_context():
-            with patch('insightface.app.FaceAnalysis'):
-                from app.ai.insightface_age_estimator import InsightFaceAgeEstimator
-                estimator = InsightFaceAgeEstimator()
-                assert estimator is not None
+        with patch('insightface.app.FaceAnalysis'):
+            from app.ai.insightface_age_estimator import InsightFaceAgeEstimator
+            estimator = InsightFaceAgeEstimator()
+            assert estimator is not None
 
     def test_estimate_age_no_faces(self):
         """Test age estimation with no faces"""
         from app.ai.insightface_age_estimator import InsightFaceAgeEstimator
-
+        
         mock_image = np.zeros((480, 640, 3), dtype=np.uint8)
         mock_face = None  # No face detected
-
+        
         with patch.object(InsightFaceAgeEstimator, '__init__', return_value=None):
             estimator = InsightFaceAgeEstimator()
             # estimate_age expects (full_image, face)
@@ -133,17 +133,17 @@ class TestInsightFaceAgeEstimator:
         from app.ai.insightface_age_estimator import InsightFaceAgeEstimator
         from app import create_app
         import torch
-
+        
         mock_image = np.zeros((480, 640, 3), dtype=np.uint8)
         mock_face = MagicMock()
         mock_face.age = 25
         mock_face.bbox = [10, 10, 50, 50]
         mock_face.embedding = np.random.rand(512)
-
+        
         app = create_app()
         with app.app_context():
-            with patch.object(InsightFaceAgeEstimator, '__init__', return_value=None):
-                estimator = InsightFaceAgeEstimator()
+        with patch.object(InsightFaceAgeEstimator, '__init__', return_value=None):
+            estimator = InsightFaceAgeEstimator()
                 # Gerekli attribute'ları mockla
                 estimator.clip_model = MagicMock()
                 estimator.clip_preprocess = MagicMock(return_value=torch.zeros(1, 3, 224, 224))
@@ -204,19 +204,19 @@ class TestInsightFaceAgeEstimator:
             get_age_estimator.cache_clear()
         elif hasattr(get_age_estimator, '__wrapped__') and hasattr(get_age_estimator.__wrapped__, 'cache_clear'):
             get_age_estimator.__wrapped__.cache_clear()
-
+        
         with patch('app.ai.insightface_age_estimator.InsightFaceAgeEstimator') as mock_class:
             mock_instance = MagicMock()
             mock_class.return_value = mock_instance
-
+            
             # First call should create new instance
             result1 = get_age_estimator()
             assert result1 == mock_instance
-
+            
             # Second call should return cached instance
             result2 = get_age_estimator()
             assert result2 == mock_instance
-
+            
             # Should only create one instance
             assert mock_class.call_count == 2  # Patch decorator'dan önce uygulanıyorsa iki kez çağrılır
 
@@ -255,11 +255,11 @@ class TestAIModuleIntegration:
     def test_ai_modules_error_handling(self):
         """Test error handling in AI modules"""
         from app.ai.insightface_age_estimator import InsightFaceAgeEstimator
-
+        
         with patch.object(InsightFaceAgeEstimator, '__init__', return_value=None):
             estimator = InsightFaceAgeEstimator()
             estimator.face_app = None
-
+            
             # Should handle gracefully when face_app is None
             result = estimator.estimate_age(np.zeros((100, 100, 3)), None)
             assert isinstance(result, tuple)
@@ -294,31 +294,31 @@ class TestAIModuleIntegration:
                         torch.device('cpu')
                     with patch('app.ai.content_analyzer.ContentAnalyzer.__init__', new=fake_init):
                         from app.ai.content_analyzer import ContentAnalyzer
-                        ContentAnalyzer()
+                    ContentAnalyzer()
                     mock_device.assert_called()
 
     def test_batch_processing_simulation(self):
         """Test batch processing capabilities"""
         from app.ai.insightface_age_estimator import InsightFaceAgeEstimator
-
+        
         # Create multiple test images
         test_images = [
             np.zeros((100, 100, 3), dtype=np.uint8),
             np.ones((150, 150, 3), dtype=np.uint8) * 128,
             np.random.randint(0, 255, (200, 200, 3), dtype=np.uint8)
         ]
-
+        
         with patch.object(InsightFaceAgeEstimator, '__init__', return_value=None):
             estimator = InsightFaceAgeEstimator()
             estimator.face_app = MagicMock()
             estimator.face_app.get.return_value = []
-
+            
             # Process multiple images
             results = []
             for img in test_images:
                 result = estimator.estimate_age(img, None)
                 results.append(result)
-
+            
             assert len(results) == 3
             # All should return default tuple (25.0, 0.5, None)
             assert all(r == (25.0, 0.5, None) for r in results)
@@ -335,10 +335,10 @@ def test_age_estimator_import():
     from app import create_app
     app = create_app()
     with app.app_context():
-        with patch('insightface.app.FaceAnalysis'):
-            from app.ai.insightface_age_estimator import InsightFaceAgeEstimator
-            estimator = InsightFaceAgeEstimator()
-            assert estimator is not None
+    with patch('insightface.app.FaceAnalysis'):
+        from app.ai.insightface_age_estimator import InsightFaceAgeEstimator
+        estimator = InsightFaceAgeEstimator()
+        assert estimator is not None
 
 def test_get_age_estimator_cached():
     """Test cached age estimator"""
@@ -348,28 +348,28 @@ def test_get_age_estimator_cached():
         get_age_estimator.cache_clear()
     elif hasattr(get_age_estimator, '__wrapped__') and hasattr(get_age_estimator.__wrapped__, 'cache_clear'):
         get_age_estimator.__wrapped__.cache_clear()
-
+    
     with patch('app.ai.insightface_age_estimator.InsightFaceAgeEstimator') as mock_class:
         mock_instance = MagicMock()
         mock_class.return_value = mock_instance
-
+        
         result1 = get_age_estimator()
         result2 = get_age_estimator()
-
+        
         assert result1 == result2
         assert mock_class.call_count == 2  # Patch decorator'dan önce uygulanıyorsa iki kez çağrılır
 
 def test_estimate_age_no_faces():
     """Test age estimation with no faces"""
     from app.ai.insightface_age_estimator import InsightFaceAgeEstimator
-
+    
     mock_image = np.zeros((100, 100, 3), dtype=np.uint8)
-
+    
     with patch.object(InsightFaceAgeEstimator, '__init__', return_value=None):
         estimator = InsightFaceAgeEstimator()
         estimator.face_app = MagicMock()
         estimator.face_app.get.return_value = []
-
+        
         result = estimator.estimate_age(mock_image, None)
         assert isinstance(result, tuple)
         assert result[0] == 25.0

@@ -19,6 +19,8 @@ from app.models.content import ModelVersion
 from app.services import db_service
 from app.ai.insightface_age_estimator import CustomAgeHead
 from app.utils.file_utils import ensure_dir, safe_copytree, safe_remove, write_json, read_json, get_folder_size
+from sqlalchemy import text
+from app.models.analysis import Analysis, ContentDetection
 
 logger = logging.getLogger(__name__)
 
@@ -763,37 +765,25 @@ class ModelService:
                 }
 
             elif model_type == 'content':
-                # İçerik modeli eğitimi
-                from app.services.content_training_service import ContentTrainingService
-
-                content_trainer = ContentTrainingService()
-
-                # Eğitim verisini hazırla
-                training_data = content_trainer.prepare_training_data(min_samples=params.get('min_samples', 50))
-                if not training_data:
+                # İçerik modeli eğitimi - Ensemble sistemi kullan
+                from app.services.ensemble_integration_service import get_ensemble_service
+                
+                ensemble_service = get_ensemble_service()
+                result = ensemble_service.refresh_corrections()
+                
+                if result['success']:
+                    return {
+                        "success": True,
+                        "message": f"İçerik modeli ensemble düzeltmeleri başarıyla yenilendi",
+                        "ensemble_stats": result['clip_stats'],
+                        "content_corrections": result['clip_corrections'],
+                        "confidence_adjustments": result['clip_stats'].get('confidence_adjustments', 0)
+                    }
+                else:
                     return {
                         "success": False,
-                        "message": "Yeterli eğitim verisi bulunamadı"
+                        "message": f"İçerik modeli ensemble yenileme hatası: {result.get('error', 'Bilinmeyen hata')}"
                     }
-
-                # Modeli eğit
-                training_result = content_trainer.train_model(training_data, params)
-
-                # Modeli kaydet
-                model_version = content_trainer.save_model_version(
-                    training_result['model'],
-                    training_result
-                )
-
-                return {
-                    "success": True,
-                    "message": f"İçerik modeli başarıyla eğitildi (v{model_version.version})",
-                    "model_id": model_version.id,
-                    "version": model_version.version,
-                    "metrics": training_result['metrics'],
-                    "training_samples": training_result['training_samples'],
-                    "validation_samples": training_result['validation_samples']
-                }
             else:
                 return {
                     "success": False,
@@ -1128,6 +1118,9 @@ class ModelService:
 
             # Base OpenCLIP modelini her zaman ilk versiyon olarak ekle
             if base_model_exists:
+                # Base model aktif mi kontrol et - eğer custom aktif versiyon varsa base pasif
+                base_is_active = not any(v.is_active for v in db_versions) and (active_version is None or active_version == 'base_openclip')
+                
                 versions_list.append({
                     'id': 0,  # Base model için özel ID
                     'version': 0,
@@ -1146,12 +1139,15 @@ class ModelService:
 
             # Veritabanındaki custom versiyonları ekle
             for v in db_versions:
+                # Aktif durumu doğru belirle
+                is_version_active = getattr(v, 'is_active', False) or (getattr(v, 'version_name', '') == active_version)
+                
                 versions_list.append({
                     'id': getattr(v, 'id', 0),
                     'version': getattr(v, 'version', 0),
                     'version_name': getattr(v, 'version_name', 'unknown'),
                     'created_at': getattr(v, 'created_at', None).isoformat() if getattr(v, 'created_at', None) else None,
-                    'is_active': getattr(v, 'is_active', False) or (getattr(v, 'version_name', '') == active_version),
+                    'is_active': is_version_active,
                     'training_samples': getattr(v, 'training_samples', 0),
                     'validation_samples': getattr(v, 'validation_samples', 0),
                     'epochs': getattr(v, 'epochs', 0),
@@ -1569,3 +1565,387 @@ class ModelService:
         except Exception as e:
             logger.error(f"Model versiyon yükleme hatası: {str(e)}")
             return False, f"Model yükleme hatası: {str(e)}"
+
+    def cleanup_old_model_versions(self, model_type, keep_count=5):
+        """
+        Eski model versiyonlarını temizler (SQLite optimizasyonu için)
+        
+        Args:
+            model_type: 'age' veya 'content'
+            keep_count: Saklanacak versiyon sayısı (varsayılan: 5)
+        """
+        try:
+            # Aktif versiyonu koru
+            active_version = db.session.query(ModelVersion).filter_by(
+                model_type=model_type,
+                is_active=True
+            ).first()
+            
+            # Tüm versiyonları al (en yeni önce)
+            all_versions = db.session.query(ModelVersion).filter_by(
+                model_type=model_type
+            ).order_by(ModelVersion.version.desc()).all()
+            
+            # Base model (v0) her zaman korunur
+            versions_to_keep = [v for v in all_versions if v.version == 0]
+            
+            # Aktif versiyonu koru
+            if active_version and active_version not in versions_to_keep:
+                versions_to_keep.append(active_version)
+            
+            # En yeni versiyonları koru
+            for version in all_versions:
+                if len(versions_to_keep) < keep_count and version not in versions_to_keep:
+                    versions_to_keep.append(version)
+            
+            # Silinecek versiyonları belirle
+            versions_to_delete = [v for v in all_versions if v not in versions_to_keep]
+            
+            deleted_count = 0
+            for version in versions_to_delete:
+                try:
+                    # Dosya sisteminden sil
+                    if version.file_path and os.path.exists(version.file_path):
+                        import shutil
+                        shutil.rmtree(version.file_path, ignore_errors=True)
+                        logger.info(f"Dosya silindi: {version.file_path}")
+                    
+                    # Veritabanından sil
+                    db.session.delete(version)
+                    deleted_count += 1
+                    
+                except Exception as e:
+                    logger.error(f"Versiyon silme hatası {version.version_name}: {str(e)}")
+                    continue
+            
+            db.session.commit()
+            
+            # SQLite VACUUM işlemi
+            if deleted_count > 0:
+                self.vacuum_database()
+            
+            logger.info(f"Model temizleme tamamlandı: {model_type}, {deleted_count} versiyon silindi")
+            
+            return {
+                "success": True,
+                "deleted_count": deleted_count,
+                "kept_count": len(versions_to_keep)
+            }
+            
+        except Exception as e:
+            db.session.rollback()
+            logger.error(f"Model temizleme hatası: {str(e)}")
+            return {
+                "success": False,
+                "error": str(e)
+            }
+    
+    def vacuum_database(self):
+        """SQLite veritabanını optimize et (VACUUM)"""
+        try:
+            logger.info("🧹 Veritabanı optimize ediliyor (VACUUM)...")
+            db.session.execute(text("VACUUM"))
+            db.session.commit()
+            logger.info("✅ Veritabanı optimize edildi!")
+            return True
+        except Exception as e:
+            logger.error(f"❌ Veritabanı optimize hatası: {str(e)}")
+            return False
+    
+    def get_database_size(self):
+        """Veritabanı boyutunu MB cinsinden döndür"""
+        try:
+            db_path = current_app.config['DATABASE_PATH']
+            if os.path.exists(db_path):
+                size_bytes = os.path.getsize(db_path)
+                size_mb = size_bytes / (1024 * 1024)
+                return round(size_mb, 2)
+            return 0
+        except Exception as e:
+            logger.error(f"Veritabanı boyutu hesaplama hatası: {str(e)}")
+            return 0
+    
+    def cleanup_ensemble_feedback_records(self, model_type: str, keep_count: int = 100) -> dict:
+        """
+        Ensemble'da kullanılan feedback kayıtlarını temizle
+        Args:
+            model_type: 'age' veya 'content'
+            keep_count: Saklanacak kayıt sayısı (en son kullanılanlar)
+        """
+        try:
+            logger.info(f"🧹 {model_type} modeli için ensemble feedback kayıtları temizleniyor...")
+            
+            # Ensemble'da kullanılan feedback kayıtlarını bul
+            used_feedbacks = db.session.query(Feedback).filter(
+                Feedback.used_in_ensemble == True,
+                Feedback.feedback_type == model_type
+            ).order_by(Feedback.last_used_at.desc()).all()
+            
+            if len(used_feedbacks) <= keep_count:
+                logger.info(f"✅ Temizlenecek kayıt yok ({len(used_feedbacks)} <= {keep_count})")
+                return {
+                    "success": True,
+                    "message": f"Temizlenecek kayıt yok ({len(used_feedbacks)} kayıt mevcut)",
+                    "cleaned_count": 0,
+                    "total_count": len(used_feedbacks)
+                }
+            
+            # Temizlenecek kayıtları belirle
+            to_clean = used_feedbacks[keep_count:]
+            cleaned_files = []
+            
+            for feedback in to_clean:
+                # Frame dosyasını sil
+                if feedback.frame_path and os.path.exists(feedback.frame_path):
+                    try:
+                        os.remove(feedback.frame_path)
+                        cleaned_files.append(feedback.frame_path)
+                        logger.info(f"🗑️ Dosya silindi: {feedback.frame_path}")
+                    except Exception as e:
+                        logger.warning(f"⚠️ Dosya silinemedi {feedback.frame_path}: {str(e)}")
+                
+                # Veritabanından sil
+                db.session.delete(feedback)
+            
+            db.session.commit()
+            
+            logger.info(f"✅ {len(to_clean)} feedback kaydı temizlendi")
+            return {
+                "success": True,
+                "message": f"{len(to_clean)} feedback kaydı temizlendi",
+                "cleaned_count": len(to_clean),
+                "total_count": len(used_feedbacks),
+                "cleaned_files": cleaned_files
+            }
+            
+        except Exception as e:
+            db.session.rollback()
+            logger.error(f"❌ Ensemble feedback temizleme hatası: {str(e)}")
+            return {
+                "success": False,
+                "message": f"Temizleme hatası: {str(e)}",
+                "cleaned_count": 0
+            }
+    
+    def cleanup_ensemble_model_files(self, model_type: str, keep_count: int = 5) -> dict:
+        """
+        Ensemble model dosyalarını (.pth) temizle
+        Args:
+            model_type: 'age' veya 'content'
+            keep_count: Saklanacak versiyon sayısı
+        """
+        try:
+            logger.info(f"🧹 {model_type} modeli için ensemble .pth dosyaları temizleniyor...")
+            
+            # Ensemble versiyonları klasörü
+            ensemble_dir = os.path.join(
+                current_app.config['MODELS_FOLDER'],
+                model_type,
+                'ensemble_versions'
+            )
+            
+            if not os.path.exists(ensemble_dir):
+                logger.info(f"✅ Ensemble klasörü mevcut değil: {ensemble_dir}")
+                return {
+                    "success": True,
+                    "message": "Ensemble klasörü mevcut değil",
+                    "cleaned_count": 0,
+                    "cleaned_files": []
+                }
+            
+            # Versiyon klasörlerini listele (tarih sırasına göre)
+            version_dirs = []
+            for item in os.listdir(ensemble_dir):
+                item_path = os.path.join(ensemble_dir, item)
+                if os.path.isdir(item_path):
+                    version_dirs.append((item, item_path, os.path.getctime(item_path)))
+            
+            # Tarih sırasına göre sırala (en yeni önce)
+            version_dirs.sort(key=lambda x: x[2], reverse=True)
+            
+            if len(version_dirs) <= keep_count:
+                logger.info(f"✅ Temizlenecek versiyon yok ({len(version_dirs)} <= {keep_count})")
+                return {
+                    "success": True,
+                    "message": f"Temizlenecek versiyon yok ({len(version_dirs)} versiyon mevcut)",
+                    "cleaned_count": 0,
+                    "cleaned_files": []
+                }
+            
+            # Eski versiyonları sil
+            cleaned_files = []
+            to_clean = version_dirs[keep_count:]
+            
+            for version_name, version_path, _ in to_clean:
+                try:
+                    # Klasörü ve içeriğini sil
+                    import shutil
+                    shutil.rmtree(version_path)
+                    cleaned_files.append(version_path)
+                    logger.info(f"🗑️ Versiyon klasörü silindi: {version_path}")
+                except Exception as e:
+                    logger.warning(f"⚠️ Versiyon klasörü silinemedi {version_path}: {str(e)}")
+            
+            logger.info(f"✅ {len(cleaned_files)} ensemble versiyon klasörü temizlendi")
+            return {
+                "success": True,
+                "message": f"{len(cleaned_files)} ensemble versiyon klasörü temizlendi",
+                "cleaned_count": len(cleaned_files),
+                "cleaned_files": cleaned_files
+            }
+            
+        except Exception as e:
+            logger.error(f"❌ Ensemble model dosyaları temizleme hatası: {str(e)}")
+            return {
+                "success": False,
+                "message": f"Temizleme hatası: {str(e)}",
+                "cleaned_count": 0
+            }
+    
+    def cleanup_unused_analysis_frames(self, days_old: int = 30) -> dict:
+        """
+        Kullanılmayan analiz frame'lerini temizle
+        Args:
+            days_old: Kaç gün önceki analizleri temizle
+        """
+        try:
+            from datetime import datetime, timedelta
+            
+            logger.info(f"🧹 {days_old} gün önceki kullanılmayan frame'ler temizleniyor...")
+            
+            cutoff_date = datetime.now() - timedelta(days=days_old)
+            
+            # Eski analizleri bul
+            old_analyses = db.session.query(Analysis).filter(
+                Analysis.created_at < cutoff_date
+            ).all()
+            
+            cleaned_files = []
+            
+            for analysis in old_analyses:
+                # ContentDetection frame'lerini kontrol et
+                content_detections = db.session.query(ContentDetection).filter(
+                    ContentDetection.analysis_id == analysis.id
+                ).all()
+                
+                for detection in content_detections:
+                    if detection.frame_path and os.path.exists(detection.frame_path):
+                        # Bu frame feedback'de kullanılmış mı kontrol et
+                        feedback_exists = db.session.query(Feedback).filter(
+                            Feedback.frame_path == detection.frame_path
+                        ).first()
+                        
+                        if not feedback_exists:
+                            try:
+                                os.remove(detection.frame_path)
+                                cleaned_files.append(detection.frame_path)
+                                logger.info(f"🗑️ Kullanılmayan frame silindi: {detection.frame_path}")
+                            except Exception as e:
+                                logger.warning(f"⚠️ Frame silinemedi {detection.frame_path}: {str(e)}")
+            
+            logger.info(f"✅ {len(cleaned_files)} kullanılmayan frame temizlendi")
+            return {
+                "success": True,
+                "message": f"{len(cleaned_files)} kullanılmayan frame temizlendi",
+                "cleaned_count": len(cleaned_files),
+                "cleaned_files": cleaned_files
+            }
+            
+        except Exception as e:
+            logger.error(f"❌ Kullanılmayan frame temizleme hatası: {str(e)}")
+            return {
+                "success": False,
+                "message": f"Temizleme hatası: {str(e)}",
+                "cleaned_count": 0
+            }
+    
+    def comprehensive_cleanup(self, config: dict = None) -> dict:
+        """
+        Kapsamlı sistem temizliği
+        Args:
+            config: Temizlik konfigürasyonu
+        """
+        if config is None:
+            config = {
+                'age_model_versions': 5,
+                'content_model_versions': 5,
+                'age_feedback_records': 100,
+                'content_feedback_records': 100,
+                'ensemble_age_versions': 3,
+                'ensemble_content_versions': 3,
+                'unused_frames_days': 30,
+                'vacuum_database': True
+            }
+        
+        results = {
+            "success": True,
+            "operations": [],
+            "total_cleaned_files": 0,
+            "database_size_before": self.get_database_size(),
+            "database_size_after": 0
+        }
+        
+        try:
+            logger.info("🧹 Kapsamlı sistem temizliği başlatılıyor...")
+            
+            # 1. Eski model versiyonlarını temizle
+            for model_type in ['age', 'content']:
+                keep_count = config.get(f'{model_type}_model_versions', 5)
+                result = self.cleanup_old_model_versions(model_type, keep_count)
+                results["operations"].append({
+                    "operation": f"cleanup_{model_type}_model_versions",
+                    "result": result
+                })
+                if result.get("success"):
+                    results["total_cleaned_files"] += result.get("cleaned_count", 0)
+            
+            # 2. Ensemble feedback kayıtlarını temizle
+            for model_type in ['age', 'content']:
+                keep_count = config.get(f'{model_type}_feedback_records', 100)
+                result = self.cleanup_ensemble_feedback_records(model_type, keep_count)
+                results["operations"].append({
+                    "operation": f"cleanup_{model_type}_feedback_records",
+                    "result": result
+                })
+                if result.get("success"):
+                    results["total_cleaned_files"] += len(result.get("cleaned_files", []))
+            
+            # 3. Ensemble model dosyalarını temizle
+            for model_type in ['age', 'content']:
+                keep_count = config.get(f'ensemble_{model_type}_versions', 3)
+                result = self.cleanup_ensemble_model_files(model_type, keep_count)
+                results["operations"].append({
+                    "operation": f"cleanup_ensemble_{model_type}_files",
+                    "result": result
+                })
+                if result.get("success"):
+                    results["total_cleaned_files"] += result.get("cleaned_count", 0)
+            
+            # 4. Kullanılmayan frame'leri temizle
+            days_old = config.get('unused_frames_days', 30)
+            result = self.cleanup_unused_analysis_frames(days_old)
+            results["operations"].append({
+                "operation": "cleanup_unused_frames",
+                "result": result
+            })
+            if result.get("success"):
+                results["total_cleaned_files"] += len(result.get("cleaned_files", []))
+            
+            # 5. Veritabanını optimize et
+            if config.get('vacuum_database', True):
+                vacuum_result = self.vacuum_database()
+                results["operations"].append({
+                    "operation": "vacuum_database",
+                    "result": {"success": vacuum_result}
+                })
+            
+            results["database_size_after"] = self.get_database_size()
+            
+            logger.info(f"✅ Kapsamlı temizlik tamamlandı! {results['total_cleaned_files']} dosya temizlendi")
+            return results
+            
+        except Exception as e:
+            logger.error(f"❌ Kapsamlı temizlik hatası: {str(e)}")
+            results["success"] = False
+            results["error"] = str(e)
+            return results

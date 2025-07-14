@@ -56,9 +56,6 @@
                         <a class="nav-link" href="#" id="modelMetricsBtn"><i class="fas fa-chart-line me-1"></i> Model Metrikleri</a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link" href="#" id="trainModelBtn"><i class="fas fa-brain me-1"></i> Model Eğitimi</a>
-                    </li>
-                    <li class="nav-item">
                         <a class="nav-link active" href="/model-management"><i class="fas fa-cogs me-1"></i> Model Yönetimi</a>
                     </li>
                     <li class="nav-item">
@@ -75,6 +72,82 @@
                 <h1 class="mb-4">
                     <i class="fas fa-cogs me-2"></i>Model Yönetimi
                 </h1>
+            </div>
+        </div>
+
+        <!-- Sistem Temizliği Bölümü -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="card-title mb-0">
+                    <i class="fas fa-broom"></i> Sistem Temizliği
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="row mb-3">
+                    <div class="col-md-12">
+                        <div id="cleanup-status" class="alert alert-info">
+                            <i class="fas fa-info-circle"></i> Temizlik durumu yükleniyor...
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="row">
+                    <div class="col-md-6">
+                        <h6>Hızlı Temizlik</h6>
+                        <div class="btn-group-vertical d-grid gap-2">
+                            <button class="btn btn-outline-warning" onclick="cleanupFeedback('age')">
+                                <i class="fas fa-user-clock"></i> Yaş Feedback Temizle
+                            </button>
+                            <button class="btn btn-outline-warning" onclick="cleanupFeedback('content')">
+                                <i class="fas fa-image"></i> İçerik Feedback Temizle
+                            </button>
+                            <button class="btn btn-outline-info" onclick="cleanupEnsembleFiles('age')">
+                                <i class="fas fa-file-archive"></i> Yaş Ensemble Dosyaları
+                            </button>
+                            <button class="btn btn-outline-info" onclick="cleanupEnsembleFiles('content')">
+                                <i class="fas fa-file-archive"></i> İçerik Ensemble Dosyaları
+                            </button>
+                            <button class="btn btn-outline-secondary" onclick="cleanupUnusedFrames()">
+                                <i class="fas fa-images"></i> Kullanılmayan Frame'ler
+                            </button>
+                            <button class="btn btn-outline-primary" onclick="vacuumDatabase()">
+                                <i class="fas fa-database"></i> Veritabanı Optimize
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div class="col-md-6">
+                        <h6>Kapsamlı Temizlik</h6>
+                        <div class="mb-3">
+                            <label class="form-label">Saklanacak Model Versiyonu:</label>
+                            <input type="number" id="keep-model-versions" class="form-control" value="5" min="1" max="20">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Saklanacak Feedback Sayısı:</label>
+                            <input type="number" id="keep-feedback-count" class="form-control" value="100" min="10" max="1000">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Saklanacak Ensemble Versiyonu:</label>
+                            <input type="number" id="keep-ensemble-versions" class="form-control" value="3" min="1" max="10">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Silinecek Frame Yaşı (gün):</label>
+                            <input type="number" id="unused-frames-days" class="form-control" value="30" min="1" max="365">
+                        </div>
+                        <button class="btn btn-danger w-100" onclick="comprehensiveCleanup()">
+                            <i class="fas fa-broom"></i> Kapsamlı Temizlik Başlat
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="row mt-4">
+                    <div class="col-md-12">
+                        <div id="cleanup-results" class="alert alert-secondary d-none">
+                            <h6>Temizlik Sonuçları:</h6>
+                            <div id="cleanup-details"></div>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -262,6 +335,8 @@
             loadClipData(); // CLIP verilerini yükle
             startQueueStatusChecker();
             setupNavbarEventHandlers();
+            loadCleanupStatus(); // Temizlik durumunu yükle
+            setInterval(loadCleanupStatus, 30000); // Her 30 saniyede bir durumu güncelle
         });
 
         // Navbar butonları için event handler'ları kur
@@ -274,18 +349,6 @@
                         e.preventDefault();
                         e.stopPropagation();
                         alert('Dosya yüklü veya analiz devam ederken model metrikleri görüntülenemez.');
-                    }
-                });
-            }
-
-            // Model Eğitimi butonu
-            const trainModelBtn = document.getElementById('trainModelBtn');
-            if (trainModelBtn) {
-                trainModelBtn.addEventListener('click', function(e) {
-                    if (this.classList.contains('disabled')) {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        alert('Dosya yüklü veya analiz devam ederken model eğitimi yapılamaz.');
                     }
                 });
             }
@@ -347,7 +410,7 @@
             const activateButtons = document.querySelectorAll('[onclick*="activateVersion"]');
             
             // Navbar'daki butonları da kontrol et
-            const navbarButtons = document.querySelectorAll('#modelMetricsBtn, #trainModelBtn, #openAnalysisParamsModalBtn');
+            const navbarButtons = document.querySelectorAll('#modelMetricsBtn, #openAnalysisParamsModalBtn');
             
             if (shouldDisableButtons) {
                 // Dosya yüklü veya kuyrukta dosya varken butonları devre dışı bırak
@@ -556,537 +619,270 @@
                 if (activeVersion) {
                     const versionDisplay = activeVersion.version === 0 ? 'v0' : `v${activeVersion.version}`;
                     document.getElementById('clip-active-version').textContent = versionDisplay;
-                    document.getElementById('clip-status').innerHTML = 
-                        '<i class="fas fa-check-circle status-active"></i> Aktif';
+                    document.getElementById('clip-status').innerHTML = '<i class="fas fa-check-circle status-active"></i> Aktif';
                 } else {
-                    // Content model için fallback - her zaman base çalışıyor
                     document.getElementById('clip-active-version').textContent = 'v0';
                     document.getElementById('clip-status').innerHTML = '<i class="fas fa-check-circle status-active"></i> Aktif';
                 }
             }
         }
 
-        // Ensemble istatistiklerini güncelle
-        function updateEnsembleStats(modelType, stats) {
-            console.log(`Updating ${modelType} ensemble stats:`, stats); // Debug için
-            
-            if (modelType === 'age') {
-                // Ensemble corrections sayısını göster
-                const correctionCount = stats.ensemble_metrics?.people_corrections || 0;
-                document.getElementById('age-training-data').textContent = 
-                    correctionCount > 0 ? `${correctionCount} düzeltme` : 'Düzeltme yok';
-                
-                // Ensemble MAE (lookup-based perfect accuracy)
-                const ensembleMAE = correctionCount > 0 ? '0.00' : '1.696 (base)';
-                document.getElementById('age-mae').textContent = `${ensembleMAE} yaş`;
-                
-                // Status güncellemesi
-                if (stats.ensemble_active) {
-                    const statusText = correctionCount > 0 ? 
-                        '<i class="fas fa-check-circle status-active"></i> Ensemble Aktif' :
-                        '<i class="fas fa-check-circle status-active"></i> Base Model';
-                    document.getElementById('age-status').innerHTML = statusText;
-                }
-                
-            } else if (modelType === 'content') {
-                // CLIP ensemble corrections
-                const contentCorrections = stats.ensemble_metrics?.content_corrections || 0;
-                const confidenceAdjustments = stats.ensemble_metrics?.confidence_adjustments || 0;
-                const totalCorrections = contentCorrections + confidenceAdjustments;
-                
-                document.getElementById('clip-feedback-count').textContent = 
-                    totalCorrections > 0 ? `${totalCorrections} düzeltme` : 'Düzeltme yok';
-                
-                // Status güncellemesi
-                if (stats.ensemble_active) {
-                    const statusText = totalCorrections > 0 ? 
-                        '<i class="fas fa-check-circle status-active"></i> Ensemble Aktif' :
-                        '<i class="fas fa-check-circle status-active"></i> Base CLIP';
-                    document.getElementById('clip-status').innerHTML = statusText;
-                }
-            }
-        }
-
-        // Ensemble corrections'ı yenile (eski eğitim yerine)
-        async function trainModel(modelType) {
-            if (confirm(`${modelType === 'age' ? 'Yaş' : 'İçerik'} ensemble corrections yenilemek istediğinizden emin misiniz?\n\nBu işlem yeni feedback'leri sisteme entegre eder (anında, yeniden eğitim olmadan).`)) {
-                try {
-                    showTrainingStatus(`${modelType} ensemble corrections yenileniyor...`, 'info');
-                    
-                    const response = await fetch(`/api/ensemble/refresh`, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json'
-                        }
-                    });
-
-                    const result = await response.json();
-                    
-                    if (result.success) {
-                        showTrainingStatus(
-                            `Ensemble başarıyla yenilendi! Yaş: ${result.age_corrections} düzeltme, CLIP: ${result.clip_corrections} düzeltme`, 
-                            'success'
-                        );
-                        setTimeout(() => {
-                            loadModelVersions();
-                            loadModelStats();
-                        }, 2000);
+        // Temizlik durumunu yükle
+        function loadCleanupStatus() {
+            fetch('/api/model-management/cleanup/status')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        const status = data.status;
+                        document.getElementById('cleanup-status').innerHTML = `
+                            <div class="row">
+                                <div class="col-md-3">
+                                    <strong>Veritabanı:</strong> ${status.database_size_mb} MB
+                                </div>
+                                <div class="col-md-3">
+                                    <strong>Feedback:</strong> ${status.feedback_records.age + status.feedback_records.content} kayıt
+                                </div>
+                                <div class="col-md-3">
+                                    <strong>Model Versiyonları:</strong> ${status.model_versions.age + status.model_versions.content}
+                                </div>
+                                <div class="col-md-3">
+                                    <strong>Ensemble:</strong> ${(status.ensemble_storage_mb.age + status.ensemble_storage_mb.content).toFixed(2)} MB
+                                </div>
+                            </div>
+                        `;
                     } else {
-                        showTrainingStatus(`Ensemble yenileme hatası: ${result.error}`, 'danger');
+                        document.getElementById('cleanup-status').innerHTML = `
+                            <i class="fas fa-exclamation-triangle"></i> Temizlik durumu yüklenemedi: ${data.error}
+                        `;
                     }
-                } catch (error) {
-                    showTrainingStatus(`Ensemble hatası: ${error.message}`, 'danger');
-                }
-            }
-        }
-
-        // Model sıfırla
-        async function resetModel(modelType) {
-            if (confirm(`${modelType === 'age' ? 'Yaş' : 'İçerik'} modelini sıfırlamak istediğinizden emin misiniz? Bu işlem geri alınamaz!`)) {
-                try {
-                    const response = await fetch(`/api/models/reset/${modelType}`, {
-                        method: 'POST'
-                    });
-
-                    const result = await response.json();
-                    
-                    if (response.ok) {
-                        showTrainingStatus(result.message, 'success');
-                        setTimeout(() => {
-                            loadModelVersions();
-                            loadModelStats();
-                        }, 2000);
-                    } else {
-                        showTrainingStatus(result.error, 'danger');
-                    }
-                } catch (error) {
-                    showTrainingStatus(`Sıfırlama hatası: ${error.message}`, 'danger');
-                }
-            }
-        }
-
-        // Model versiyonunu aktifleştir
-        async function activateVersion(versionId) {
-            try {
-                const response = await fetch(`/api/models/activate/${versionId}`, {
-                    method: 'POST'
-                });
-
-                const result = await response.json();
-                
-                if (result.success) {
-                    showTrainingStatus('Model versiyonu başarıyla aktifleştirildi!', 'success');
-                    setTimeout(() => {
-                        loadModelVersions();
-                    }, 1000);
-                } else {
-                    showTrainingStatus(result.message, 'danger');
-                }
-            } catch (error) {
-                showTrainingStatus(`Aktivasyon hatası: ${error.message}`, 'danger');
-            }
-        }
-
-        // Eğitim durumunu göster
-        function showTrainingStatus(message, type) {
-            const statusDiv = document.getElementById('training-status');
-            const messageSpan = document.getElementById('training-message');
-            
-            statusDiv.className = `alert alert-${type}`;
-            messageSpan.textContent = message;
-            statusDiv.style.display = 'block';
-            
-            // 5 saniye sonra gizle
-            setTimeout(() => {
-                statusDiv.style.display = 'none';
-            }, 5000);
-        }
-
-        // CLIP verilerini yükle
-        async function loadClipData() {
-            try {
-                // CLIP istatistikleri
-                const statsResponse = await fetch('/api/clip-training/statistics');
-                if (statsResponse.ok) {
-                    const stats = await statsResponse.json();
-                    updateClipStats(stats.data);
-                } else {
-                    const error = await statsResponse.json();
-                    console.log('CLIP stats error:', error.error);
-                    updateClipStats(null);
-                }
-
-                // CLIP versiyonları
-                const versionsResponse = await fetch('/api/clip-training/versions');
-                if (versionsResponse.ok) {
-                    const versions = await versionsResponse.json();
-                    updateClipVersions(versions.data.versions);
-                }
-
-                // CLIP training sessions
-                const sessionsResponse = await fetch('/api/clip-training/sessions');
-                if (sessionsResponse.ok) {
-                    const sessions = await sessionsResponse.json();
-                    updateClipSessions(sessions.data.sessions);
-                }
-
-                // Aktif model bilgisi
-                const activeResponse = await fetch('/api/clip-training/active-model');
-                if (activeResponse.ok) {
-                    const active = await activeResponse.json();
-                    updateClipActiveModel(active.data);
-                }
-            } catch (error) {
-                console.error('CLIP verileri yüklenirken hata:', error);
-            }
-        }
-
-        // CLIP istatistiklerini güncelle
-        function updateClipStats(stats) {
-            if (stats) {
-                document.getElementById('clip-feedback-count').textContent = stats.total_feedbacks || '0';
-                document.getElementById('clip-status').innerHTML = 
-                    stats.ready_for_training ? 
-                    '<i class="fas fa-check-circle text-success"></i> Eğitime Hazır' :
-                    '<i class="fas fa-exclamation-triangle text-warning"></i> Yetersiz Veri';
-            } else {
-                document.getElementById('clip-feedback-count').textContent = '0';
-                document.getElementById('clip-status').innerHTML = 
-                    '<i class="fas fa-exclamation-triangle text-warning"></i> Yetersiz Veri';
-            }
-        }
-
-        // CLIP versiyonlarını güncelle
-        function updateClipVersions(versions) {
-            const container = document.getElementById('clip-versions');
-            
-            if (!versions || versions.length === 0) {
-                container.innerHTML = '<span class="text-muted">Henüz fine-tuned versiyon yok</span>';
-                return;
-            }
-
-            let html = '';
-            versions.forEach(version => {
-                if (version.type === 'version' || version.type === 'active') {
-                    const badgeClass = version.is_active ? 'bg-success' : 'bg-secondary';
-                    const activeText = version.is_active ? ' (Aktif)' : '';
-                    const size = version.size ? ` (${version.size}MB)` : '';
-                    
-                    html += `
-                        <span class="badge ${badgeClass} version-badge me-2 mb-2" title="${version.path}">
-                            ${version.name}${activeText}${size}
-                            ${!version.is_active ? `
-                                <button class="btn btn-sm btn-link text-white p-0 ms-2" 
-                                        onclick="activateClipVersion('${version.name}')" 
-                                        title="Bu versiyonu aktifleştir">
-                                    <i class="fas fa-play"></i>
-                                </button>
-                            ` : ''}
-                        </span>
+                })
+                .catch(error => {
+                    console.error('Cleanup status error:', error);
+                    document.getElementById('cleanup-status').innerHTML = `
+                        <i class="fas fa-exclamation-triangle"></i> Temizlik durumu yüklenirken hata oluştu
                     `;
-                }
-            });
-            
-            container.innerHTML = html || '<span class="text-muted">Henüz fine-tuned versiyon yok</span>';
+                });
         }
 
-        // CLIP training sessions güncelle
-        function updateClipSessions(sessions) {
-            const container = document.getElementById('clip-training-sessions');
+        // Feedback temizliği
+        function cleanupFeedback(modelType) {
+            const keepCount = document.getElementById('keep-feedback-count').value;
             
-            if (!sessions || sessions.length === 0) {
-                container.innerHTML = '<span class="text-muted">Henüz eğitim geçmişi yok</span>';
+            if (!confirm(`${modelType} modeli için ${keepCount} adet feedback kaydı hariç geri kalanlar silinecek. Devam etmek istiyor musunuz?`)) {
                 return;
             }
-
-            let html = '';
-            sessions.slice(0, 3).forEach(session => { // Son 3 session'ı göster
-                const statusClass = session.status === 'completed' ? 'success' : 
-                                  session.status === 'failed' ? 'danger' : 'warning';
-                const statusIcon = session.status === 'completed' ? 'check-circle' : 
-                                 session.status === 'failed' ? 'times-circle' : 'clock';
-                
-                html += `
-                    <div class="d-flex justify-content-between align-items-center mb-2">
-                        <small>
-                            <i class="fas fa-${statusIcon} text-${statusClass}"></i>
-                            ${session.version_name} (${session.feedback_count} feedback)
-                        </small>
-                        <small class="text-muted">${formatDate(session.created_at)}</small>
-                    </div>
-                `;
-            });
             
-            container.innerHTML = html;
-        }
-
-        // CLIP aktif model güncelle
-        function updateClipActiveModel(data) {
-            if (data.model_info) {
-                document.getElementById('clip-active-version').textContent = data.model_info.name || 'base_model';
-            }
-        }
-
-        // CLIP training başlat
-        async function startClipTraining() {
-            // Training parametreleri modal'ı göster
-            showClipTrainingModal();
-        }
-
-        // CLIP training modal'ını göster
-        function showClipTrainingModal() {
-            const modalHtml = `
-                <div class="modal fade" id="clipTrainingModal" tabindex="-1">
-                    <div class="modal-dialog modal-lg">
-                        <div class="modal-content">
-                            <div class="modal-header">
-                                <h5 class="modal-title">
-                                    <i class="fas fa-brain me-2"></i>CLIP Fine-tuning Parametreleri
-                                </h5>
-                                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                            </div>
-                            <div class="modal-body">
-                                <form id="clipTrainingForm">
-                                    <div class="row">
-                                        <div class="col-md-6">
-                                            <div class="mb-3">
-                                                <label for="clipLearningRate" class="form-label">Learning Rate</label>
-                                                <input type="number" class="form-control" id="clipLearningRate" 
-                                                       value="0.00001" step="0.000001" min="0.000001">
-                                            </div>
-                                        </div>
-                                        <div class="col-md-6">
-                                            <div class="mb-3">
-                                                <label for="clipBatchSize" class="form-label">Batch Size</label>
-                                                <input type="number" class="form-control" id="clipBatchSize" 
-                                                       value="16" min="1" max="64">
-                                            </div>
-                                        </div>
-                                    </div>
-                                    <div class="row">
-                                        <div class="col-md-6">
-                                            <div class="mb-3">
-                                                <label for="clipEpochs" class="form-label">Epochs</label>
-                                                <input type="number" class="form-control" id="clipEpochs" 
-                                                       value="5" min="1" max="20">
-                                            </div>
-                                        </div>
-                                        <div class="col-md-6">
-                                            <div class="mb-3">
-                                                <label for="clipTrainSplit" class="form-label">Train Split (%)</label>
-                                                <input type="number" class="form-control" id="clipTrainSplit" 
-                                                       value="80" min="60" max="90">
-                                            </div>
-                                        </div>
-                                    </div>
-                                    <div class="mb-3">
-                                        <label class="form-label">Kategoriler</label>
-                                        <div class="row">
-                                            <div class="col-md-6">
-                                                <div class="form-check">
-                                                    <input class="form-check-input" type="checkbox" id="catViolence" checked>
-                                                    <label class="form-check-label" for="catViolence">Violence</label>
-                                                </div>
-                                                <div class="form-check">
-                                                    <input class="form-check-input" type="checkbox" id="catAdult" checked>
-                                                    <label class="form-check-label" for="catAdult">Adult Content</label>
-                                                </div>
-                                                <div class="form-check">
-                                                    <input class="form-check-input" type="checkbox" id="catHarassment" checked>
-                                                    <label class="form-check-label" for="catHarassment">Harassment</label>
-                                                </div>
-                                            </div>
-                                            <div class="col-md-6">
-                                                <div class="form-check">
-                                                    <input class="form-check-input" type="checkbox" id="catWeapon" checked>
-                                                    <label class="form-check-label" for="catWeapon">Weapon</label>
-                                                </div>
-                                                <div class="form-check">
-                                                    <input class="form-check-input" type="checkbox" id="catDrug" checked>
-                                                    <label class="form-check-label" for="catDrug">Drug</label>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </form>
-                            </div>
-                            <div class="modal-footer">
-                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">İptal</button>
-                                <button type="button" class="btn btn-success" onclick="executeClipTraining()">
-                                    <i class="fas fa-play me-2"></i>Eğitimi Başlat
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            `;
+            showLoadingSpinner();
             
-            // Modal'ı DOM'a ekle
-            document.body.insertAdjacentHTML('beforeend', modalHtml);
-            
-            // Modal'ı göster
-            const modal = new bootstrap.Modal(document.getElementById('clipTrainingModal'));
-            modal.show();
-            
-            // Modal kapandığında DOM'dan kaldır
-            document.getElementById('clipTrainingModal').addEventListener('hidden.bs.modal', function() {
-                this.remove();
+            fetch('/api/model-management/cleanup/feedback', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    model_type: modelType,
+                    keep_count: parseInt(keepCount)
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                hideLoadingSpinner();
+                showCleanupResults(data);
+                loadCleanupStatus();
+            })
+            .catch(error => {
+                hideLoadingSpinner();
+                console.error('Cleanup feedback error:', error);
+                showAlert('Feedback temizliği sırasında hata oluştu', 'danger');
             });
         }
 
-        // CLIP training'i çalıştır
-        async function executeClipTraining() {
-            try {
-                // Form verilerini al
-                const learningRate = parseFloat(document.getElementById('clipLearningRate').value);
-                const batchSize = parseInt(document.getElementById('clipBatchSize').value);
-                const epochs = parseInt(document.getElementById('clipEpochs').value);
-                const trainSplit = parseFloat(document.getElementById('clipTrainSplit').value) / 100;
-                
-                // Seçili kategorileri al
-                const categories = [];
-                if (document.getElementById('catViolence').checked) categories.push('violence');
-                if (document.getElementById('catAdult').checked) categories.push('adult_content');
-                if (document.getElementById('catHarassment').checked) categories.push('harassment');
-                if (document.getElementById('catWeapon').checked) categories.push('weapon');
-                if (document.getElementById('catDrug').checked) categories.push('drug');
-                
-                if (categories.length === 0) {
-                    alert('En az bir kategori seçmelisiniz!');
-                    return;
-                }
-                
-                // Modal'ı kapat
-                bootstrap.Modal.getInstance(document.getElementById('clipTrainingModal')).hide();
-                
-                // Training'i başlat
-                showTrainingStatus('CLIP Fine-tuning başlatılıyor...', 'info');
-                
-                const response = await fetch('/api/clip-training/start-training', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({
-                        learning_rate: learningRate,
-                        batch_size: batchSize,
-                        epochs: epochs,
-                        train_split: trainSplit,
-                        categories: categories,
-                        min_feedback_count: 50
-                    })
-                });
-
-                const result = await response.json();
-                
-                if (result.success) {
-                    showTrainingStatus(`CLIP Fine-tuning başlatıldı! Session ID: ${result.data.session_id}`, 'success');
-                    
-                    // Training durumunu takip et
-                    startClipTrainingMonitor(result.data.session_id);
-                    
-                    // Verileri yenile
-                    setTimeout(() => {
-                        loadClipData();
-                    }, 2000);
-                } else {
-                    showTrainingStatus(`CLIP Training hatası: ${result.error}`, 'danger');
-                }
-            } catch (error) {
-                showTrainingStatus(`CLIP Training hatası: ${error.message}`, 'danger');
+        // Ensemble dosya temizliği
+        function cleanupEnsembleFiles(modelType) {
+            const keepCount = document.getElementById('keep-ensemble-versions').value;
+            
+            if (!confirm(`${modelType} modeli için ${keepCount} adet ensemble versiyonu hariç geri kalanlar silinecek. Devam etmek istiyor musunuz?`)) {
+                return;
             }
+            
+            showLoadingSpinner();
+            
+            fetch('/api/model-management/cleanup/ensemble-files', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    model_type: modelType,
+                    keep_count: parseInt(keepCount)
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                hideLoadingSpinner();
+                showCleanupResults(data);
+                loadCleanupStatus();
+            })
+            .catch(error => {
+                hideLoadingSpinner();
+                console.error('Cleanup ensemble files error:', error);
+                showAlert('Ensemble dosya temizliği sırasında hata oluştu', 'danger');
+            });
         }
 
-        // CLIP training durumunu takip et
-        function startClipTrainingMonitor(sessionId) {
-            const interval = setInterval(async () => {
-                try {
-                    const response = await fetch(`/api/clip-training/sessions/${sessionId}`);
-                    if (response.ok) {
-                        const result = await response.json();
-                        const session = result.data;
-                        
-                        if (session.status === 'completed') {
-                            showTrainingStatus('CLIP Fine-tuning başarıyla tamamlandı!', 'success');
-                            clearInterval(interval);
-                            loadClipData();
-                        } else if (session.status === 'failed') {
-                            showTrainingStatus('CLIP Fine-tuning başarısız oldu!', 'danger');
-                            clearInterval(interval);
+        // Kullanılmayan frame temizliği
+        function cleanupUnusedFrames() {
+            const daysOld = document.getElementById('unused-frames-days').value;
+            
+            if (!confirm(`${daysOld} gün önceki kullanılmayan frame'ler silinecek. Devam etmek istiyor musunuz?`)) {
+                return;
+            }
+            
+            showLoadingSpinner();
+            
+            fetch('/api/model-management/cleanup/unused-frames', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    days_old: parseInt(daysOld)
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                hideLoadingSpinner();
+                showCleanupResults(data);
+                loadCleanupStatus();
+            })
+            .catch(error => {
+                hideLoadingSpinner();
+                console.error('Cleanup unused frames error:', error);
+                showAlert('Kullanılmayan frame temizliği sırasında hata oluştu', 'danger');
+            });
+        }
+
+        // Veritabanı optimize
+        function vacuumDatabase() {
+            if (!confirm('Veritabanı optimize edilecek. Bu işlem biraz zaman alabilir. Devam etmek istiyor musunuz?')) {
+                return;
+            }
+            
+            showLoadingSpinner();
+            
+            fetch('/api/model-management/database/vacuum', {
+                method: 'POST'
+            })
+            .then(response => response.json())
+            .then(data => {
+                hideLoadingSpinner();
+                showCleanupResults(data);
+                loadCleanupStatus();
+            })
+            .catch(error => {
+                hideLoadingSpinner();
+                console.error('Vacuum database error:', error);
+                showAlert('Veritabanı optimize sırasında hata oluştu', 'danger');
+            });
+        }
+
+        // Kapsamlı temizlik
+        function comprehensiveCleanup() {
+            const config = {
+                age_model_versions: parseInt(document.getElementById('keep-model-versions').value),
+                content_model_versions: parseInt(document.getElementById('keep-model-versions').value),
+                age_feedback_records: parseInt(document.getElementById('keep-feedback-count').value),
+                content_feedback_records: parseInt(document.getElementById('keep-feedback-count').value),
+                ensemble_age_versions: parseInt(document.getElementById('keep-ensemble-versions').value),
+                ensemble_content_versions: parseInt(document.getElementById('keep-ensemble-versions').value),
+                unused_frames_days: parseInt(document.getElementById('unused-frames-days').value),
+                vacuum_database: true
+            };
+            
+            if (!confirm('Kapsamlı sistem temizliği başlatılacak. Bu işlem uzun sürebilir ve geri alınamaz. Devam etmek istiyor musunuz?')) {
+                return;
+            }
+            
+            showLoadingSpinner();
+            
+            fetch('/api/model-management/cleanup', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(config)
+            })
+            .then(response => response.json())
+            .then(data => {
+                hideLoadingSpinner();
+                showCleanupResults(data);
+                loadCleanupStatus();
+            })
+            .catch(error => {
+                hideLoadingSpinner();
+                console.error('Comprehensive cleanup error:', error);
+                showAlert('Kapsamlı temizlik sırasında hata oluştu', 'danger');
+            });
+        }
+
+        // Temizlik sonuçlarını göster
+        function showCleanupResults(data) {
+            const resultsDiv = document.getElementById('cleanup-results');
+            const detailsDiv = document.getElementById('cleanup-details');
+            
+            if (data.success) {
+                resultsDiv.className = 'alert alert-success';
+                
+                if (data.operations) {
+                    // Kapsamlı temizlik sonuçları
+                    let html = `<p><strong>Toplam temizlenen dosya:</strong> ${data.total_cleaned_files}</p>`;
+                    html += `<p><strong>Veritabanı boyutu:</strong> ${data.database_size_before} MB → ${data.database_size_after} MB</p>`;
+                    html += '<h6>Detaylar:</h6><ul>';
+                    
+                    data.operations.forEach(op => {
+                        const result = op.result;
+                        html += `<li><strong>${op.operation}:</strong> `;
+                        if (result.success) {
+                            html += `✅ ${result.message || 'Başarılı'} (${result.cleaned_count || 0} öğe)`;
                         } else {
-                            showTrainingStatus(`CLIP Fine-tuning devam ediyor... (${session.status})`, 'info');
+                            html += `❌ ${result.message || 'Hata'}`;
                         }
-                    }
-                } catch (error) {
-                    console.error('Training monitor hatası:', error);
-                }
-            }, 5000);
-        }
-
-        // CLIP versiyon yönetimi
-        function showClipVersions() {
-            // Versiyonları yönetmek için modal göster
-            alert('CLIP versiyon yönetimi yakında eklenecek!');
-        }
-
-        // CLIP versiyonunu aktifleştir
-        async function activateClipVersion(versionName) {
-            if (confirm(`${versionName} versiyonunu aktifleştirmek istediğinizden emin misiniz?`)) {
-                try {
-                    const response = await fetch(`/api/clip-training/versions/${versionName}/activate`, {
-                        method: 'POST'
+                        html += '</li>';
                     });
-
-                    const result = await response.json();
                     
-                    if (result.success) {
-                        showTrainingStatus('CLIP model versiyonu başarıyla aktifleştirildi!', 'success');
-                        setTimeout(() => {
-                            loadClipData();
-                        }, 1000);
-                    } else {
-                        showTrainingStatus(`Aktivasyon hatası: ${result.error}`, 'danger');
+                    html += '</ul>';
+                    detailsDiv.innerHTML = html;
+                } else {
+                    // Tek işlem sonucu
+                    detailsDiv.innerHTML = `<p>${data.message}</p>`;
+                    if (data.cleaned_count !== undefined) {
+                        detailsDiv.innerHTML += `<p><strong>Temizlenen öğe sayısı:</strong> ${data.cleaned_count}</p>`;
                     }
-                } catch (error) {
-                    showTrainingStatus(`Aktivasyon hatası: ${error.message}`, 'danger');
                 }
+            } else {
+                resultsDiv.className = 'alert alert-danger';
+                detailsDiv.innerHTML = `<p><strong>Hata:</strong> ${data.error || data.message}</p>`;
             }
+            
+            resultsDiv.classList.remove('d-none');
+            
+            // 10 saniye sonra gizle
+            setTimeout(() => {
+                resultsDiv.classList.add('d-none');
+            }, 10000);
         }
 
-        // Tarih formatlama yardımcı fonksiyonu
-        function formatDate(dateString) {
-            if (!dateString) return '-';
-            const date = new Date(dateString);
-            return date.toLocaleDateString('tr-TR') + ' ' + date.toLocaleTimeString('tr-TR', {hour: '2-digit', minute: '2-digit'});
-        }
-
-        // ContentAnalyzer'ı yeniden yükle
-        async function reloadContentAnalyzer() {
-            if (confirm('CLIP modelini yeniden yüklemek istediğinizden emin misiniz? Bu işlem birkaç dakika sürebilir.')) {
-                try {
-                    showTrainingStatus('CLIP modeli yeniden yükleniyor...', 'info');
-                    
-                    const response = await fetch('/api/models/reload-content-analyzer', {
-                        method: 'POST'
-                    });
-
-                    const result = await response.json();
-                    
-                    if (response.ok) {
-                        showTrainingStatus(result.message, 'success');
-                        setTimeout(() => {
-                            loadModelVersions();
-                            loadModelStats();
-                            loadClipData();
-                        }, 2000);
-                    } else {
-                        showTrainingStatus(result.error, 'danger');
-                    }
-                } catch (error) {
-                    showTrainingStatus(`Yeniden yükleme hatası: ${error.message}`, 'danger');
-                }
-            }
-        }
+        // Sayfa yüklendiğinde
+        document.addEventListener('DOMContentLoaded', function() {
+            loadModelVersions();
+            loadModelStatistics();
+            startQueueStatusChecker();
+            setupNavbarEventHandlers();
+            loadCleanupStatus();
+            
+            // Her 30 saniyede bir durumu güncelle
+            setInterval(loadCleanupStatus, 30000);
+        });
     </script>
 </body>
-</html> 
+</html>

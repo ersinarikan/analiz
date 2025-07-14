@@ -1,10 +1,12 @@
 from flask import Blueprint, request, jsonify, current_app
-from app import db
 from app.models.feedback import Feedback
-from app.models.analysis import FaceTracking, AgeEstimation
+from app.models.analysis import AgeEstimation
+from app import db
 import logging
 import os
 from app.utils.path_utils import to_rel_path
+import json
+from app.utils.security import sanitize_html_input, validate_request_params, SecurityError
 
 feedback_bp = Blueprint('feedback', __name__, url_prefix='/api/feedback')
 """
@@ -110,15 +112,6 @@ def submit_age_feedback():
         analysis_id = data['analysis_id']
         frame_path = to_rel_path(data['frame_path'])
         
-        face = FaceTracking.query.filter_by(person_id=person_id, analysis_id=analysis_id).first()
-        
-        if not face:
-            # Alternatif olarak sadece person_id ile de kontrol edilebilir eğer analysis_id her zaman face ile gelmiyorsa
-            # Ancak hem person_id hem analysis_id daha spesifik bir yüzü hedefler.
-            logger.warning(f"Belirtilen person_id ({person_id}) ve analysis_id ({analysis_id}) ile eşleşen FaceTracking kaydı bulunamadı.")
-            # return jsonify({'error': f'Belirtilen person_id ({person_id}) ve analysis_id ({analysis_id}) ile yüz takibi kaydı bulunamadı.'}), 404
-            # Şimdilik kayda devam et, bu durum loglanmış oldu.
-
         # Embedding'i AgeEstimation tablosundan bul
         embedding_str = None
         try:

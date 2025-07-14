@@ -7,6 +7,8 @@ from datetime import datetime
 from flask import current_app
 from app import db
 from app.models.feedback import Feedback
+from app.models.content import ModelVersion
+from app.utils.model_utils import save_torch_model
 
 logger = logging.getLogger('app.ensemble_clip_service')
 
@@ -99,6 +101,146 @@ class EnsembleClipService:
         
         return len(content_corrections)
     
+    def load_feedback_corrections(self) -> dict:
+        """
+        Veritabanından içerik düzeltmelerini yükle
+        """
+        logger.info("Loading content feedback corrections from database...")
+        
+        try:
+            # İçerik geri bildirimi olan kayıtları al
+            feedbacks = db.session.query(Feedback).filter(
+                Feedback.category_feedback.isnot(None),
+                Feedback.embedding.isnot(None)
+            ).all()
+            
+            corrections_loaded = 0
+            
+            for feedback in feedbacks:
+                try:
+                    # Embedding'i parse et
+                    embedding_str = feedback.embedding
+                    if embedding_str:
+                        embedding = np.array([float(x) for x in embedding_str.split(',')])
+                        
+                        # Content ID düzeltmesi
+                        if feedback.content_id and feedback.person_id:
+                            content_key = f"{feedback.content_id}_{feedback.person_id}"
+                            content_hash = hash(content_key)
+                            
+                            # Category feedback'i parse et
+                            category_feedback = feedback.category_feedback
+                            if isinstance(category_feedback, str):
+                                import json
+                                category_feedback = json.loads(category_feedback)
+                            
+                            # Düzeltilmiş açıklama oluştur
+                            corrected_description = self._generate_corrected_description(category_feedback)
+                            
+                            self.content_corrections[content_hash] = {
+                                'corrected_description': corrected_description,
+                                'confidence': 0.9,
+                                'source': feedback.feedback_source or 'MANUAL_USER',
+                                'feedback_id': feedback.id,
+                                'content_id': feedback.content_id,
+                                'person_id': feedback.person_id,
+                                'created_at': feedback.created_at.isoformat() if feedback.created_at else None
+                            }
+                        
+                        # Embedding düzeltmesi
+                        embedding_hash = self._hash_embedding(embedding)
+                        self.embedding_corrections[embedding_hash] = {
+                            'corrected_description': corrected_description if 'corrected_description' in locals() else None,
+                            'embedding': embedding,
+                            'confidence': 0.9,
+                            'content_id': feedback.content_id,
+                            'person_id': feedback.person_id,
+                            'source': feedback.feedback_source or 'MANUAL_USER',
+                            'feedback_id': feedback.id,
+                            'created_at': feedback.created_at.isoformat() if feedback.created_at else None
+                        }
+                        
+                        corrections_loaded += 1
+                        
+                        # Feedback'i kullanım ile işaretle
+                        self._mark_feedback_as_used(feedback)
+                        
+                except Exception as e:
+                    logger.warning(f"Feedback parsing error for ID {feedback.id}: {str(e)}")
+                    continue
+            
+            # Değişiklikleri kaydet
+            db.session.commit()
+            
+            logger.info(f"✅ {corrections_loaded} content correction loaded from database")
+            return {
+                'corrections_loaded': corrections_loaded,
+                'total_content_corrections': len(self.content_corrections),
+                'total_embedding_corrections': len(self.embedding_corrections)
+            }
+            
+        except Exception as e:
+            db.session.rollback()
+            logger.error(f"❌ Error loading content feedback corrections: {str(e)}")
+            return {
+                'corrections_loaded': 0,
+                'error': str(e)
+            }
+    
+    def _generate_corrected_description(self, category_feedback: dict) -> str:
+        """Kategori feedback'ine göre düzeltilmiş açıklama oluştur"""
+        descriptions = []
+        
+        if category_feedback.get('violence') == 'high':
+            descriptions.append("violent content")
+        elif category_feedback.get('violence') == 'low':
+            descriptions.append("non-violent content")
+            
+        if category_feedback.get('adult_content') == 'high':
+            descriptions.append("adult content")
+        elif category_feedback.get('adult_content') == 'low':
+            descriptions.append("safe content")
+            
+        if category_feedback.get('harassment') == 'high':
+            descriptions.append("harassment content")
+        elif category_feedback.get('harassment') == 'low':
+            descriptions.append("respectful content")
+        
+        return ", ".join(descriptions) if descriptions else "general content"
+    
+    def _mark_feedback_as_used(self, feedback: Feedback):
+        """Feedback'i ensemble'da kullanıldı olarak işaretle"""
+        from datetime import datetime
+        
+        # Kullanım bilgilerini güncelle
+        feedback.used_in_ensemble = True
+        feedback.ensemble_usage_count = (feedback.ensemble_usage_count or 0) + 1
+        feedback.last_used_at = datetime.now()
+        
+        # Ensemble model versiyonlarını güncelle
+        if feedback.ensemble_model_versions is None:
+            feedback.ensemble_model_versions = []
+        
+        # Mevcut versiyon bilgisini ekle
+        current_version = f"ensemble_clip_v{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        if current_version not in feedback.ensemble_model_versions:
+            feedback.ensemble_model_versions.append(current_version)
+        
+        logger.debug(f"Feedback {feedback.id} marked as used in ensemble")
+    
+    def _increment_usage_count(self, feedback_id: int):
+        """Feedback kullanım sayısını artır"""
+        try:
+            feedback = db.session.query(Feedback).filter(Feedback.id == feedback_id).first()
+            if feedback:
+                feedback.ensemble_usage_count = (feedback.ensemble_usage_count or 0) + 1
+                feedback.last_used_at = datetime.now()
+                db.session.commit()
+                logger.debug(f"Usage count incremented for feedback {feedback_id}")
+        except Exception as e:
+            logger.warning(f"Failed to increment usage count for feedback {feedback_id}: {str(e)}")
+            db.session.rollback()
+    
     def _hash_content(self, feedback) -> int:
         """Create hash for content identification"""
         # Combine content_id and person_id for unique identification
@@ -111,18 +253,12 @@ class EnsembleClipService:
     
     def predict_content_ensemble(self, base_description: str, base_confidence: float, content_id: int | None = None, person_id: int | None = None, clip_embedding: np.ndarray | None = None) -> tuple[str, float, dict]:
         """
-        Ensemble prediction for content description and confidence.
-        
-        Args:
-            base_description: Base CLIP model description.
-            base_confidence: Base CLIP confidence.
-            content_id: Content ID (if known).
-            person_id: Person ID (if known).
-            clip_embedding: CLIP embedding (if available).
-            
-        Returns:
-            tuple: (final_description, final_confidence, correction_info).
+        İçerik tahmini için ensemble yaklaşımı
+        1. Önce content_id + person_id ile doğrudan arama
+        2. Sonra embedding benzerliği ile arama
+        3. Son olarak base model sonucunu döndür
         """
+        logger.info(f"🔍 Ensemble content prediction - Base: {base_description}, Content: {content_id}, Person: {person_id}")
         
         # 1. Direct content lookup
         if content_id and person_id:
@@ -131,10 +267,14 @@ class EnsembleClipService:
             
             if content_hash in self.content_corrections:
                 correction = self.content_corrections[content_hash]
-                logger.info(f"Direct content match found: {content_id}_{person_id}")
+                logger.info(f"✅ Direct content match found: {content_id}_{person_id}")
                 
                 final_description = correction['corrected_description']
                 final_confidence = correction['confidence']
+                
+                # Kullanım sayısını artır
+                if 'feedback_id' in correction:
+                    self._increment_usage_count(correction['feedback_id'])
                 
                 return final_description, final_confidence, {
                     'method': 'direct_content_match',
@@ -165,12 +305,17 @@ class EnsembleClipService:
             # Exact embedding match
             if embedding_hash in self.embedding_corrections:
                 correction = self.embedding_corrections[embedding_hash]
-                logger.info(f"Exact CLIP embedding match found")
+                logger.info(f"✅ Exact CLIP embedding match found")
+                
+                # Kullanım sayısını artır
+                if 'feedback_id' in correction:
+                    self._increment_usage_count(correction['feedback_id'])
                 
                 if correction['corrected_description']:
                     return correction['corrected_description'], 0.9, {
                         'method': 'exact_embedding_match',
-                        'content_id': correction['content_id']
+                        'content_id': correction['content_id'],
+                        'source': correction['source']
                     }
             
             # Similarity-based correction
@@ -191,30 +336,28 @@ class EnsembleClipService:
                     best_similarity = similarity
                     best_correction = correction
             
-            # High similarity threshold for CLIP (content can be more varied)
-            if best_similarity > 0.92:  # Slightly lower than age model
-                corrected_desc = best_correction['corrected_description']
+            # Yüksek benzerlik varsa düzeltmeyi uygula
+            if best_similarity > 0.95 and best_correction and best_correction['corrected_description']:
+                confidence = 0.9 * best_similarity
                 
-                if corrected_desc:
-                    # Blend confidence based on similarity
-                    blended_confidence = base_confidence * 0.3 + best_similarity * 0.7
-                    
-                    logger.info(f"CLIP similarity correction: sim={best_similarity:.3f}")
-                    
-                    return corrected_desc, blended_confidence, {
-                        'method': 'similarity_correction',
-                        'similarity': best_similarity,
-                        'base_description': base_description,
-                        'corrected_description': corrected_desc,
-                        'content_id': best_correction['content_id']
-                    }
+                logger.info(f"✅ Similarity match ({best_similarity:.3f}) -> {best_correction['corrected_description']}")
+                
+                # Kullanım sayısını artır
+                if 'feedback_id' in best_correction:
+                    self._increment_usage_count(best_correction['feedback_id'])
+                
+                return best_correction['corrected_description'], confidence, {
+                    'method': 'similarity_match',
+                    'similarity': best_similarity,
+                    'content_id': best_correction['content_id'],
+                    'source': best_correction['source']
+                }
         
-        # 3. No correction found - use base model
-        logger.debug(f"No CLIP correction found, using base model")
+        # 3. Base model sonucunu döndür
+        logger.info(f"📊 Using base model result: {base_description}")
         return base_description, base_confidence, {
-            'method': 'base_model_only',
-            'base_description': base_description,
-            'base_confidence': base_confidence
+            'method': 'base_model',
+            'no_correction_found': True
         }
     
     def get_statistics(self) -> dict:
@@ -321,3 +464,151 @@ class EnsembleClipService:
             optimized_list.append(optimized_content)
         
         return optimized_list 
+    
+    def save_ensemble_corrections_as_version(self) -> ModelVersion:
+        """
+        Ensemble düzeltmelerini .pth dosyası olarak kaydet ve model versiyonu oluştur
+        """
+        logger.info("Saving CLIP ensemble corrections as model version...")
+        
+        try:
+            # Versiyon numarasını belirle
+            last_version = ModelVersion.query.filter_by(
+                model_type='content'
+            ).order_by(ModelVersion.version.desc()).first()
+            
+            new_version_num = 1 if last_version is None else last_version.version + 1
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            version_name = f"ensemble_clip_v{new_version_num}_{timestamp}"
+            
+            # Versiyon klasörü oluştur
+            version_dir = os.path.join(
+                current_app.config['MODELS_FOLDER'],
+                'content',
+                'ensemble_versions',
+                version_name
+            )
+            os.makedirs(version_dir, exist_ok=True)
+            
+            # Ensemble verilerini .pth formatında kaydet
+            ensemble_data = {
+                'model_type': 'ensemble_clip',
+                'content_corrections': self.content_corrections,
+                'embedding_corrections': self.embedding_corrections,
+                'confidence_adjustments': self.confidence_adjustments,
+                'version': new_version_num,
+                'version_name': version_name,
+                'created_at': datetime.now().isoformat(),
+                'total_content_corrections': len(self.content_corrections),
+                'total_embedding_corrections': len(self.embedding_corrections),
+                'total_confidence_adjustments': len(self.confidence_adjustments)
+            }
+            
+            # .pth dosyası olarak kaydet
+            model_path = os.path.join(version_dir, 'ensemble_corrections.pth')
+            torch.save(ensemble_data, model_path)
+            logger.info(f"CLIP ensemble corrections saved to: {model_path}")
+            
+            # Metadata oluştur
+            metadata = {
+                'version': new_version_num,
+                'version_name': version_name,
+                'created_at': datetime.now().isoformat(),
+                'model_type': 'ensemble_clip',
+                'total_content_corrections': len(self.content_corrections),
+                'total_embedding_corrections': len(self.embedding_corrections),
+                'total_confidence_adjustments': len(self.confidence_adjustments),
+                'correction_sources': self._get_content_correction_sources_stats(),
+                'metrics': self._calculate_clip_ensemble_metrics()
+            }
+            
+            # Metadata kaydet
+            metadata_path = os.path.join(version_dir, 'metadata.json')
+            with open(metadata_path, 'w') as f:
+                json.dump(metadata, f, indent=4, default=str)
+            logger.info(f"Metadata saved to: {metadata_path}")
+            
+            # Tüm aktif versiyonları devre dışı bırak
+            db.session.query(ModelVersion).filter_by(
+                model_type='content',
+                is_active=True
+            ).update({ModelVersion.is_active: False})
+            
+            # Veritabanında yeni versiyon oluştur
+            model_version = ModelVersion(
+                model_type='content',
+                version=new_version_num,
+                version_name=version_name,
+                created_at=datetime.now(),
+                metrics=metadata['metrics'],
+                is_active=True,
+                training_samples=len(self.content_corrections),
+                validation_samples=0,  # Ensemble için N/A
+                epochs=0,  # Ensemble için N/A
+                file_path=version_dir,
+                weights_path=model_path,
+                used_feedback_ids=self._get_used_clip_feedback_ids()
+            )
+            
+            db.session.add(model_version)
+            db.session.commit()
+            
+            logger.info(f"✅ CLIP ensemble model version created: {version_name}")
+            logger.info(f"   Content corrections: {len(self.content_corrections)}")
+            logger.info(f"   Embedding corrections: {len(self.embedding_corrections)}")
+            logger.info(f"   Confidence adjustments: {len(self.confidence_adjustments)}")
+            
+            return model_version
+            
+        except Exception as e:
+            logger.error(f"Error saving CLIP ensemble model version: {str(e)}")
+            db.session.rollback()
+            raise e
+    
+    def _get_content_correction_sources_stats(self) -> dict:
+        """İçerik düzeltme kaynaklarının istatistiklerini döndür"""
+        sources = {'MANUAL_USER': 0, 'AUTO_CORRECTION': 0}
+        for correction in self.content_corrections.values():
+            source = correction.get('source', 'UNKNOWN')
+            if source in sources:
+                sources[source] += 1
+            else:
+                sources['OTHER'] = sources.get('OTHER', 0) + 1
+        return sources
+    
+    def _calculate_clip_ensemble_metrics(self) -> dict:
+        """CLIP Ensemble metrikleri hesapla"""
+        total_content = len(self.content_corrections)
+        total_embedding = len(self.embedding_corrections)
+        total_confidence = len(self.confidence_adjustments)
+        
+        # Confidence adjustment ortalaması
+        if self.confidence_adjustments:
+            adjustments = [adj.get('adjustment', 0.0) for adj in self.confidence_adjustments.values()]
+            avg_adjustment = np.mean(adjustments) if adjustments else 0.0
+        else:
+            avg_adjustment = 0.0
+        
+        return {
+            'total_content_corrections': total_content,
+            'total_embedding_corrections': total_embedding,
+            'total_confidence_adjustments': total_confidence,
+            'average_confidence_adjustment': float(avg_adjustment),
+            'coverage_ratio': float(total_embedding / max(total_content, 1))
+        }
+    
+    def _get_used_clip_feedback_ids(self) -> list:
+        """Kullanılan CLIP feedback ID'lerini döndür"""
+        feedbacks = Feedback.query.filter(
+            (Feedback.feedback_type == 'content') | 
+            (Feedback.feedback_type == 'content_rating')
+        ).all()
+        
+        used_ids = []
+        for feedback in feedbacks:
+            # Content hash'e sahip feedback'leri kullan
+            if hasattr(feedback, 'content_hash') and feedback.content_hash:
+                if feedback.content_hash in self.content_corrections:
+                    used_ids.append(feedback.id)
+        
+        return used_ids 

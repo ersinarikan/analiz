@@ -52,6 +52,12 @@ class Feedback(db.Model):
     is_archived = db.Column(db.Boolean, default=False, index=True) # Arşivlenmiş mi
     archive_reason = db.Column(db.String(100), nullable=True) # Arşivleme nedeni
     
+    # Ensemble Kullanım Takibi
+    used_in_ensemble = db.Column(db.Boolean, default=False, index=True) # Ensemble'da kullanılmış mı
+    ensemble_usage_count = db.Column(db.Integer, default=0) # Kaç kez ensemble'da kullanıldı
+    last_used_at = db.Column(db.DateTime, nullable=True) # Son kullanım zamanı
+    ensemble_model_versions = db.Column(db.JSON, nullable=True) # Hangi ensemble versiyonlarında kullanıldı
+    
     def __repr__(self):
         return f"<Feedback(id={self.id}, type='{self.feedback_type}', source='{self.feedback_source}')>"
     
@@ -79,6 +85,10 @@ class Feedback(db.Model):
             'used_in_model_version': self.used_in_model_version,
             'training_used_at': self.training_used_at.isoformat() if self.training_used_at else None,
             'is_archived': self.is_archived,
-            'archive_reason': self.archive_reason
+            'archive_reason': self.archive_reason,
+            'used_in_ensemble': self.used_in_ensemble,
+            'ensemble_usage_count': self.ensemble_usage_count,
+            'last_used_at': self.last_used_at.isoformat() if self.last_used_at else None,
+            'ensemble_model_versions': self.ensemble_model_versions
         }
         return data 

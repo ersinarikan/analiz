@@ -28,14 +28,106 @@ def refresh_ensemble_corrections():
         result = service.refresh_corrections()
         
         if result['success']:
-            return jsonify({
-                "success": True,
-                "message": "Ensemble corrections refreshed successfully",
-                "age_corrections": result['age_corrections'],
-                "clip_corrections": result['clip_corrections'],
-                "age_stats": result['age_stats'],
-                "clip_stats": result['clip_stats']
-            }), 200
+            # Otomatik temizlik yap
+            try:
+                from app.services.model_service import ModelService
+                model_service = ModelService()
+                
+                logger.info("🧹 CLIP düzeltmeleri yenilendi, otomatik temizlik başlatılıyor...")
+                
+                # Temizlik konfigürasyonu (daha agresif)
+                cleanup_config = {
+                    'content_feedback_records': 50,  # İçerik için daha az kayıt sakla
+                    'ensemble_content_versions': 2,  # Sadece 2 ensemble versiyonu sakla
+                    'unused_frames_days': 7,  # 7 gün önceki frame'leri temizle
+                    'vacuum_database': True  # VT optimize et
+                }
+                
+                # Sadece content ile ilgili temizlik yap
+                cleanup_operations = []
+                
+                # 1. Content feedback temizliği
+                feedback_result = model_service.cleanup_ensemble_feedback_records('content', cleanup_config['content_feedback_records'])
+                cleanup_operations.append({
+                    'operation': 'content_feedback_cleanup',
+                    'result': feedback_result
+                })
+                
+                # 2. Content ensemble dosya temizliği
+                ensemble_result = model_service.cleanup_ensemble_model_files('content', cleanup_config['ensemble_content_versions'])
+                cleanup_operations.append({
+                    'operation': 'content_ensemble_cleanup',
+                    'result': ensemble_result
+                })
+                
+                # 3. Kullanılmayan frame temizliği
+                frames_result = model_service.cleanup_unused_analysis_frames(cleanup_config['unused_frames_days'])
+                cleanup_operations.append({
+                    'operation': 'unused_frames_cleanup',
+                    'result': frames_result
+                })
+                
+                # 4. Veritabanı optimize
+                if cleanup_config['vacuum_database']:
+                    vacuum_result = model_service.vacuum_database()
+                    cleanup_operations.append({
+                        'operation': 'database_vacuum',
+                        'result': {'success': vacuum_result}
+                    })
+                
+                # Temizlik sonuçlarını özetle
+                total_cleaned = 0
+                cleanup_summary = []
+                
+                for op in cleanup_operations:
+                    op_result = op['result']
+                    if op_result.get('success'):
+                        cleaned_count = op_result.get('cleaned_count', 0)
+                        if isinstance(cleaned_count, list):
+                            cleaned_count = len(cleaned_count)
+                        total_cleaned += cleaned_count
+                        
+                        cleanup_summary.append(f"✅ {op['operation']}: {cleaned_count} öğe temizlendi")
+                    else:
+                        cleanup_summary.append(f"❌ {op['operation']}: {op_result.get('message', 'Hata')}")
+                
+                logger.info(f"🧹 Otomatik temizlik tamamlandı: {total_cleaned} öğe temizlendi")
+                
+                # Sonucu genişlet
+                response_data = {
+                    "success": True,
+                    "message": "Ensemble corrections refreshed successfully",
+                    "age_corrections": result['age_corrections'],
+                    "clip_corrections": result['clip_corrections'],
+                    "age_stats": result['age_stats'],
+                    "clip_stats": result['clip_stats'],
+                    "auto_cleanup": {
+                        "enabled": True,
+                        "total_cleaned": total_cleaned,
+                        "operations": cleanup_operations,
+                        "summary": cleanup_summary
+                    }
+                }
+                
+                return jsonify(response_data), 200
+                
+            except Exception as cleanup_error:
+                logger.warning(f"⚠️ Otomatik temizlik hatası (ensemble yenileme başarılı): {str(cleanup_error)}")
+                
+                # Temizlik hatası olsa da ensemble yenileme başarılı
+                return jsonify({
+                    "success": True,
+                    "message": "Ensemble corrections refreshed successfully",
+                    "age_corrections": result['age_corrections'],
+                    "clip_corrections": result['clip_corrections'],
+                    "age_stats": result['age_stats'],
+                    "clip_stats": result['clip_stats'],
+                    "auto_cleanup": {
+                        "enabled": True,
+                        "error": str(cleanup_error),
+                        "message": "Ensemble yenileme başarılı ancak otomatik temizlik hatası"
+                    }
+                }), 200
         else:
             return jsonify({"error": result.get('error', 'Unknown error')}), 500
             
@@ -216,13 +308,92 @@ def reset_ensemble_corrections(model_type):
         result = service.reset_ensemble_corrections(model_type)
         
         if result['success']:
-            return jsonify({
-                "success": True,
-                "message": result['message'],
-                "restart_required": False,  # Ensemble doesn't require restart
-                "fallback_active": True,
-                "corrections_cleared": result.get('corrections_cleared', 0)
-            }), 200
+            # Otomatik temizlik yap
+            try:
+                from app.services.model_service import ModelService
+                model_service = ModelService()
+                
+                logger.info(f"🧹 {model_type} ensemble sıfırlandı, otomatik temizlik başlatılıyor...")
+                
+                # Reset sonrası daha kapsamlı temizlik
+                cleanup_operations = []
+                
+                # 1. İlgili model tipinin feedback temizliği
+                feedback_result = model_service.cleanup_ensemble_feedback_records(model_type, 20)  # Daha az kayıt sakla
+                cleanup_operations.append({
+                    'operation': f'{model_type}_feedback_cleanup',
+                    'result': feedback_result
+                })
+                
+                # 2. İlgili model tipinin ensemble dosya temizliği
+                ensemble_result = model_service.cleanup_ensemble_model_files(model_type, 1)  # Sadece 1 versiyon sakla
+                cleanup_operations.append({
+                    'operation': f'{model_type}_ensemble_cleanup',
+                    'result': ensemble_result
+                })
+                
+                # 3. Kullanılmayan frame temizliği (reset sonrası)
+                frames_result = model_service.cleanup_unused_analysis_frames(3)  # 3 gün önceki frame'leri temizle
+                cleanup_operations.append({
+                    'operation': 'unused_frames_cleanup',
+                    'result': frames_result
+                })
+                
+                # 4. Veritabanı optimize
+                vacuum_result = model_service.vacuum_database()
+                cleanup_operations.append({
+                    'operation': 'database_vacuum',
+                    'result': {'success': vacuum_result}
+                })
+                
+                # Temizlik sonuçlarını özetle
+                total_cleaned = 0
+                cleanup_summary = []
+                
+                for op in cleanup_operations:
+                    op_result = op['result']
+                    if op_result.get('success'):
+                        cleaned_count = op_result.get('cleaned_count', 0)
+                        if isinstance(cleaned_count, list):
+                            cleaned_count = len(cleaned_count)
+                        total_cleaned += cleaned_count
+                        
+                        cleanup_summary.append(f"✅ {op['operation']}: {cleaned_count} öğe temizlendi")
+                    else:
+                        cleanup_summary.append(f"❌ {op['operation']}: {op_result.get('message', 'Hata')}")
+                
+                logger.info(f"🧹 Reset sonrası otomatik temizlik tamamlandı: {total_cleaned} öğe temizlendi")
+                
+                return jsonify({
+                    "success": True,
+                    "message": result['message'],
+                    "restart_required": False,
+                    "fallback_active": True,
+                    "corrections_cleared": result.get('corrections_cleared', 0),
+                    "auto_cleanup": {
+                        "enabled": True,
+                        "total_cleaned": total_cleaned,
+                        "operations": cleanup_operations,
+                        "summary": cleanup_summary
+                    }
+                }), 200
+                
+            except Exception as cleanup_error:
+                logger.warning(f"⚠️ Reset sonrası otomatik temizlik hatası: {str(cleanup_error)}")
+                
+                # Temizlik hatası olsa da reset başarılı
+                return jsonify({
+                    "success": True,
+                    "message": result['message'],
+                    "restart_required": False,
+                    "fallback_active": True,
+                    "corrections_cleared": result.get('corrections_cleared', 0),
+                    "auto_cleanup": {
+                        "enabled": True,
+                        "error": str(cleanup_error),
+                        "message": "Reset başarılı ancak otomatik temizlik hatası"
+                    }
+                }), 200
         else:
             return jsonify({"error": result.get('error', 'Unknown error')}), 500
         

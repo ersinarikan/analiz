@@ -275,12 +275,32 @@ class EnsembleIntegrationService:
             age_result = self.age_ensemble.load_age_corrections()
             clip_result = self.clip_ensemble.load_content_corrections()
             
+            # Ensemble düzeltmelerini model versiyonu olarak kaydet
+            age_version = None
+            clip_version = None
+            
+            try:
+                if age_result > 0:  # Eğer yaş düzeltmeleri varsa
+                    age_version = self.age_ensemble.save_ensemble_corrections_as_version()
+                    logger.info(f"Age ensemble version created: {age_version.version_name}")
+            except Exception as e:
+                logger.error(f"Error saving age ensemble version: {str(e)}")
+            
+            try:
+                if clip_result > 0:  # Eğer içerik düzeltmeleri varsa
+                    clip_version = self.clip_ensemble.save_ensemble_corrections_as_version()
+                    logger.info(f"CLIP ensemble version created: {clip_version.version_name}")
+            except Exception as e:
+                logger.error(f"Error saving CLIP ensemble version: {str(e)}")
+            
             return {
                 'success': True,
                 'age_corrections': age_result,
                 'clip_corrections': clip_result,
                 'age_stats': self.age_ensemble.get_correction_stats(),
-                'clip_stats': self.clip_ensemble.get_correction_stats()
+                'clip_stats': self.clip_ensemble.get_correction_stats(),
+                'age_version': age_version.version_name if age_version else None,
+                'clip_version': clip_version.version_name if clip_version else None
             }
         except Exception as e:
             logger.error(f"Refresh corrections error: {str(e)}")

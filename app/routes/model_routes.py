@@ -424,41 +424,23 @@ def train_model_web():
         }
         
         if model_type == 'content':
-            # Content model training
-            from app.services.content_training_service import ContentTrainingService
+            # Content model training - Ensemble sistemi kullan
+            from app.services.ensemble_integration_service import get_ensemble_service
             
-            trainer = ContentTrainingService()
+            ensemble_service = get_ensemble_service()
+            result = ensemble_service.refresh_corrections()
             
-            # Veriyi hazırla - test için minimum 1 sample
-            training_data = trainer.prepare_training_data(
-                min_samples=1,  # Test için minimum düşürüldü
-                validation_strategy='all'  # Tüm verileri kabul et
-            )
-            
-            if training_data is None:
+            if not result['success']:
                 return jsonify({
                     'success': False,
-                    'error': 'Yeterli içerik eğitim verisi bulunamadı. En az 1 geri bildirim gerekli.'
+                    'error': f'Ensemble yenileme hatası: {result.get("error", "Bilinmeyen hata")}'
                 }), 400
-            
-            # WebSocket ile progress tracking için session ID oluştur
-            training_session_id = str(uuid.uuid4())
-            
-            # Background task olarak eğitimi başlat
-            from threading import Thread
-            training_thread = Thread(
-                target=_run_content_training,
-                args=(trainer, training_data, params, training_session_id, current_app._get_current_object())
-            )
-            training_thread.daemon = True
-            training_thread.start()
             
             return jsonify({
                 'success': True,
-                'message': 'Content model eğitimi başlatıldı',
-                'session_id': training_session_id,
-                'training_samples': training_data['total_samples'],
-                'estimated_duration': _estimate_training_duration(training_data['total_samples'], params['epochs'])
+                'message': 'İçerik modeli ensemble düzeltmeleri başarıyla yenilendi',
+                'ensemble_stats': result['clip_stats'],
+                'content_corrections': result['clip_corrections']
             })
             
         elif model_type == 'age':
@@ -672,33 +654,25 @@ def get_training_stats(model_type):
     """
     try:
         if model_type == 'content':
-            from app.services.content_training_service import ContentTrainingService
+            from app.services.ensemble_integration_service import get_ensemble_service
             
-            trainer = ContentTrainingService()
-            training_data = trainer.prepare_training_data(min_samples=1, validation_strategy='all')
-            
-            if training_data is None:
-                return jsonify({
-                    'success': True,
-                    'stats': {
-                        'total_feedbacks': 0,
-                        'total_samples': 0,
-                        'category_stats': {},
-                        'message': 'Henüz feedback verisi bulunmuyor'
-                    }
-                })
-            
-            # Çelişki analizi
-            conflicts = trainer.detect_feedback_conflicts(training_data)
+            ensemble_service = get_ensemble_service()
+            status = ensemble_service.get_system_status()
+            clip_stats = status['clip_ensemble']
             
             return jsonify({
                 'success': True,
                 'stats': {
-                    'total_feedbacks': training_data['feedbacks_processed'],
-                    'total_samples': training_data['total_samples'],
-                    'category_stats': training_data['category_stats'],
-                    'conflicts_detected': len(conflicts),
-                    'conflicts': conflicts[:10]  # İlk 10 çelişki
+                    'total_feedbacks': clip_stats['content_corrections'] + clip_stats['confidence_adjustments'],
+                    'total_samples': clip_stats['content_corrections'],
+                    'category_stats': {
+                        'content_corrections': clip_stats['content_corrections'],
+                        'confidence_adjustments': clip_stats['confidence_adjustments'],
+                        'embedding_corrections': clip_stats['embedding_corrections']
+                    },
+                    'conflicts_detected': 0,  # Ensemble sistemde çelişki yok
+                    'conflicts': [],
+                    'message': 'Ensemble sistemi aktif'
                 }
             })
             
@@ -790,41 +764,17 @@ def analyze_conflicts(model_type):
     """
     try:
         if model_type == 'content':
-            from app.services.content_training_service import ContentTrainingService
-            
-            trainer = ContentTrainingService()
-            training_data = trainer.prepare_training_data(min_samples=1, validation_strategy='all')
-            
-            if training_data is None:
-                return jsonify({
-                    'success': True,
-                    'conflicts': [],
-                    'total_conflicts': 0,
-                    'high_severity': 0,
-                    'summary': {
-                        'categories_affected': 0,
-                        'avg_score_diff': 0.0
-                    },
-                    'message': 'Henüz analiz edilecek feedback verisi bulunmuyor'
-                })
-            
-            # Çelişkileri tespit et
-            conflicts = trainer.detect_feedback_conflicts(training_data)
-            
-            # Özet istatistikleri hesapla
-            high_severity_count = len([c for c in conflicts if c.get('severity') == 'high'])
-            categories_affected = len(set(c['category'] for c in conflicts))
-            avg_score_diff = sum(c.get('score_diff', 0) for c in conflicts) / len(conflicts) if conflicts else 0.0
-            
+            # Ensemble sistemde çelişki analizi gerekli değil
             return jsonify({
                 'success': True,
-                'conflicts': conflicts,
-                'total_conflicts': len(conflicts),
-                'high_severity': high_severity_count,
+                'conflicts': [],
+                'total_conflicts': 0,
+                'high_severity': 0,
                 'summary': {
-                    'categories_affected': categories_affected,
-                    'avg_score_diff': avg_score_diff
-                }
+                    'categories_affected': 0,
+                    'avg_score_diff': 0.0
+                },
+                'message': 'Ensemble sistemde çelişki analizi gerekli değil - lookup tablosu kullanılıyor'
             })
             
         elif model_type == 'age':

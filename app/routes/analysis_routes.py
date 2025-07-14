@@ -2,7 +2,7 @@ import logging
 from flask import Blueprint, request, jsonify, current_app
 from app import db
 from app.models.file import File
-from app.models.analysis import Analysis, ContentDetection, AgeEstimation, AnalysisFeedback
+from app.models.analysis import Analysis, ContentDetection, AgeEstimation
 from app.models.feedback import Feedback
 from app.services.analysis_service import AnalysisService, get_analysis_results
 from app.json_encoder import json_dumps_numpy
@@ -209,7 +209,7 @@ def submit_feedback(analysis_id):
         comment = sanitize_html_input(params.get('comment', ''))
         
         # Feedback oluştur
-        feedback = AnalysisFeedback(
+        feedback = Feedback(
             analysis_id=analysis_id,
             rating=params['rating'],
             comment=comment,

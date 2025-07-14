@@ -25,6 +25,9 @@ _cache_lock = threading.Lock()
 # Thread-safe model cache
 _models_cache = {}
 
+# Import ensemble service
+from app.services.ensemble_integration_service import get_ensemble_service
+
 # Kullanılmayan global _models_cache kaldırıldı
 
 class ContentAnalyzer:
@@ -126,6 +129,14 @@ class ContentAnalyzer:
             
             # Eğitilmiş classification head'i yükle (varsa)
             self.classification_head = self._load_classification_head()
+            
+            # Ensemble service'i yükle
+            try:
+                self.ensemble_service = get_ensemble_service()
+                logger.info("Ensemble service başarıyla yüklendi")
+            except Exception as e:
+                logger.warning(f"Ensemble service yüklenemedi: {str(e)}")
+                self.ensemble_service = None
             
             # Kategori tanımlayıcıları - Pozitif ve zıt (negatif) promptlar
             self.category_prompts = {
@@ -373,10 +384,10 @@ class ContentAnalyzer:
             logger.warning(f"Classification head yüklenirken hata: {str(e)}, prompt-based yaklaşım kullanılacak")
             return None
     
-    def analyze_image(self, image_path: str) -> tuple[float, float, float, float, float, float, float, float, float, float, list[dict]]:
+    def analyze_image(self, image_path: str, content_id: str = None, person_id: str = None) -> tuple[float, float, float, float, float, float, float, float, float, float, list[dict]]:
         """
         Bir resmi CLIP modeli ile analiz eder ve içerik skorlarını hesaplar.
-        (YENİ: Her kategori için 'var mı/yok mu' promptları ve farkın normalize edilmesi)
+        (YENİ: Ensemble desteği ile)
         """
         try:
             # OpenCV ile görüntüyü yükle (YOLO için)
@@ -393,6 +404,7 @@ class ContentAnalyzer:
                 cv_image = image_path
                 cv_rgb = cv2.cvtColor(cv_image, cv2.COLOR_BGR2RGB)
                 pil_image = Image.fromarray(cv_rgb)
+            
             # YOLOv8 ile nesne tespiti (devre dışı bırakılmıyor)
             results = self.yolo_model(cv_image)
             detected_objects = []
@@ -406,6 +418,8 @@ class ContentAnalyzer:
                     cls_id = int(box.cls[0])
                     label = self.yolo_model.names[cls_id]
                     detected_objects.append({'label': label, 'confidence': conf, 'box': [x1, y1, w, h]})
+            
+            # CLIP ile görüntü özelliklerini çıkar
             preprocessed_image = self.clip_preprocess(pil_image).unsqueeze(0).to("cuda" if torch.cuda.is_available() else "cpu")
             with torch.no_grad():
                 image_features = self.clip_model.encode_image(preprocessed_image)
@@ -424,7 +438,34 @@ class ContentAnalyzer:
                     
                     # Skorları kategorilere ata
                     for i, cat in enumerate(categories):
-                        final_scores[cat] = float(predictions[i])
+                        base_score = float(predictions[i])
+                        
+                        # Ensemble düzeltmesi uygula
+                        if self.ensemble_service:
+                            try:
+                                # Kategori için açıklama oluştur
+                                base_description = f"{cat} content detected"
+                                
+                                # Ensemble prediction
+                                corrected_description, corrected_confidence, correction_info = self.ensemble_service.clip_ensemble.predict_content_ensemble(
+                                    base_description=base_description,
+                                    base_confidence=base_score,
+                                    content_id=content_id,
+                                    person_id=person_id,
+                                    clip_embedding=image_features.cpu().numpy().squeeze()
+                                )
+                                
+                                # Düzeltilmiş skoru kullan
+                                final_scores[cat] = corrected_confidence
+                                
+                                if correction_info.get('method') != 'base_model':
+                                    logger.info(f"[ENSEMBLE_CORRECTION] {cat}: {base_score:.3f} -> {corrected_confidence:.3f} ({correction_info.get('method')})")
+                                
+                            except Exception as e:
+                                logger.warning(f"Ensemble correction failed for {cat}: {str(e)}")
+                                final_scores[cat] = base_score
+                        else:
+                            final_scores[cat] = base_score
                         
                     logger.info(f"[TRAINED_MODEL_LOG] Predictions: {dict(zip(categories, predictions))}")
             else:
@@ -444,95 +485,69 @@ class ContentAnalyzer:
                     neg_score = float(np.mean(similarities[len(pos_prompts):]))
                     fark = pos_score - neg_score
 
-                    # --- START: IMPROVED SCORE CALCULATION ---
-                    # Dinamik squash factor - kategoriye göre ayarlanabilir
+                    # Score calculation (existing logic)
                     import random
                     import math
                     
-                    SQUASH_FACTOR = 4.0  # Azaltıldı (5.0'dan 4.0'a)
+                    SQUASH_FACTOR = 4.0
                     
-                    # Mutlak skorları da dikkate al
                     abs_pos_score = abs(pos_score)
                     abs_neg_score = abs(neg_score)
                     
-                    # Eğer her iki skor da çok düşükse, belirsizlik var demektir
                     if abs_pos_score < 0.02 and abs_neg_score < 0.02:
-                        # Belirsizlik durumu - nötr skor (0.5 = belirsiz)
                         raw_score = 0.5
                         squashed_fark = 0.0
                         logger.info(f"  BELIRSIZLIK DURUMU: Her iki skor da çok düşük")
                     else:
-                        # Normal hesaplama - geliştirilmiş
                         squashed_fark = math.tanh(fark * SQUASH_FACTOR)
-                        
-                        # Ham skor hesaplama
                         raw_score = (squashed_fark + 1) / 2
                         
-                        # İlave hassasiyet - yüksek pozitif skorları boost et
                         if pos_score > 0.05 and fark > 0.02:
                             boost_factor = 1.2
                             raw_score = min(raw_score * boost_factor, 1.0)
                             logger.info(f"  POZITIF BOOST uygulandı: x{boost_factor}")
-                        
-                        # Düşük negatif skorları düşür
                         elif neg_score > 0.05 and fark < -0.02:
                             reduction_factor = 0.8
                             raw_score = max(raw_score * reduction_factor, 0.0)
                             logger.info(f"  NEGATIF REDUCTION uygulandı: x{reduction_factor}")
                     
-                    # YENI: Gerçek Veri Aralığı Bazlı Normalizasyon
-                    # Tipik CLIP skorları 0.45-0.55 aralığında olduğu için bu aralığı 0-100'e yaydır
+                    # Normalization
+                    MIN_CLIP_SCORE = 0.42
+                    MAX_CLIP_SCORE = 0.58
                     
-                    # Gerçek veri aralıkları (deneysel olarak tespit edilmiş)
-                    MIN_CLIP_SCORE = 0.42  # En düşük gözlenen skor
-                    MAX_CLIP_SCORE = 0.58  # En yüksek gözlenen skor
-                    
-                    # Linear normalizasyon fonksiyonu
-                    def linear_normalize(raw_score: float, min_val: float = MIN_CLIP_SCORE, max_val: float = MAX_CLIP_SCORE) -> float:
-                        # Aralık dışı değerleri sınırla
-                        clamped_score = max(min_val, min(max_val, raw_score))
-                        
-                        # 0-1 aralığına normalize et
-                        normalized = (clamped_score - min_val) / (max_val - min_val)
-                        
-                        # Küçük varyasyon ekle (daha doğal görünüm için)
-                        variation = random.uniform(-0.015, 0.015)  # ±1.5% varyasyon (azaltıldı)
-                        final_normalized = max(0.0, min(0.98, normalized + variation))  # Maksimum %98'e sınırla
-                        
-                        return final_normalized
-                    
-                    normalized_score = linear_normalize(raw_score)
-                    
-                    # 0-100 aralığına dönüştür ve kategorize et
-                    final_percentage = normalized_score * 100
-                    
-                    # Risk seviyesi belirleme (4 seviyeli sistem)
-                    if final_percentage < 20:
-                        risk_level = "ÇOK DÜŞÜK"
-                    elif final_percentage < 40:
-                        risk_level = "DÜŞÜK"
-                    elif final_percentage < 60:
-                        risk_level = "ORTA"
-                    elif final_percentage < 80:
-                        risk_level = "YÜKSEK"
+                    if raw_score < MIN_CLIP_SCORE:
+                        normalized_score = 0.0
+                    elif raw_score > MAX_CLIP_SCORE:
+                        normalized_score = 1.0
                     else:
-                        risk_level = "ÇOK YÜKSEK"
+                        normalized_score = (raw_score - MIN_CLIP_SCORE) / (MAX_CLIP_SCORE - MIN_CLIP_SCORE)
                     
-                    nihai_skor = final_percentage / 100  # 0-1 aralığına geri dönüştür
+                    base_score = max(0.0, min(1.0, normalized_score))
                     
-                    # Detaylı log
-                    logger.info(f"[CLIP_PROMPT_LOG] Category: {cat}")
-                    for i, prompt in enumerate(pos_prompts):
-                        logger.info(f"  Prompt: {prompt}    Score: {similarities[i]:.4f}")
-                    for i, prompt in enumerate(neg_prompts):
-                        logger.info(f"  Prompt: {prompt}    Score: {similarities[len(pos_prompts)+i]:.4f}")
-                    logger.info(f"  Positive mean: {pos_score:.4f}, Negative mean: {neg_score:.4f}")
-                    logger.info(f"  Original Fark: {fark:.4f}, Squashed Fark: {squashed_fark:.4f}")
-                    logger.info(f"  Raw Score: {raw_score:.4f} -> Normalized: {normalized_score:.4f} -> Final: {final_percentage:.1f}% -> Risk: {risk_level}")
-                    # --- END: IMPROVED SCORE CALCULATION ---
-                    
-                    final_scores[cat] = float(nihai_skor)
-            
+                    # Ensemble düzeltmesi uygula
+                    if self.ensemble_service:
+                        try:
+                            base_description = f"{cat} content detected"
+                            
+                            corrected_description, corrected_confidence, correction_info = self.ensemble_service.clip_ensemble.predict_content_ensemble(
+                                base_description=base_description,
+                                base_confidence=base_score,
+                                content_id=content_id,
+                                person_id=person_id,
+                                clip_embedding=image_features.cpu().numpy().squeeze()
+                            )
+                            
+                            final_scores[cat] = corrected_confidence
+                            
+                            if correction_info.get('method') != 'base_model':
+                                logger.info(f"[ENSEMBLE_CORRECTION] {cat}: {base_score:.3f} -> {corrected_confidence:.3f} ({correction_info.get('method')})")
+                                
+                        except Exception as e:
+                            logger.warning(f"Ensemble correction failed for {cat}: {str(e)}")
+                            final_scores[cat] = base_score
+                    else:
+                        final_scores[cat] = base_score
+
             # "safe" skorunu diğer risklerin ortalamasından türet
             risk_categories_for_safe_calculation = ['violence', 'adult_content', 'harassment', 'weapon', 'drug']
             sum_of_risk_scores = sum(final_scores.get(rc, 0) for rc in risk_categories_for_safe_calculation)
