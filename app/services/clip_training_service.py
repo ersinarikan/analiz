@@ -18,18 +18,19 @@ from PIL import Image
 import open_clip
 import threading
 import time
+from config import Config
 
 class CLIPContrastiveDataset(Dataset):
     """CLIP Contrastive Learning Dataset"""
     
-    def __init__(self, pairs, preprocess):
+    def __init__(self, pairs: list[dict], preprocess):
         self.pairs = pairs
         self.preprocess = preprocess
         
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self.pairs)
     
-    def __getitem__(self, idx):
+    def __getitem__(self, idx: int) -> dict:
         pair = self.pairs[idx]
         
         try:
@@ -70,7 +71,7 @@ class CLIPTrainingService:
         # Versions klasörünü oluştur
         os.makedirs(self.versions_path, exist_ok=True)
         
-    def start_training_async(self, training_params):
+    def start_training_async(self, training_params: dict) -> None:
         """Asenkron training başlat"""
         def training_thread():
             try:
@@ -87,39 +88,39 @@ class CLIPTrainingService:
         thread.daemon = True
         thread.start()
         
-    def run_contrastive_training(self, training_params):
+    def run_contrastive_training(self, training_params: dict) -> None:
         """Ana contrastive learning training fonksiyonu"""
-        session_id = None
-        session = None
+        session_id: int | None = None
+        session: CLIPTrainingSession | None = None
         
         try:
             self.logger.info("CLIP Contrastive Learning başlatılıyor...")
             
             # 1. Feedback'leri al
-            feedbacks, error = self.get_available_feedbacks(
+            feedbacks: list[Feedback] | tuple[None, str] = self.get_available_feedbacks(
                 min_feedback_count=training_params.get('min_feedback_count', 50)
             )
-            if error:
-                raise Exception(f"Feedback alma hatası: {error}")
+            if feedbacks is None:
+                raise Exception(f"Feedback alma hatası: {feedbacks[1]}")
             
             # 2. Contrastive pairs oluştur
-            pairs, error = self.create_contrastive_pairs(
+            pairs: list[dict] | tuple[list[dict], str] = self.create_contrastive_pairs(
                 feedbacks, 
                 categories=training_params.get('categories', ['violence', 'adult_content', 'harassment', 'weapon', 'drug'])
             )
-            if error:
-                raise Exception(f"Contrastive pairs oluşturma hatası: {error}")
+            if pairs is None:
+                raise Exception(f"Contrastive pairs oluşturma hatası: {pairs[1]}")
             
             if len(pairs) < 10:
                 raise Exception(f"Yetersiz training pair: {len(pairs)}")
             
             # 3. Training data hazırla
-            data_info, error = self.prepare_training_data(
+            data_info: dict | tuple[dict, str] | None = self.prepare_training_data(
                 pairs, 
                 train_split=training_params.get('train_split', 0.8)
             )
-            if error:
-                raise Exception(f"Training data hazırlama hatası: {error}")
+            if data_info is None:
+                raise Exception(f"Training data hazırlama hatası: {data_info[1]}")
             
             # 4. Database session oluştur
             session = CLIPTrainingSession(
@@ -151,15 +152,12 @@ class CLIPTrainingService:
             train_dataset = CLIPContrastiveDataset(data_info['train_pairs'], preprocess)
             val_dataset = CLIPContrastiveDataset(data_info['val_pairs'], preprocess)
             
-            batch_size = training_params.get('batch_size', 16)
+            batch_size = training_params.get('batch_size', Config.DEFAULT_TRAINING_PARAMS['batch_size'])
             train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=0)
             val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=0)
-            
-            # 7. Optimizer ve scheduler
-            learning_rate = training_params.get('learning_rate', 1e-5)
+            learning_rate = training_params.get('learning_rate', Config.DEFAULT_TRAINING_PARAMS['learning_rate'])
             optimizer = optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=0.01)
-            
-            epochs = training_params.get('epochs', 5)
+            epochs = training_params.get('epochs', Config.DEFAULT_TRAINING_PARAMS['epochs'])
             scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
             
             # 8. Training loop
@@ -224,7 +222,7 @@ class CLIPTrainingService:
             
             raise e
     
-    def _train_epoch(self, model, train_loader, optimizer, tokenizer, device):
+    def _train_epoch(self, model, train_loader, optimizer, tokenizer, device) -> float:
         """Bir epoch training"""
         model.train()
         total_loss = 0
@@ -275,7 +273,7 @@ class CLIPTrainingService:
         
         return total_loss / max(num_batches, 1)
     
-    def _validate_epoch(self, model, val_loader, tokenizer, device):
+    def _validate_epoch(self, model, val_loader, tokenizer, device) -> float:
         """Bir epoch validation"""
         model.eval()
         total_loss = 0
@@ -315,7 +313,7 @@ class CLIPTrainingService:
         
         return total_loss / max(num_batches, 1)
     
-    def _save_model_checkpoint(self, model, version_name, epoch_info):
+    def _save_model_checkpoint(self, model, version_name: str, epoch_info: dict) -> None:
         """Model checkpoint kaydet"""
         try:
             checkpoint_dir = os.path.join(self.versions_path, version_name)
@@ -343,7 +341,7 @@ class CLIPTrainingService:
         except Exception as e:
             self.logger.error(f"Model checkpoint kaydetme hatası: {str(e)}")
     
-    def get_available_feedbacks(self, min_feedback_count=50):
+    def get_available_feedbacks(self, min_feedback_count: int = 50) -> tuple[list[Feedback], str] | tuple[None, str]:
         """Eğitim için kullanılabilir feedback'leri getir"""
         try:
             # İçerik modeli için sadece manuel feedback'leri al
@@ -368,7 +366,7 @@ class CLIPTrainingService:
             self.logger.error(f"Feedback'ler alınırken hata: {str(e)}")
             return None, str(e)
     
-    def create_contrastive_pairs(self, feedbacks, categories=['violence', 'adult_content', 'harassment', 'weapon', 'drug']):
+    def create_contrastive_pairs(self, feedbacks: list[Feedback], categories: list[str] = ['violence', 'adult_content', 'harassment', 'weapon', 'drug']) -> tuple[list[dict], str] | tuple[list[dict], None]:
         """Feedback'lerden contrastive learning çiftleri oluştur"""
         pairs = []
         
@@ -417,7 +415,7 @@ class CLIPTrainingService:
             self.logger.error(f"Contrastive pairs oluşturulurken hata: {str(e)}")
             return [], str(e)
     
-    def _get_positive_prompt(self, category):
+    def _get_positive_prompt(self, category: str) -> str:
         """Pozitif prompt'ları getir"""
         prompts = {
             'violence': "This image contains violence and aggression",
@@ -428,7 +426,7 @@ class CLIPTrainingService:
         }
         return prompts.get(category, f"This image contains {category}")
     
-    def _get_negative_prompt(self, category):
+    def _get_negative_prompt(self, category: str) -> str:
         """Negatif prompt'ları getir"""
         prompts = {
             'violence': "This image is peaceful and non-violent",
@@ -439,7 +437,7 @@ class CLIPTrainingService:
         }
         return prompts.get(category, f"This image is free from {category}")
     
-    def prepare_training_data(self, pairs, train_split=0.8):
+    def prepare_training_data(self, pairs: list[dict], train_split: float = 0.8) -> tuple[dict, str] | tuple[dict, None]:
         """Training data'yı hazırla"""
         try:
             # Shuffle pairs
@@ -476,7 +474,7 @@ class CLIPTrainingService:
             self.logger.error(f"Training data hazırlanırken hata: {str(e)}")
             return None, str(e)
     
-    def create_training_session(self, feedback_count, training_params):
+    def create_training_session(self, feedback_count: int, training_params: dict) -> tuple[str, str, str] | tuple[None, None, str]:
         """Yeni training session oluştur"""
         try:
             session_id = f"clip_contrastive_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
@@ -503,7 +501,7 @@ class CLIPTrainingService:
             self.logger.error(f"Training session oluşturulurken hata: {str(e)}")
             return None, None, str(e)
     
-    def get_training_statistics(self):
+    def get_training_statistics(self) -> tuple[dict, str] | tuple[None, str]:
         """Training için istatistikleri getir"""
         try:
             feedbacks, error = self.get_available_feedbacks(min_feedback_count=1)

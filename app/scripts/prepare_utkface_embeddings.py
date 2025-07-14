@@ -3,6 +3,7 @@ import cv2
 from tqdm import tqdm
 import logging
 import config
+from config import Config
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -30,7 +31,7 @@ def process_images(image_dir, output_dir, img_limit):
             # Eğer beklenen yerde değilse, base_path'in doğrudan buffalo_l modeli olduğunu varsayalım
             # ve içinde w600k_r50.onnx olduğunu umalım (bu genellikle olmaz).
             # Daha olası bir durum, base_path'in ZATEN .insightface/models/buffalo_l gibi bir yeri göstermesi
-            # VEYA bizim indirme scriptimizin dosyaları doğrudan base_model altına koymasıdır.
+            # VEYA bizim indirme scriptimizin dosyaları doğrudan base_model altına kopyalıyor.
             # İndirme scriptimiz dosyaları storage/models/age/buffalo_l/base_model/ altına kopyalıyor,
             # InsightFace'in beklediği 'models/buffalo_l' alt klasör yapısı OLMADAN.
             # BU YÜZDEN DOĞRUDAN base_path altındaki w600k_r50.onnx'i denemeliyiz.

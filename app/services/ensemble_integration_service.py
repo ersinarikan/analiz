@@ -8,9 +8,8 @@ logger = logging.getLogger('app.ensemble_integration')
 
 class EnsembleIntegrationService:
     """
-    Production Integration for Ensemble-based Incremental Learning
-    
-    Combines Age and CLIP ensemble services for seamless production integration
+    Farklı ensemble servislerini entegre eden ana servis sınıfı.
+    - CLIP ve Age ensemble servislerini bir arada yönetir.
     """
     
     def __init__(self):
@@ -19,7 +18,7 @@ class EnsembleIntegrationService:
         self.initialized = False
         logger.info("EnsembleIntegrationService initialized")
     
-    def initialize(self):
+    def initialize(self) -> dict:
         """Load all ensemble corrections"""
         logger.info("🚀 Initializing ensemble systems...")
         
@@ -57,7 +56,7 @@ class EnsembleIntegrationService:
                 'error': str(e)
             }
     
-    def predict_age_enhanced(self, base_age_prediction, embedding, person_id=None):
+    def predict_age_enhanced(self, base_age_prediction: float, embedding: list, person_id: str | None = None) -> dict:
         """
         Enhanced age prediction using ensemble
         
@@ -105,7 +104,7 @@ class EnsembleIntegrationService:
                 'improvement': 0.0
             }
     
-    def predict_content_enhanced(self, base_description, base_confidence, content_id=None, person_id=None, clip_embedding=None):
+    def predict_content_enhanced(self, base_description: str, base_confidence: float, content_id: str | None = None, person_id: str | None = None, clip_embedding: list | None = None) -> dict:
         """
         Enhanced content prediction using CLIP ensemble
         
@@ -156,7 +155,7 @@ class EnsembleIntegrationService:
                 'confidence_improvement': 0.0
             }
     
-    def analyze_image_enhanced(self, image, face_data, content_data):
+    def analyze_image_enhanced(self, image: str, face_data: dict, content_data: dict) -> dict:
         """
         Complete enhanced analysis using both ensembles
         
@@ -234,7 +233,7 @@ class EnsembleIntegrationService:
         
         return results
     
-    def get_system_status(self):
+    def get_system_status(self) -> dict:
         """Get ensemble system status"""
         if not self.initialized:
             return {
@@ -270,7 +269,7 @@ class EnsembleIntegrationService:
             }
         }
     
-    def refresh_corrections(self):
+    def refresh_corrections(self) -> dict:
         """Refresh all ensemble corrections"""
         try:
             age_result = self.age_ensemble.load_age_corrections()
@@ -290,7 +289,7 @@ class EnsembleIntegrationService:
                 'error': str(e)
             }
     
-    def reset_ensemble_corrections(self, model_type):
+    def reset_ensemble_corrections(self, model_type: str) -> dict:
         """Reset ensemble corrections for specified model type"""
         try:
             if model_type == 'age':
@@ -330,7 +329,7 @@ class EnsembleIntegrationService:
                 'error': str(e)
             }
     
-    def get_real_age_distribution(self):
+    def get_real_age_distribution(self) -> dict:
         """Get real-time age distribution from feedback database"""
         try:
             from app import db
@@ -368,7 +367,7 @@ class EnsembleIntegrationService:
             # Fallback to empty distribution
             return {"0-10": 0, "11-20": 0, "21-30": 0, "31-40": 0, "41-50": 0, "51-60": 0, "61+": 0}
     
-    def get_real_error_distribution(self):
+    def get_real_error_distribution(self) -> dict:
         """Get real-time error distribution from feedback accuracy"""
         try:
             from app import db
@@ -422,7 +421,7 @@ class EnsembleIntegrationService:
 # Global ensemble service instance
 _ensemble_service = None
 
-def get_ensemble_service():
+def get_ensemble_service() -> EnsembleIntegrationService:
     """Get global ensemble service instance"""
     global _ensemble_service
     if _ensemble_service is None:

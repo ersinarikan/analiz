@@ -1,6 +1,11 @@
 import os
 from dotenv import load_dotenv
 
+"""
+Uygulama konfigürasyon dosyası.
+- Ortam değişkenleri, model ve ayar state yönetimi içerir.
+"""
+
 # .env dosyasını yükle
 load_dotenv()
 
@@ -29,6 +34,9 @@ except ImportError:
     SETTINGS_STATE = {}
     SETTINGS_LAST_UPDATE = None
 
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+SQLALCHEMY_DATABASE_URI = f"sqlite:///{os.path.join(BASE_DIR, 'wsanaliz_dev.db')}"
+
 class Config:
     # Uygulama Ayarları
     SECRET_KEY = os.environ.get('SECRET_KEY') or 'guvenli-anahtar-buraya'
@@ -38,7 +46,7 @@ class Config:
     SHOW_HTTP_LOGS = os.environ.get('SHOW_HTTP_LOGS', 'False').lower() in ('true', '1', 't')
     
     # Veritabanı Ayarları
-    SQLALCHEMY_DATABASE_URI = os.environ.get('DATABASE_URL') or 'sqlite:///wsanaliz.db'
+    SQLALCHEMY_DATABASE_URI = os.environ.get('DATABASE_URL') or SQLALCHEMY_DATABASE_URI
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     
     # Dosya Yükleme Ayarları
@@ -62,7 +70,7 @@ class Config:
     # OpenCLIP Model (ViT-H-14-378-quickgelu, pretrained: dfn5b)
     OPENCLIP_MODEL_TYPE = 'clip'
     OPENCLIP_MODEL_NAME = 'ViT-H-14-378-quickgelu_dfn5b' # model_name ve pretrained birleştirildi
-    OPENCLIP_MODEL_BASE_PATH = os.path.join(MODELS_FOLDER, OPENCLIP_MODEL_TYPE, OPENCLIP_MODEL_NAME, 'base_model')
+    OPENCLIP_MODEL_BASE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'temp_model')
     OPENCLIP_MODEL_VERSIONS_PATH = os.path.join(MODELS_FOLDER, OPENCLIP_MODEL_TYPE, OPENCLIP_MODEL_NAME, 'versions')
     OPENCLIP_MODEL_ACTIVE_PATH = os.path.join(MODELS_FOLDER, OPENCLIP_MODEL_TYPE, OPENCLIP_MODEL_NAME, 'active_model') # Başlangıçta base_model'i işaret edebilir
 
@@ -98,7 +106,7 @@ class Config:
     # Yeni Global Analiz Parametreleri (Kullanıcının resmindeki)
     FACE_DETECTION_CONFIDENCE = 0.5 # (0.1 - 1.0)
     TRACKING_RELIABILITY_THRESHOLD = 0.5 # (0.1 - 0.9)
-    ID_CHANGE_THRESHOLD = 0.45 # (0.1 - 0.8)
+    ID_CHANGE_THRESHOLD = 0.4 # (0.1 - 0.8)
     MAX_LOST_FRAMES = 30 # (5 - 300)
     EMBEDDING_DISTANCE_THRESHOLD = 0.4 # (0.1 - 0.8)
 
@@ -120,17 +128,55 @@ class Config:
     # Eğitim sonrası temizlik ayarı
     CLEANUP_TRAINING_DATA_AFTER_TRAINING = True  # Eğitim sonrası kullanılan verileri tamamen siler (VT + dosyalar)
 
+    # Merkezi fabrika ayarları (ör: settings_routes.py ve analysis_service.py'de kullanılıyor)
+    FACTORY_DEFAULTS = {
+        "FACE_DETECTION_CONFIDENCE": 0.5,
+        "TRACKING_RELIABILITY_THRESHOLD": 0.5,
+        "ID_CHANGE_THRESHOLD": 0.45,
+        "MAX_LOST_FRAMES": 30,
+        "EMBEDDING_DISTANCE_THRESHOLD": 0.4
+    }
+
+    # Güncellenebilecek parametreler ve tipleri (ör: settings_routes.py)
+    UPDATABLE_PARAMS = {
+        "FACE_DETECTION_CONFIDENCE": float,
+        "TRACKING_RELIABILITY_THRESHOLD": float,
+        "ID_CHANGE_THRESHOLD": float,
+        "MAX_LOST_FRAMES": int,
+        "EMBEDDING_DISTANCE_THRESHOLD": float
+    }
+
+    # Model yolları (ör: model_service.py)
+    MODEL_PATHS = {
+        'violence_detection': os.path.join(MODELS_FOLDER, 'violence'),
+        'harassment_detection': os.path.join(MODELS_FOLDER, 'harassment'),
+        'adult_content_detection': os.path.join(MODELS_FOLDER, 'adult_content'),
+        'weapon_detection': os.path.join(MODELS_FOLDER, 'weapon'),
+        'substance_detection': os.path.join(MODELS_FOLDER, 'substance'),
+        'age_estimation': os.path.join(MODELS_FOLDER, 'age')
+    }
+
+    # Eğitim için varsayılan parametreler (ör: model_service.py, training fonksiyonları)
+    DEFAULT_TRAINING_PARAMS = {
+        'epochs': 10,
+        'batch_size': 32,
+        'learning_rate': 0.001,
+        'test_size': 0.2,
+        'hidden_dims': [256, 128],
+        'early_stopping_patience': 10
+    }
+
 class DevelopmentConfig(Config):
     DEBUG = True
-    SQLALCHEMY_DATABASE_URI = 'sqlite:///wsanaliz_dev.db'
+    SQLALCHEMY_DATABASE_URI = Config.SQLALCHEMY_DATABASE_URI
 
 class TestingConfig(Config):
     TESTING = True
-    SQLALCHEMY_DATABASE_URI = 'sqlite:///wsanaliz_dev.db'  # Aynı DB kullan
+    SQLALCHEMY_DATABASE_URI = Config.SQLALCHEMY_DATABASE_URI
 
 class ProductionConfig(Config):
     DEBUG = False
-    SQLALCHEMY_DATABASE_URI = 'sqlite:///wsanaliz_dev.db'  # Aynı DB kullan
+    SQLALCHEMY_DATABASE_URI = Config.SQLALCHEMY_DATABASE_URI
     
 config = {
     'development': DevelopmentConfig,

@@ -32,13 +32,14 @@ MODEL_STATE = {
 # Her model aktivasyonunda timestamp güncellenir
 LAST_UPDATE = "2025-05-30T18:54:00.000000"
 
-def update_model_state(model_type, version_id):
+def update_model_state(model_type: str, version_id) -> None:
     """
-    Thread-safe model state güncelleme
-    
+    Thread-safe model state güncelleme.
     Args:
-        model_type (str): Model tipi ('age', 'content', etc.)
-        version_id: Versiyon ID'si (int, str, or None)
+        model_type (str): Model tipi ('age', 'content', etc.).
+        version_id: Versiyon ID'si (int, str, or None).
+    Returns:
+        None
     """
     global MODEL_STATE, LAST_UPDATE
     

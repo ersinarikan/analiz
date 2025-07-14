@@ -4,7 +4,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-def extract_hair_color(face_image, bbox):
+def extract_hair_color(face_image: np.ndarray, bbox: tuple[int, int, int, int]) -> tuple[int, int, int] | None:
     """
     Yüzün üst kısmından saç rengini çıkarır.
     
@@ -56,7 +56,7 @@ def extract_hair_color(face_image, bbox):
         logger.error(f"Saç rengi çıkarma hatası: {str(e)}")
         return None
 
-def extract_skin_tone(face_image, bbox):
+def extract_skin_tone(face_image: np.ndarray, bbox: tuple[int, int, int, int]) -> tuple[int, int, int] | None:
     """
     Yüz bölgesinden ortalama cilt tonunu çıkarır.
     
@@ -89,7 +89,7 @@ def extract_skin_tone(face_image, bbox):
         logger.error(f"Cilt tonu çıkarma hatası: {str(e)}")
         return None
 
-def extract_face_landmarks(face_obj):
+def extract_face_landmarks(face_obj: object) -> np.ndarray | None:
     """
     InsightFace yüz nesnesinden landmark'ları çıkarır.
     
@@ -108,17 +108,13 @@ def extract_face_landmarks(face_obj):
         logger.error(f"Landmark çıkarma hatası: {str(e)}")
         return None
 
-def extract_face_features(image, face_obj, bbox):
+def extract_face_features(face_obj: object) -> dict:
     """
-    Bir yüz için tüm özellikleri çıkarır.
-    
+    Yüz nesnesinden temel özellikleri çıkarır.
     Args:
-        image: Tam frame
-        face_obj: InsightFace yüz nesnesi
-        bbox: [x, y, w, h] bounding box
-        
+        face_obj: Yüz nesnesi (InsightFace veya dict).
     Returns:
-        dict: Yüz özellikleri sözlüğü
+        dict: Özellikler (bbox, kps, age, gender, embedding, vs.).
     """
     features = {
         'embedding': face_obj.embedding if hasattr(face_obj, 'embedding') else None,

@@ -13,13 +13,8 @@ logger = logging.getLogger('app.ensemble_age_service')
 
 class EnsembleAgeService:
     """
-    Simple Ensemble-based Incremental Learning
-    
-    Strategy:
-    - Keep base model intact (never retrain!)
-    - Store feedback-based corrections as lookup table
-    - Use nearest neighbor interpolation for similar embeddings
-    - Fallback to base model for unknown cases
+    Yaş tahmini için ensemble tabanlı artımsal öğrenme servis sınıfı.
+    - Temel modeli korur, geri bildirim düzeltmelerini uygular, yaş benzerliği ile eşleştirme yapar.
     """
     
     def __init__(self):
@@ -108,12 +103,12 @@ class EnsembleAgeService:
         
         return len(person_corrections)
     
-    def _hash_embedding(self, embedding):
+    def _hash_embedding(self, embedding: np.ndarray) -> int:
         """Create hash for embedding (for lookup)"""
         # Simple hash based on first few dimensions
         return hash(tuple(embedding[:10].round(3)))
     
-    def predict_age_ensemble(self, base_age_prediction, embedding, person_id=None):
+    def predict_age_ensemble(self, base_age: int, base_confidence: float, person_id: int = None, embedding: np.ndarray = None) -> tuple[int, float, dict]:
         """
         Ensemble prediction: Base model + Feedback corrections
         
@@ -174,25 +169,25 @@ class EnsembleAgeService:
                 corrected_age = best_correction['corrected_age']
                 
                 # Blend base prediction with correction
-                final_age = (1 - weight) * base_age_prediction + weight * corrected_age
+                final_age = (1 - weight) * base_age + weight * corrected_age
                 confidence = best_correction['confidence'] * weight
                 
                 logger.info(f"Similarity correction: sim={best_similarity:.3f}, "
-                           f"base={base_age_prediction:.1f} -> final={final_age:.1f}")
+                           f"base={base_age:.1f} -> final={final_age:.1f}")
                 
                 return final_age, confidence, {
                     'method': 'similarity_correction',
                     'similarity': best_similarity,
-                    'base_age': base_age_prediction,
+                    'base_age': base_age,
                     'corrected_age': corrected_age,
                     'person_id': best_correction['person_id']
                 }
         
         # 3. No correction found - use base model
-        logger.debug(f"No correction found, using base model: {base_age_prediction}")
-        return base_age_prediction, 0.5, {
+        logger.debug(f"No correction found, using base model: {base_age}")
+        return base_age, 0.5, {
             'method': 'base_model_only',
-            'base_age': base_age_prediction
+            'base_age': base_age
         }
     
     def get_statistics(self):

@@ -13,6 +13,7 @@ from app import create_app, db
 from app.services.age_training_service import AgeTrainingService
 from app.models.feedback import Feedback
 from sqlalchemy import inspect
+from config import Config
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -36,15 +37,15 @@ def test_age_training():
         print("\n=== Mevcut Eğitim Verisi İstatistikleri ===")
         training_data = trainer.prepare_training_data(min_samples=1)
         
-        if training_data is None:
-            print("Henüz yeterli geri bildirim verisi yok.")
+        if training_data is None or len(training_data['embeddings']) < 2:
+            print("Henüz yeterli geri bildirim verisi yok veya örnek sayısı yetersiz.")
             
-            # Örnek veri oluştur (test amaçlı)
+            # En az 2 örnek oluştur (test amaçlı)
             print("\n=== Test Verisi Oluşturuluyor ===")
-            create_sample_feedback_data()
+            create_sample_feedback_data(min_samples=2)
             
             # Tekrar dene
-            training_data = trainer.prepare_training_data(min_samples=1)
+            training_data = trainer.prepare_training_data(min_samples=2)
         
         if training_data:
             manual_count = training_data['sources'].count('manual')
@@ -59,15 +60,8 @@ def test_age_training():
             
             # 2. Model eğitimi başlat
             print("\n=== Model Eğitimi Başlatılıyor ===")
-            params = {
-                'epochs': 10,  # Test için az epoch
-                'batch_size': 16,
-                'learning_rate': 0.001,
-                'hidden_dims': [256, 128],
-                'test_size': 0.2,
-                'early_stopping_patience': 5
-            }
-            
+            params = Config.DEFAULT_TRAINING_PARAMS.copy()
+            # Test için istenirse override yapılabilir, örn: params['epochs'] = 10
             result = trainer.train_model(training_data, params)
             
             # 3. Sonuçları göster
@@ -93,7 +87,7 @@ def test_age_training():
                 print(f"  Örnekler: {v['training_samples']} eğitim, {v['validation_samples']} doğrulama")
                 print()
 
-def create_sample_feedback_data():
+def create_sample_feedback_data(min_samples=1):
     """Test için örnek geri bildirim verisi oluşturur"""
     import numpy as np
     

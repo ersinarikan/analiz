@@ -4,8 +4,14 @@ import numpy as np
 from PIL import Image
 from flask import current_app
 
-def load_image(image_path):
-    """Belirtilen yoldan bir görüntüyü yükler ve NumPy dizisi olarak döndürür."""
+def load_image(image_path: str) -> 'np.ndarray':
+    """
+    Belirtilen dosya yolundan resmi yükler.
+    Args:
+        image_path (str): Resim dosya yolu.
+    Returns:
+        np.ndarray: Yüklenen resim.
+    """
     try:
         if not os.path.exists(image_path):
             current_app.logger.error(f"Görüntü dosyası bulunamadı: {image_path}")

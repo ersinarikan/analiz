@@ -7,6 +7,7 @@ import torch.optim as optim
 from torch.utils.data import DataLoader, TensorDataset
 from sklearn.model_selection import train_test_split
 import logging
+from config import Config
 
 # Betik seviyesinde bir logger oluşturuyoruz
 # Log seviyesini DEBUG yapalım ki her şey görünsün
@@ -126,15 +127,15 @@ if __name__ == "__main__":
                         help="Kaydedilecek model dosyasının adı (örn: custom_age_head_v1.pth).")
     parser.add_argument("--input_embedding_dim", type=int, default=512, 
                         help="Giriş embedding vektörünün boyutu.")
-    parser.add_argument("--hidden_dims", type=str, default="256,128", 
+    parser.add_argument("--hidden_dims", type=str, default=','.join(str(d) for d in Config.DEFAULT_TRAINING_PARAMS['hidden_dims']), 
                         help="Modeldeki gizli katmanların boyutları (virgülle ayrılmış, örn: '256,128').")
-    parser.add_argument("--epochs", type=int, default=50, 
+    parser.add_argument("--epochs", type=int, default=Config.DEFAULT_TRAINING_PARAMS['epochs'], 
                         help="Eğitim epoch sayısı.")
-    parser.add_argument("--batch_size", type=int, default=64, 
+    parser.add_argument("--batch_size", type=int, default=Config.DEFAULT_TRAINING_PARAMS['batch_size'], 
                         help="Batch boyutu.")
-    parser.add_argument("--learning_rate", type=float, default=0.001, 
+    parser.add_argument("--learning_rate", type=float, default=Config.DEFAULT_TRAINING_PARAMS['learning_rate'], 
                         help="Öğrenme oranı.")
-    parser.add_argument("--test_size", type=float, default=0.2, 
+    parser.add_argument("--test_size", type=float, default=Config.DEFAULT_TRAINING_PARAMS['test_size'], 
                         help="Doğrulama seti için ayrılacak veri oranı.")
     parser.add_argument("--use_gpu", type=lambda x: (str(x).lower() == 'true'), default=True,
                         help="GPU kullanımı (True/False).")

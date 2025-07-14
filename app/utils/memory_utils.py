@@ -156,7 +156,7 @@ def memory_profiler(func):
 class MemoryManager:
     """Memory management class for tracking and optimizing memory usage"""
     
-    def __init__(self, max_memory_percent=80, cleanup_interval=300):
+    def __init__(self, max_memory_percent: int = 80, cleanup_interval: int = 300):
         """
         Initialize memory manager
         
@@ -196,7 +196,7 @@ class MemoryManager:
         self.monitoring_enabled = False
         logger.info("Memory monitoring stopped")
     
-    def get_stats(self):
+    def get_stats(self) -> Dict[str, Any]:
         """Get memory statistics"""
         return get_memory_usage()
 
@@ -230,7 +230,7 @@ class GPUMemoryManager:
             logger.debug("GPU cache cleared")
     
     @staticmethod
-    def get_gpu_memory_info():
+    def get_gpu_memory_info() -> Dict[str, Any]:
         """Get GPU memory information"""
         if not torch.cuda.is_available():
             return {'status': 'cuda_not_available'}
@@ -252,8 +252,12 @@ class GPUMemoryManager:
 # Global memory manager instance
 memory_manager = MemoryManager()
 
-def initialize_memory_management():
-    """Initialize global memory management"""
+def initialize_memory_management() -> None:
+    """
+    Bellek yönetimi için gerekli ayarları başlatır.
+    Returns:
+        None
+    """
     try:
         # Optimize GPU memory
         GPUMemoryManager.optimize_gpu_memory()
@@ -266,7 +270,7 @@ def initialize_memory_management():
     except Exception as e:
         logger.error(f"Memory management initialization failed: {e}")
 
-def get_memory_recommendations():
+def get_memory_recommendations() -> Dict[str, Any]:
     """
     Memory kullanımı önerilerini döndürür
     

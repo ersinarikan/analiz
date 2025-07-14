@@ -1,6 +1,6 @@
 import logging
-from flask import Blueprint, request, jsonify, current_app, Response
-from app import db, socketio
+from flask import Blueprint, request, jsonify, current_app
+from app import db
 from app.models.file import File
 from app.models.analysis import Analysis, ContentDetection, AgeEstimation, AnalysisFeedback
 from app.models.feedback import Feedback
@@ -13,9 +13,13 @@ from app.utils.security import (
 
 logger = logging.getLogger(__name__)
 
-bp = Blueprint('analysis', __name__, url_prefix='/api/analysis')
+analysis_bp = Blueprint('analysis', __name__, url_prefix='/api/analysis')
+"""
+Analiz işlemleri için blueprint.
+- Analiz başlatma, sonuç alma ve analizle ilgili endpointleri içerir.
+"""
 
-@bp.route('/start', methods=['POST'])
+@analysis_bp.route('/start', methods=['POST'])
 def start_analysis():
     """
     Güvenli analiz başlatma endpoint'i. Tüm girişleri doğrular.
@@ -83,7 +87,7 @@ def start_analysis():
         db.session.rollback()
         return jsonify({'error': 'Analiz başlatılırken bir hata oluştu'}), 500
 
-@bp.route('/<int:analysis_id>', methods=['GET'])
+@analysis_bp.route('/<int:analysis_id>', methods=['GET'])
 def get_analysis(analysis_id):
     """
     Güvenli analiz bilgisi getirme endpoint'i.
@@ -104,7 +108,7 @@ def get_analysis(analysis_id):
         logger.error(f"Analiz bilgisi alınırken hata: {str(e)}")
         return jsonify({'error': 'Analiz bilgisi alınırken bir hata oluştu'}), 500
 
-@bp.route('/file/<int:file_id>', methods=['GET'])
+@analysis_bp.route('/file/<int:file_id>', methods=['GET'])
 def get_file_analyses(file_id):
     """
     Güvenli dosya analizleri getirme endpoint'i.
@@ -128,7 +132,7 @@ def get_file_analyses(file_id):
         logger.error(f"Dosya analizleri alınırken hata: {str(e)}")
         return jsonify({'error': 'Dosya analizleri alınırken bir hata oluştu'}), 500
 
-@bp.route('/<int:analysis_id>/results', methods=['GET'])
+@analysis_bp.route('/<int:analysis_id>/results', methods=['GET'])
 def get_results(analysis_id):
     """
     Güvenli analiz sonuçları getirme endpoint'i.
@@ -149,7 +153,7 @@ def get_results(analysis_id):
         logger.error(f"Analiz sonuçları alınırken hata: {str(e)}")
         return jsonify({'error': 'Analiz sonuçları alınırken bir hata oluştu'}), 500
 
-@bp.route('/<int:analysis_id>/feedback', methods=['POST'])
+@analysis_bp.route('/<int:analysis_id>/feedback', methods=['POST'])
 def submit_feedback(analysis_id):
     """
     Güvenli feedback gönderme endpoint'i.
@@ -216,12 +220,6 @@ def submit_feedback(analysis_id):
         db.session.add(feedback)
         db.session.commit()
         
-        # Socket.io ile bildirimleri gönder
-        try:
-            socketio.emit('new_feedback', feedback.to_dict())
-        except Exception as socket_err:
-            logger.warning(f"Socket bildirim hatası: {str(socket_err)}")
-        
         return jsonify({
             'message': 'Geribildirim başarıyla kaydedildi',
             'feedback': feedback.to_dict()
@@ -232,7 +230,7 @@ def submit_feedback(analysis_id):
         db.session.rollback()
         return jsonify({'error': 'Geribildirim kaydedilirken bir hata oluştu'}), 500
 
-@bp.route('/<analysis_id>/feedback', methods=['GET'])
+@analysis_bp.route('/<analysis_id>/feedback', methods=['GET'])
 def get_feedback(analysis_id):
     """
     Belirtilen analiz ID'si için tüm geribildirimleri getirir.
@@ -251,7 +249,7 @@ def get_feedback(analysis_id):
     
     return jsonify([f.to_dict() for f in feedbacks]), 200
 
-@bp.route('/<analysis_id>/cancel', methods=['POST'])
+@analysis_bp.route('/<analysis_id>/cancel', methods=['POST'])
 def cancel_analysis(analysis_id):
     """
     Devam eden bir analizi iptal eder.
@@ -285,7 +283,7 @@ def cancel_analysis(analysis_id):
         logger.error(f"Analiz iptal edilirken hata: {str(e)}")
         return jsonify({'error': f'Analiz iptal edilirken bir hata oluştu: {str(e)}'}), 500
 
-@bp.route('/<analysis_id>/retry', methods=['POST'])
+@analysis_bp.route('/<analysis_id>/retry', methods=['POST'])
 def retry_analysis(analysis_id):
     """
     Başarısız olan bir analizi tekrar dener.
@@ -323,7 +321,7 @@ def retry_analysis(analysis_id):
         logger.error(f"Analiz tekrar denenirken hata: {str(e)}")
         return jsonify({'error': f'Analiz tekrar denenirken bir hata oluştu: {str(e)}'}), 500
 
-@bp.route('/<analysis_id>/status', methods=['GET'])
+@analysis_bp.route('/<analysis_id>/status', methods=['GET'])
 def get_analysis_status(analysis_id):
     """
     Analiz durumunu ve ilerleme bilgisini getirir.
@@ -355,7 +353,7 @@ def get_analysis_status(analysis_id):
         logger.error(f"Analiz durumu alınırken hata: {str(e)}")
         return jsonify({'error': f'Analiz durumu alınırken bir hata oluştu: {str(e)}'}), 500
 
-@bp.route('/<analysis_id>/detailed-results', methods=['GET'])
+@analysis_bp.route('/<analysis_id>/detailed-results', methods=['GET'])
 def get_detailed_results(analysis_id):
     """
     Tamamlanmış bir analizin detaylı sonuçlarını getirir.
@@ -439,8 +437,10 @@ def get_detailed_results(analysis_id):
 
         # NumPy veri tipleri ile başa çıkabilmek için özel JSON dönüştürücü kullan
         json_str = json_dumps_numpy(results)
-        return Response(json_str, mimetype='application/json'), 200
+        return jsonify(json_str), 200
         
     except Exception as e:
         logger.error(f"Detaylı analiz sonuçları alınırken hata: {str(e)}")
         return jsonify({'error': f'Detaylı analiz sonuçları alınırken bir hata oluştu: {str(e)}'}), 500 
+
+bp = analysis_bp 

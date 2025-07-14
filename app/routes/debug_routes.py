@@ -24,9 +24,13 @@ from app.services.analysis_service import AnalysisService
 from app.services.queue_service import get_queue_status
 
 logger = logging.getLogger(__name__)
-bp = Blueprint('debug', __name__, url_prefix='/api/debug')
+debug_bp = Blueprint('debug', __name__)
+"""
+Hata ayıklama için blueprint.
+- Sistem ve model hata ayıklama endpointlerini içerir.
+"""
 
-@bp.route('/test_serialization', methods=['GET'])
+@debug_bp.route('/test_serialization', methods=['GET'])
 def test_serialization():
     """NumPy veri türlerinin JSON serileştirme testini çalıştırır."""
     success, result = test_numpy_serialization()
@@ -37,7 +41,7 @@ def test_serialization():
         'error': None if success else result
     })
 
-@bp.route('/test_content_detection', methods=['GET'])
+@debug_bp.route('/test_content_detection', methods=['GET'])
 def test_content_detection():
     """ContentDetection sınıfının serileştirme işlemini test eder."""
     from app.models.analysis import ContentDetection
@@ -96,7 +100,7 @@ def test_content_detection():
             'traceback': traceback.format_exc()
         }), 500 
 
-@bp.route('/system-info', methods=['GET'])
+@debug_bp.route('/system-info', methods=['GET'])
 def system_info():
     """
     Sistem bilgilerini döndürür.
@@ -167,7 +171,7 @@ def system_info():
         logger.error(f"Sistem bilgisi alınırken hata: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
-@bp.route('/queue-status', methods=['GET'])
+@debug_bp.route('/queue-status', methods=['GET'])
 def queue_status():
     """
     Kuyruk durumunu döndürür.
@@ -181,7 +185,7 @@ def queue_status():
         logger.error(f"Kuyruk durumu alınırken hata: {str(e)}")
         return jsonify({'error': f'Kuyruk durumu alınırken bir hata oluştu: {str(e)}'}), 500
 
-@bp.route('/uploaded-files-count', methods=['GET'])
+@debug_bp.route('/uploaded-files-count', methods=['GET'])
 def uploaded_files_count():
     """
     Yüklü dosya sayısını döndürür.
@@ -229,7 +233,7 @@ def uploaded_files_count():
         logger.error(f"Yüklü dosya sayısı alınırken hata: {str(e)}")
         return jsonify({'error': f'Yüklü dosya sayısı alınırken bir hata oluştu: {str(e)}'}), 500
 
-@bp.route('/repair-stuck-analyses', methods=['POST'])
+@debug_bp.route('/repair-stuck-analyses', methods=['POST'])
 def repair_stuck_analyses_endpoint():
     """Takılmış analizleri düzeltir"""
     try:
@@ -248,7 +252,7 @@ def repair_stuck_analyses_endpoint():
             'message': str(e)
         }), 500
 
-@bp.route('/test-age-base-model', methods=['GET'])
+@debug_bp.route('/test-age-base-model', methods=['GET'])
 def test_age_base_model():
     """Yaş base model kontrolünü test et"""
     try:
@@ -283,10 +287,12 @@ def test_age_base_model():
             'message': str(e)
         }), 500
 
-@bp.route('/health')
+@debug_bp.route('/health')
 def health_check():
     """Sağlık kontrolü endpoint'i"""
     return jsonify({
         'status': 'healthy',
         'message': 'Debug routes are working'
     })
+
+bp = debug_bp

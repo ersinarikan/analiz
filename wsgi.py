@@ -1,6 +1,11 @@
-from app import create_app, socketio
+from app import create_app
 import logging
 import os
+
+"""
+WSGI sunucusu için giriş noktası.
+- Flask uygulamasını WSGI uyumlu sunucularla başlatmak için kullanılır.
+"""
 
 # TensorFlow uyarılarını bastır
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # INFO ve WARNING loglarını gizle
@@ -14,5 +19,5 @@ if __name__ == '__main__':
     log = logging.getLogger('werkzeug')
     log.setLevel(logging.ERROR)
     
-    # Development sunucusu için
-    socketio.run(app, debug=True, host='0.0.0.0', port=5000, log_output=False) 
+    # Development sunucusu için - SocketIO kaldırıldı
+    app.run(debug=True, host='0.0.0.0', port=5000) 

@@ -13,70 +13,39 @@ from app import db
 from app.models.feedback import Feedback
 from app.models.content import ModelVersion
 from app.ai.insightface_age_estimator import CustomAgeHead
+from config import Config
+from app.utils.model_utils import load_torch_model
 
 logger = logging.getLogger('app.incremental_age_training_v2')
 
 class IncrementalAgeTrainingServiceV2:
     """
-    Improved Incremental Learning for Age Model Training
-    
-    Architecture:
-    - Base Model: UTKFace eğitilmiş frozen model
-    - Fine-tuning: Embedding seviyesinde paralel dal
-    - Weighted Mixing: Base + Fine-tune kombinasyonu
+    Artımsal yaş tahmini modelinin ikinci versiyonu için eğitim ve güncelleme servis sınıfı.
+    - Yeni verilerle modelin güncellenmesini ve performans takibini sağlar.
     """
     
     def __init__(self):
         self.device = torch.device("cuda" if torch.cuda.is_available() and current_app.config.get('USE_GPU', True) else "cpu")
         logger.info(f"IncrementalAgeTrainingServiceV2 initialized with device: {self.device}")
     
-    def load_base_model(self):
+    def load_base_model(self) -> nn.Module:
         """Base model'i yükle (UTKFace ile eğitilmiş)"""
         logger.info("Loading base age model...")
-        
         base_model_dir = os.path.join(
             current_app.config['MODELS_FOLDER'],
             'age', 'custom_age_head', 'base_model'
         )
-        
         if not os.path.exists(base_model_dir):
             raise FileNotFoundError(f"Base model directory not found: {base_model_dir}")
-        
         pth_files = [f for f in os.listdir(base_model_dir) if f.endswith('.pth')]
         if not pth_files:
             raise FileNotFoundError(f"No base model file found in: {base_model_dir}")
-        
         model_path = os.path.join(base_model_dir, pth_files[0])
-        
-        try:
-            checkpoint = torch.load(model_path, map_location='cpu', weights_only=True)
-            
-            if 'model_config' in checkpoint:
-                model_config = checkpoint['model_config']
-                base_model = CustomAgeHead(
-                    input_dim=model_config['input_dim'],
-                    hidden_dims=model_config['hidden_dims'],
-                    output_dim=model_config['output_dim']
-                )
-            else:
-                base_model = CustomAgeHead(input_dim=512, hidden_dims=[256, 128], output_dim=1)
-            
-            if 'model_state_dict' in checkpoint:
-                base_model.load_state_dict(checkpoint['model_state_dict'])
-            else:
-                base_model.load_state_dict(checkpoint)
-            
-            base_model.to(self.device)
-            base_model.eval()
-            
-            logger.info(f"✅ Base model loaded from: {model_path}")
-            return base_model
-            
-        except Exception as e:
-            logger.error(f"Error loading base model: {str(e)}")
-            raise
+        config_keys = ['input_dim', 'hidden_dims', 'output_dim']
+        default_config = {'input_dim': 512, 'hidden_dims': [256, 128], 'output_dim': 1}
+        return load_torch_model(model_path, CustomAgeHead, config_keys, self.device, default_config)
     
-    def create_incremental_model(self, base_model):
+    def create_incremental_model(self, base_model: nn.Module) -> nn.Module:
         """Improved incremental learning model"""
         logger.info("Creating improved incremental learning model...")
         
@@ -102,7 +71,7 @@ class IncrementalAgeTrainingServiceV2:
                 # Learnable mixing weight (0=all base, 1=all fine-tune)
                 self.mix_weight = nn.Parameter(torch.tensor(0.2))  # Start with 20% fine-tune
                 
-            def forward(self, x):
+            def forward(self, x: torch.Tensor) -> torch.Tensor:
                 # Base model prediction (frozen)
                 with torch.no_grad():
                     base_pred = self.base_model(x)
@@ -130,7 +99,7 @@ class IncrementalAgeTrainingServiceV2:
         
         return model
     
-    def prepare_feedback_data(self, min_samples=2):
+    def prepare_feedback_data(self, min_samples: int = 2) -> dict | None:
         """Feedback verilerini hazırla"""
         logger.info("Preparing feedback data...")
         
@@ -168,7 +137,11 @@ class IncrementalAgeTrainingServiceV2:
                     person_feedbacks[person_id] = feedback
         
         # Data preparation
-        embeddings, ages, sources, confidence_scores, feedback_ids = [], [], [], [], []
+        embeddings: list[np.ndarray] = []
+        ages: list[float] = []
+        sources: list[str] = []
+        confidence_scores: list[float] = []
+        feedback_ids: list[int] = []
         
         for person_id, feedback in person_feedbacks.items():
             try:
@@ -212,15 +185,9 @@ class IncrementalAgeTrainingServiceV2:
             'feedback_ids': feedback_ids
         }
     
-    def train_incremental_model(self, feedback_data):
+    def train_incremental_model(self, feedback_data: dict) -> dict:
         """Improved incremental training"""
-        params = {
-            'epochs': 20,
-            'batch_size': 4,
-            'learning_rate': 0.001,  # Higher LR for better learning
-            'test_size': 0.2,
-            'patience': 8
-        }
+        params = Config.DEFAULT_TRAINING_PARAMS.copy()
         
         logger.info(f"Starting improved incremental training: {params}")
         
@@ -337,7 +304,7 @@ class IncrementalAgeTrainingServiceV2:
             'used_feedback_ids': feedback_data['feedback_ids']
         }
     
-    def run_incremental_training(self, min_feedback_samples=2):
+    def run_incremental_training(self, min_feedback_samples: int = 2) -> dict | None:
         """Full pipeline"""
         logger.info("🚀 Starting improved incremental training pipeline...")
         

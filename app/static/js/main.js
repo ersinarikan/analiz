@@ -1,8 +1,14 @@
 // Global değişkenler
+const API_URL = '/api';
+let socket; // Global socket - tek instance
 let uploadedFiles = [];
-let analysisInProgress = false;
-let socket;
-let hideLoaderTimeout; // Add this line
+let analysisResults = {};
+let currentAnalysisIds = [];
+let hideLoaderTimeout; // Add this missing variable
+
+// Global flags for training
+window.currentTrainingSessionId = null;
+window.isModalTraining = false;
 
 // Dosya yolu normalleştirme fonksiyonu
 function normalizePath(path) {
@@ -414,152 +420,35 @@ document.addEventListener('DOMContentLoaded', () => {
     } // --- Yeni Analiz Parametreleri Modalı (GLOBAL) için SON ---
 });
 
-// Socket.io bağlantısını başlat
-function initializeSocket(settingsSaveLoader) { // settingsSaveLoader parametre olarak alındı
-    socket = io();
+// Socket.io bağlantısını başlat - SocketIO artık kullanılmıyor, sadece SSE
+function initializeSocket(settingsSaveLoader) { 
+    console.log('SSE sistemi aktif - SocketIO devre dışı');
     
-    socket.on('connect', () => {
-        console.log('WebSocket bağlantısı kuruldu.');
-        
-        // Model değişikliği sonrası sayfa yenilenmesi gerekiyor mu kontrol et
-        if (localStorage.getItem('modelChangedReloadRequired') === 'true') {
-            localStorage.removeItem('modelChangedReloadRequired');
-            // Kısa bir gecikme ile sayfayı yenile
-            setTimeout(() => {
-                window.location.reload();
-            }, 500);
-            return;
+    // Model değişikliği kontrolü
+    if (localStorage.getItem('modelChangedReloadRequired') === 'true') {
+        localStorage.removeItem('modelChangedReloadRequired');
+        setTimeout(() => {
+            window.location.reload();
+        }, 500);
+        return;
+    }
+    
+    // Settings save loader kontrolü
+    if (settingsSaveLoader && settingsSaveLoader.style.display === 'flex') {
+        // Model değişikliği veya parametre değişikliği sonrası yeniden yükleme
+        settingsSaveLoader.style.display = 'none';
+        if (hideLoaderTimeout) {
+            clearTimeout(hideLoaderTimeout);
+            hideLoaderTimeout = null;
         }
-        
-        // const settingsSaveLoader = document.getElementById('settingsSaveLoader'); // Burada tekrar seçmeye gerek yok, parametre olarak geldi
-        const globalAnalysisParamsModalElement = document.getElementById('analysisParamsModal');
-        const modelManagementModalElement = document.getElementById('modelManagementModal');
-        
-        if (settingsSaveLoader && settingsSaveLoader.style.display === 'flex') {
-            // Model değişikliği veya parametre değişikliği sonrası yeniden bağlantı
-            
-            // Modal açık mı kontrol et
-            const isModelManagementModalOpen = modelManagementModalElement && 
-                modelManagementModalElement.classList.contains('show');
-            
-            // Eğer model yönetimi modalı açıksa, muhtemelen model değişikliği yapıldı
-            if (isModelManagementModalOpen) {
-                // Kısa bir gecikme ile sayfayı yenile
-                setTimeout(() => {
-                    window.location.reload();
-                }, 500);
-                return;
-            }
-            
-            // Normal parametre değişikliği için mevcut davranış
-            settingsSaveLoader.style.display = 'none'; 
-            if (hideLoaderTimeout) { // Add this check
-                clearTimeout(hideLoaderTimeout);
-                hideLoaderTimeout = null; // Optional: reset after clearing
-            }
-            if (globalAnalysisParamsModalElement) {
-                const modalInstance = bootstrap.Modal.getInstance(globalAnalysisParamsModalElement);
-                if (modalInstance) {
-                    modalInstance.hide(); 
-                }
-            }
-            showToast('Bilgi', 'Ayarlar kaydedildi ve sunucu bağlantısı yeniden kuruldu.', 'success');
-        }
-    });
-    
-    socket.on('disconnect', () => {
-        console.log('WebSocket bağlantısı kesildi.');
-    });
-    
-    socket.on('queue_status', (data) => {
-        console.log('Kuyruk durumu güncellendi:', data);
-        updateQueueStatus(data);
-    });
-    
-    socket.on('analysis_status_update', (data) => {
-        console.log('Analiz durumu güncellendi:', data);
-        const { analysis_id, file_id, status, progress, message } = data;
-        
-        const file = uploadedFiles.find(f => f.fileId == file_id);
-        if (file) {
-            fileStatuses.set(file.id, status);
-            updateFileStatus(file.id, status, progress);
-            if (status === 'completed') {
-                file.analysisId = analysis_id;
-                fileAnalysisMap.set(file.id, analysis_id);
-                getAnalysisResults(file.id, analysis_id);
-            }
-            updateGlobalProgress();
-        }
-    });
-    
-    socket.on('analysis_started', (data) => {
-        console.log('Analiz başladı:', data);
-        const { analysis_id, file_id, file_name, file_type } = data;
-        const file = uploadedFiles.find(f => f.fileId == file_id);
-        if (file) {
-            file.analysisId = analysis_id;
-            fileAnalysisMap.set(file.id, analysis_id);
-            updateFileStatus(file.id, 'Analiz Başlatıldı', 10);
-            console.log(`Analiz başlatıldı: ${file_name} (${file_type}), ID: ${analysis_id}`);
-            showToast('Bilgi', `${file_name} analizi başlatıldı.`, 'info');
-            setTimeout(() => checkAnalysisStatus(analysis_id, file.id), 1000);
-        }
-    });
-    
-    socket.on('analysis_progress', (data) => {
-        console.log('Analiz ilerliyor:', data);
-        const { analysis_id, file_id, current_frame, total_frames, progress, detected_faces, high_risk_frames } = data;
-        const file = uploadedFiles.find(f => f.fileId == file_id);
-        if (file) {
-            const status_msg = `Analiz: ${current_frame}/${total_frames} kare`; // status değişken adını status_msg olarak değiştirdim.
-            updateFileStatus(file.id, status_msg, progress);
-            const fileCard = document.getElementById(file.id);
-            if (fileCard) {
-                const statusElement = fileCard.querySelector('.file-status-text');
-                if (statusElement) {
-                    statusElement.title = `İşlenen kare: ${current_frame}/${total_frames}\nTespit edilen yüz: ${detected_faces || 0}\nYüksek riskli kare: ${high_risk_frames || 0}\nİlerleme: %${progress.toFixed(1)}`;
-                }
-            }
-            if (current_frame % 10 === 0 || current_frame === total_frames) {
-                console.log(`Analiz ilerliyor: ${file.name}, Kare: ${current_frame}/${total_frames}, İlerleme: %${progress.toFixed(1)}`);
+        if (globalAnalysisParamsModalElement) {
+            const modalInstance = bootstrap.Modal.getInstance(globalAnalysisParamsModalElement);
+            if (modalInstance) {
+                modalInstance.hide();
             }
         }
-    });
-    
-    socket.on('analysis_completed', (data) => {
-        console.log('Analiz tamamlandı:', data);
-        const { analysis_id, file_id, elapsed_time, message } = data;
-        const file = uploadedFiles.find(f => f.fileId == file_id);
-        if (file) {
-            updateFileStatus(file.id, 'completed', 100);
-            console.log(`Analiz tamamlandı: ${file.name}, Süre: ${elapsed_time ? elapsed_time.toFixed(1) + 's' : 'bilinmiyor'}`);
-            file.analysisId = analysis_id;
-            fileAnalysisMap.set(file.id, analysis_id);
-            getAnalysisResults(file.id, analysis_id);
-            showToast('Başarılı', `${file.name} analizi tamamlandı (${elapsed_time ? elapsed_time.toFixed(1) + ' saniye' : 'bilinmiyor'}).`, 'success');
-            updateGlobalProgress();
-        }
-    });
-    
-    socket.on('analysis_failed', (data) => {
-        console.error('Analiz hatası:', data);
-        const { analysis_id, file_id, error, elapsed_time } = data;
-        const file = uploadedFiles.find(f => f.fileId == file_id);
-        if (file) {
-            updateFileStatus(file.id, 'failed', 0);
-            console.error(`Analiz hatası: ${file.name}, Süre: ${elapsed_time ? elapsed_time.toFixed(1) + 's' : 'bilinmiyor'}, Hata: ${error}`);
-            showToast('Hata', `Analiz hatası: ${error}`, 'danger');
-        }
-    });
-    
-    socket.on('training_progress', (data) => {
-        updateTrainingProgress(data);
-    });
-    
-    socket.on('training_completed', (data) => {
-        handleTrainingCompleted(data);
-    });
+        showToast('Bilgi', 'Ayarlar kaydedildi ve sunucu bağlantısı yeniden kuruldu.', 'success');
+    }
 }
 
 // Olay dinleyicileri
@@ -775,7 +664,7 @@ function stopQueueStatusChecker() {
 
 // Kuyruk durumunu kontrol et
 function checkQueueStatus() {
-    fetch('/api/debug/queue-status')
+    fetch('/api/queue/status')
     .then(response => {
         if (!response.ok) {
             throw new Error(`HTTP error! Status: ${response.status}`);
@@ -1038,17 +927,13 @@ function removeFile(fileId) {
     if (fileToRemove) {
         // Eğer analiz devam ediyorsa ve bir analysisId varsa, iptal etmeyi dene
         if (fileToRemove.status !== 'pending' && fileToRemove.status !== 'failed' && fileToRemove.status !== 'completed' && fileToRemove.analysisId) {
-            if (socket && socket.connected) {
-                console.log(`Requesting cancellation for analysis ID: ${fileToRemove.analysisId} of file ${fileToRemove.name}`);
-                socket.emit('cancel_analysis', { analysis_id: fileToRemove.analysisId });
-                cancelledAnalyses.add(fileToRemove.analysisId); // İptal edilenler setine ekle
-                // Sunucudan onay beklemeden UI'ı hemen güncellemek yerine,
-                // sunucudan bir 'analysis_cancelled' veya 'status_update' olayı bekleyebiliriz.
-                // Şimdilik, kullanıcıya işlemin başlatıldığını bildirelim.
-                showToast('Bilgi', `${fileToRemove.name} için analiz iptal isteği gönderildi.`, 'info');
-            } else {
-                showToast('Uyarı', 'WebSocket bağlı değil, analiz iptal edilemedi.', 'warning');
-            }
+            // Analiz iptal etme HTTP API ile yapılır
+            console.log(`Analysis cancellation for ID: ${fileToRemove.analysisId} of file ${fileToRemove.name}`);
+            cancelledAnalyses.add(fileToRemove.analysisId);
+            // Sunucudan onay beklemeden UI'ı hemen güncellemek yerine,
+            // sunucudan bir 'analysis_cancelled' veya 'status_update' olayı bekleyebiliriz.
+            // Şimdilik, kullanıcıya işlemin başlatıldığını bildirelim.
+            showToast('Bilgi', `${fileToRemove.name} için analiz iptal isteği gönderildi.`, 'info');
         }
 
         // Dosyayı listeden ve UI'dan kaldır
@@ -3900,7 +3785,7 @@ function startModalQueueStatusChecker() {
 // Modal kuyruk durumunu kontrol et
 function checkModalQueueStatus() {
     // Sadece kuyruk durumunu al, dosya sayısını frontend'den kullan
-    fetch('/api/debug/queue-status')
+    fetch('/api/queue/status')
     .then(response => response.json())
     .then(queueData => {
         // Frontend'deki dosya sayısını kullan
@@ -4172,224 +4057,295 @@ function updateModalModelStats(modelType, stats) {
 
 // Modal'dan model eğitimi başlat
 function trainModelFromModal(modelType) {
-    console.log(`Modal - Training ${modelType} model`);
+    console.log(`[SSE] trainModelFromModal called with modelType: ${modelType}`);
     
-    // Model eğitimi progress'ini göster
-    showModalTrainingStatus('Eğitim başlatılıyor...', 'info');
+    // Global flag set et
+    window.isModalTraining = true;
+    
+    const button = document.querySelector(`.btn-train-${modelType}`);
     const progressDiv = document.getElementById('modal-training-progress');
-    if (progressDiv) {
-        progressDiv.style.display = 'block';
-        document.getElementById('modal-progress-bar').style.width = '0%';
-        document.getElementById('modal-current-epoch').textContent = '-';
-        document.getElementById('modal-current-loss').textContent = '-';
-        document.getElementById('modal-current-mae').textContent = '-';
-        document.getElementById('modal-training-duration').textContent = '-';
-    }
     
-    // Eğitim butonlarını deaktif et
-    const trainButtons = document.querySelectorAll('[onclick*="trainModelFromModal"]');
-    trainButtons.forEach(btn => {
-        btn.disabled = true;
-        btn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Eğitim Başlatılıyor...';
-    });
-    
-    // Model Metrikleri modalının Model Eğitimi tab'ına yönlendir
-    const modelMetricsModal = document.getElementById('modelMetricsModal');
-    const modal = new bootstrap.Modal(modelMetricsModal);
-    
-    // Modal'ı aç
-    modal.show();
-    
-    // Model Eğitimi tab'ını aktif yap
-    setTimeout(() => {
-        const trainingTab = document.getElementById('model-training-tab');
-        if (trainingTab) {
-            trainingTab.click();
-        }
-    
-        // Model tipini seç
-        const trainingModelType = document.getElementById('trainingModelType');
-        if (trainingModelType) {
-            trainingModelType.value = modelType;
-            
-            // Content model seçilmişse ayarları göster
-            if (modelType === 'content') {
-                const contentSettings = document.getElementById('contentModelSettings');
-                if (contentSettings) {
-                    contentSettings.style.display = 'block';
-                }
-            }
-        }
-        
-        // Eğitimi başlat
-        setTimeout(() => {
-            startWebTraining();
-        }, 500);
-    }, 300);
-}
-
-// Modal'dan model sıfırla
-function resetModelFromModal(modelType) {
-    if (confirm(`${modelType === 'age' ? 'Yaş tahmin' : 'İçerik analiz'} modelini sıfırlamak istediğinizden emin misiniz?\n\nDikkat: Model sıfırlama işlemi sistem yeniden başlatılmasını gerektirir.`)) {
-        console.log(`Modal - Resetting ${modelType} model`);
-        
-        showModalTrainingStatus('Model sıfırlanıyor...', 'info');
-        
-        // Yükleyici göster
-        const settingsSaveLoader = document.getElementById('settingsSaveLoader');
-        if (settingsSaveLoader) {
-            settingsSaveLoader.style.display = 'flex';
-        }
-        
-        // Model sıfırlama API çağrısı
-        fetch(`/api/model/reset/${modelType}`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            }
-        })
-        .then(response => {
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
-            return response.json();
-        })
-        .then(data => {
-            if (data.success) {
-                if (modelType === 'age' && data.restart_required) {
-                    // Yaş modeli sıfırlandığında sistem yeniden başlatılmalı
-                    showModalTrainingStatus('Model sıfırlandı. Sistem yeniden başlatılıyor...', 'success');
-                    showToast('Bilgi', 'Model başarıyla sıfırlandı. Sistem yeniden başlatılıyor, lütfen bekleyin...', 'info');
-                    
-                    // Yeniden başlatma sonrası sayfa yenilenmesi için işaret koy
-                    localStorage.setItem('modelChangedReloadRequired', 'true');
-                    
-                    // Modal'ı kapat
-                    const modalElement = document.getElementById('modelManagementModal');
-                    if (modalElement) {
-                        const modalInstance = bootstrap.Modal.getInstance(modalElement);
-                        if (modalInstance) {
-                            modalInstance.hide();
-                        }
-                    }
-                } else {
-                    showModalTrainingStatus('Model başarıyla sıfırlandı!', 'success');
-                    
-                    // Model versiyonlarını ve istatistikleri yenile
-                    setTimeout(() => {
-                loadModalModelVersions();
-                loadModalModelStats();
-                        hideModalTrainingStatus();
-                        if (settingsSaveLoader) {
-                            settingsSaveLoader.style.display = 'none';
-                        }
-                    }, 2000);
-                }
-            } else {
-                showModalTrainingStatus('Model sıfırlanırken hata oluştu: ' + (data.error || data.message || 'Bilinmeyen hata'), 'danger');
-                setTimeout(() => {
-                    hideModalTrainingStatus();
-                    if (settingsSaveLoader) {
-                        settingsSaveLoader.style.display = 'none';
-                    }
-                }, 3000);
-            }
-        })
-        .catch(error => {
-            console.error('Model sıfırlama hatası:', error);
-            showModalTrainingStatus('Model sıfırlanırken hata oluştu: ' + error.message, 'danger');
-            setTimeout(() => {
-                hideModalTrainingStatus();
-                if (settingsSaveLoader) {
-                    settingsSaveLoader.style.display = 'none';
-                }
-            }, 3000);
-        });
-    }
-}
-
-// Modal'dan versiyon aktifleştir
-function activateVersionFromModal(versionId) {
-    console.log(`Modal - Activating version ${versionId}`);
-    
-    if (!confirm('Bu model versiyonunu aktifleştirmek istediğinizden emin misiniz?\n\nDikkat: Model değişikliği sistem yeniden başlatılmasını gerektirir.')) {
+    if (!button || !progressDiv) {
+        console.error('[SSE] Required elements not found for modal training');
         return;
     }
     
-    showModalTrainingStatus('Model versiyonu aktifleştiriliyor...', 'info');
+    // UI durumunu ayarla
+    button.disabled = true;
+    button.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Eğitim Başlatılıyor...';
     
-    // Yükleyici göster (analiz parametrelerinde olduğu gibi)
-    const settingsSaveLoader = document.getElementById('settingsSaveLoader');
-    if (settingsSaveLoader) {
-        settingsSaveLoader.style.display = 'flex';
+    progressDiv.style.display = 'block';
+    progressDiv.classList.remove('d-none');
+    
+    const statusElement = document.getElementById('modal-training-status');
+    if (statusElement) {
+        statusElement.textContent = 'Eğitim başlatılıyor...';
+        statusElement.className = 'alert alert-info';
     }
     
-    fetch(`/api/model/activate/${versionId}`, {
+    const progressBar = document.getElementById('modal-progress-bar');
+    if (progressBar) {
+        progressBar.style.width = '0%';
+        progressBar.setAttribute('aria-valuenow', '0');
+    }
+    
+    console.log('[SSE] Modal UI elements configured, making API call');
+    
+    // API çağrısı
+    fetch(`/api/model/train-web`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json'
-        }
+        },
+        body: JSON.stringify({
+            model_type: modelType,
+            epochs: 20,
+            learning_rate: 0.001,
+            batch_size: 1
+        })
     })
-    .then(response => {
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        return response.json();
-    })
+    .then(response => response.json())
     .then(data => {
+        console.log('[SSE] Modal training API response:', data);
+        
         if (data.success) {
-            if (data.restart_required) {
-                // Sistem yeniden başlatılıyor
-                showModalTrainingStatus('Model aktifleştirildi. Sistem yeniden başlatılıyor...', 'success');
-                showToast('Bilgi', 'Model başarıyla aktifleştirildi. Sistem yeniden başlatılıyor, lütfen bekleyin...', 'info');
-                
-                // Yeniden başlatma sonrası sayfa yenilenmesi için işaret koy
-                localStorage.setItem('modelChangedReloadRequired', 'true');
-                
-                // Modal'ı kapat
-                const modalElement = document.getElementById('modelManagementModal');
-                if (modalElement) {
-                    const modalInstance = bootstrap.Modal.getInstance(modalElement);
-                    if (modalInstance) {
-                        modalInstance.hide();
-                    }
-                }
-                
-                // Yükleyici gösterilmeye devam edecek, socket bağlantısı kurulunca kapanacak
-            } else {
-                // Normal durum (yeniden başlatma gerekmez)
-                showModalTrainingStatus('Model versiyonu başarıyla aktifleştirildi!', 'success');
-                
-                // Model versiyonlarını ve istatistikleri yenile
-                setTimeout(() => {
-            loadModalModelVersions();
-                    loadModalModelStats();
-                    hideModalTrainingStatus();
-                    if (settingsSaveLoader) {
-                        settingsSaveLoader.style.display = 'none';
-                    }
-                }, 2000);
-            }
+            // Global session tracking
+            window.currentTrainingSessionId = data.session_id;
+            console.log('[SSE] Set global session ID for modal:', data.session_id);
+            
+            showModalTrainingStatus(`Eğitim başlatıldı! Session ID: ${data.session_id.substring(0, 8)}...`, 'info');
+            
+            // SSE bağlantısını başlat
+            setupModalSSEConnection(data.session_id, modelType);
+            
         } else {
-            showModalTrainingStatus('Model versiyonu aktifleştirilirken hata oluştu: ' + (data.error || data.message || 'Bilinmeyen hata'), 'danger');
-            setTimeout(() => {
-                hideModalTrainingStatus();
-                if (settingsSaveLoader) {
-                    settingsSaveLoader.style.display = 'none';
-                }
-            }, 3000);
+            throw new Error(data.error || 'Eğitim başlatılamadı');
         }
     })
     .catch(error => {
-        console.error('Model versiyon aktifleştirme hatası:', error);
-        showModalTrainingStatus('Model versiyonu aktifleştirilirken hata oluştu: ' + error.message, 'danger');
-        setTimeout(() => {
-            hideModalTrainingStatus();
-            if (settingsSaveLoader) {
-                settingsSaveLoader.style.display = 'none';
-            }
-        }, 3000);
+        console.error('[SSE] Modal training error:', error);
+        
+        // UI sıfırla
+        button.disabled = false;
+        button.innerHTML = `<i class="fas fa-play me-2"></i>Eğitimi Başlat`;
+        
+        progressDiv.style.display = 'none';
+        window.isModalTraining = false;
+        
+        showModalTrainingStatus(`Hata: ${error.message}`, 'danger');
     });
+}
+
+// Modal için SSE bağlantısını kur
+function setupModalSSEConnection(sessionId, modelType) {
+    console.log(`[SSE] Setting up SSE connection for session: ${sessionId}`);
+    
+    // Mevcut SSE bağlantısını kapat
+    if (window.modalEventSource) {
+        window.modalEventSource.close();
+        console.log('[SSE] Closed existing modal SSE connection');
+    }
+    
+    // Yeni SSE bağlantısı oluştur
+    const eventSource = new EventSource(`/api/model/training-events/${sessionId}`);
+    window.modalEventSource = eventSource;
+    
+    eventSource.onopen = function() {
+        console.log('[SSE] Modal training SSE connection opened');
+        showModalTrainingStatus('SSE bağlantısı kuruldu, eğitim takibi başlatıldı...', 'info');
+    };
+    
+    eventSource.onmessage = function(event) {
+        try {
+            const data = JSON.parse(event.data);
+            console.log('[SSE] Modal training event received:', data);
+            
+            if (data.type === 'connected') {
+                console.log('[SSE] Connection confirmed for session:', data.session_id);
+                showModalTrainingStatus('Eğitim verisi işleniyor...', 'info');
+                
+            } else if (data.type === 'training_started') {
+                console.log('[SSE] Training started:', data);
+                showModalTrainingStatus(`Eğitim başladı! ${modelType.toUpperCase()} modeli eğitiliyor...`, 'info');
+                
+            } else if (data.type === 'training_progress') {
+                console.log('[SSE] Training progress:', data);
+                updateModalTrainingProgressSSE(data);
+                
+            } else if (data.type === 'training_completed') {
+                console.log('[SSE] Training completed:', data);
+                handleModalTrainingCompletedSSE(data, modelType);
+                eventSource.close();
+                
+            } else if (data.type === 'training_error') {
+                console.log('[SSE] Training error:', data);
+                handleModalTrainingErrorSSE(data, modelType);
+                eventSource.close();
+                
+            } else if (data.type === 'session_ended') {
+                console.log('[SSE] Session ended:', data);
+                showModalTrainingStatus('Eğitim oturumu sona erdi', 'warning');
+                eventSource.close();
+            }
+            
+        } catch (error) {
+            console.error('[SSE] Error parsing modal training event data:', error);
+        }
+    };
+    
+    eventSource.onerror = function(error) {
+        console.error('[SSE] Modal training SSE connection error:', error);
+        showModalTrainingStatus('SSE bağlantısında hata oluştu', 'danger');
+        
+        // UI sıfırla
+        const button = document.querySelector(`.btn-train-${modelType}`);
+        if (button) {
+            button.disabled = false;
+            button.innerHTML = `<i class="fas fa-play me-2"></i>Eğitimi Başlat`;
+        }
+        
+        const progressDiv = document.getElementById('modal-training-progress');
+        if (progressDiv) {
+            progressDiv.style.display = 'none';
+        }
+        
+        window.isModalTraining = false;
+        eventSource.close();
+    };
+    
+    // Otomatik kapatma (60 saniye)
+    setTimeout(() => {
+        if (eventSource.readyState !== EventSource.CLOSED) {
+            console.log('[SSE] Auto-closing modal SSE connection after timeout');
+            eventSource.close();
+        }
+    }, 60000);
+}
+
+// SSE progress güncellemesi
+function updateModalTrainingProgressSSE(data) {
+    console.log('[SSE] Updating modal training progress:', data);
+    
+    const progressBar = document.getElementById('modal-progress-bar');
+    const currentEpoch = document.getElementById('modal-current-epoch');
+    const currentLoss = document.getElementById('modal-current-loss');
+    const currentMAE = document.getElementById('modal-current-mae');
+    const trainingDuration = document.getElementById('modal-training-duration');
+    
+    // Progress bar güncelleme
+    const progressPercent = (data.current_epoch / data.total_epochs) * 100;
+    if (progressBar) {
+        progressBar.style.width = progressPercent + '%';
+        progressBar.setAttribute('aria-valuenow', Math.round(progressPercent));
+    }
+    
+    // Epoch bilgisi
+    if (currentEpoch) {
+        currentEpoch.textContent = `${data.current_epoch}/${data.total_epochs}`;
+    }
+    
+    // Metrics güncelleme
+    if (currentLoss && data.current_loss !== undefined) {
+        currentLoss.textContent = data.current_loss.toFixed(4);
+    }
+    if (currentMAE && data.current_mae !== undefined) {
+        currentMAE.textContent = data.current_mae.toFixed(4);
+    }
+    
+    // Süre hesaplaması
+    if (trainingStartTime && trainingDuration) {
+        const elapsed = (Date.now() - trainingStartTime) / 1000;
+        trainingDuration.textContent = formatDuration(elapsed);
+    }
+    
+    // Durum mesajını güncelle
+    showModalTrainingStatus(
+        `Eğitim devam ediyor... Epoch ${data.current_epoch}/${data.total_epochs} (${Math.round(progressPercent)}%) - Loss: ${data.current_loss?.toFixed(4) || '-'}`,
+        'info'
+    );
+}
+
+// SSE training tamamlandı
+function handleModalTrainingCompletedSSE(data, modelType) {
+    console.log('[SSE] Modal training completed:', data);
+    
+    const progressDiv = document.getElementById('modal-training-progress');
+    
+    // Progress bar'ı 100% yap
+    const progressBar = document.getElementById('modal-progress-bar');
+    if (progressBar) {
+        progressBar.style.width = '100%';
+        progressBar.setAttribute('aria-valuenow', 100);
+    }
+    
+    // Tamamlanma mesajı
+    const metrics = data.metrics || {};
+    let successMessage = `${modelType.toUpperCase()} eğitimi başarıyla tamamlandı!`;
+    
+    if (metrics.mae) {
+        successMessage += ` (MAE: ${metrics.mae.toFixed(3)})`;
+    } else if (metrics.accuracy) {
+        successMessage += ` (Accuracy: ${(metrics.accuracy * 100).toFixed(1)}%)`;
+    }
+    
+    showModalTrainingStatus(successMessage, 'success');
+    
+    // Eğitim butonlarını aktif et
+    const trainButtons = document.querySelectorAll('[onclick*="trainModelFromModal"]');
+    trainButtons.forEach(btn => {
+        btn.disabled = false;
+        btn.innerHTML = `<i class="fas fa-play me-2"></i>Yeni Eğitim Başlat`;
+    });
+    
+    // Model versiyonlarını ve istatistikleri yenile
+    setTimeout(() => {
+        loadModalModelVersions();
+        loadModalModelStats();
+        
+        // Progress'i gizle
+        if (progressDiv) {
+            progressDiv.style.display = 'none';
+        }
+        
+        window.isModalTraining = false;
+    }, 3000);
+    
+    // Toast notification
+    showToast('Başarılı', `${modelType.toUpperCase()} modeli eğitimi tamamlandı!`, 'success');
+    
+    // SSE connection temizle
+    if (window.modalEventSource) {
+        window.modalEventSource.close();
+        window.modalEventSource = null;
+    }
+}
+
+// SSE training error
+function handleModalTrainingErrorSSE(data, modelType) {
+    console.error('[SSE] Modal training error:', data);
+    
+    // UI sıfırla
+    const button = document.querySelector(`.btn-train-${modelType}`);
+    if (button) {
+        button.disabled = false;
+        button.innerHTML = `<i class="fas fa-play me-2"></i>Eğitimi Başlat`;
+    }
+    
+    const progressDiv = document.getElementById('modal-training-progress');
+    if (progressDiv) {
+        progressDiv.style.display = 'none';
+    }
+    
+    window.isModalTraining = false;
+    
+    showModalTrainingStatus(`Eğitim hatası: ${data.error_message || 'Bilinmeyen hata'}`, 'danger');
+    showToast('Hata', `${modelType.toUpperCase()} eğitimi başarısız oldu`, 'error');
+    
+    // SSE connection temizle
+    if (window.modalEventSource) {
+        window.modalEventSource.close();
+        window.modalEventSource = null;
+    }
 }
 
 // Resim büyütme fonksiyonu
@@ -4598,7 +4554,7 @@ async function refreshTrainingStats() {
                                 <div class="card-body text-center">
                                     <h5 class="card-title text-primary">Manuel Feedbacks</h5>
                                     <h3 class="mb-0">${stats.manual_samples || 0}</h3>
-                                    <small class="text-muted">Kullanıcı düzeltmeleri</small>
+                                    <small class="text-muted">Kullanıcı düzelttikleri gerçek geri bildirimler</small>
                                 </div>
                             </div>
                         </div>
@@ -4848,72 +4804,40 @@ let currentTrainingSession = null;
 let trainingStartTime = null;
 
 async function startWebTraining() {
-    const startBtn = document.getElementById('startWebTrainingBtn');
-    const stopBtn = document.getElementById('stopWebTrainingBtn');
-    const statusDiv = document.getElementById('webTrainingStatus');
-    const progressDiv = document.getElementById('webTrainingProgress');
-    const resultsDiv = document.getElementById('webTrainingResults');
-    
-    // Parametreleri topla
-    const params = {
-        model_type: document.getElementById('trainingModelType')?.value || 'content',
-        epochs: parseInt(document.getElementById('trainingEpochs')?.value || 20),
-        batch_size: parseInt(document.getElementById('trainingBatchSize')?.value || 16),
-        learning_rate: parseFloat(document.getElementById('trainingLearningRate')?.value || 0.001),
-        patience: parseInt(document.getElementById('trainingPatience')?.value || 5),
-        training_mode: document.getElementById('trainingMode')?.value || 'regression',
-        validation_strategy: document.getElementById('validationStrategy')?.value || 'strict',
-        conflict_resolution: document.getElementById('conflictResolution')?.value || 'average'
-    };
+    console.log('[SSE] startWebTraining called');
     
     try {
-        // UI güncellemeleri
-        startBtn.style.display = 'none';
-        stopBtn.style.display = 'inline-block';
-        resultsDiv.style.display = 'none';
-        
-        // Status göster
-        statusDiv.style.display = 'block';
-        statusDiv.className = 'alert alert-info';
-        document.getElementById('webTrainingMessage').textContent = 'Eğitim başlatılıyor...';
-        
-        // API çağrısı
         const response = await fetch('/api/model/train-web', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify(params)
+            body: JSON.stringify({
+                model_type: 'content',
+                epochs: 20,
+                learning_rate: 0.001,
+                batch_size: 1
+            })
         });
         
         const data = await response.json();
+        console.log('[SSE] Backend response:', data);
         
         if (data.success) {
-            currentTrainingSession = data.session_id;
-            trainingStartTime = Date.now();
+            // Global session tracking için session ID'yi kaydet
+            window.currentTrainingSessionId = data.session_id;
+            window.isModalTraining = false; // Bu web training, modal training değil
             
-            // Progress göster
-            progressDiv.style.display = 'block';
-            document.getElementById('webTrainingMessage').textContent = 
-                `Eğitim başlatıldı! ${data.training_samples} örnek ile eğitim yapılacak.`;
+            console.log('[SSE] Setting up SSE connection for web training with session_id:', data.session_id);
+            setupWebSSEConnection(data.session_id);
             
-            // WebSocket eventi dinle
-            setupTrainingWebSocketListeners(data.session_id);
-            
+            showToast('Bilgi', `Eğitim başlatıldı. Tahmini süre: ${data.estimated_duration}`, 'info');
         } else {
-            throw new Error(data.error || 'Eğitim başlatılamadı');
+            showError(`Eğitim başlatılamadı: ${data.error}`);
         }
-        
     } catch (error) {
-        console.error('Training start error:', error);
-        
-        // UI sıfırla
-        startBtn.style.display = 'inline-block';
-        stopBtn.style.display = 'none';
-        progressDiv.style.display = 'none';
-        
-        statusDiv.className = 'alert alert-danger';
-        document.getElementById('webTrainingMessage').textContent = `Hata: ${error.message}`;
+        console.error('Eğitim başlatma hatası:', error);
+        showError('Eğitim başlatılırken bir hata oluştu.');
     }
 }
 
@@ -4925,71 +4849,336 @@ function stopWebTraining() {
     const progressDiv = document.getElementById('webTrainingProgress');
     
     // UI sıfırla
-    startBtn.style.display = 'inline-block';
-    stopBtn.style.display = 'none';
-    progressDiv.style.display = 'none';
+    if (startBtn && stopBtn) {
+        startBtn.style.display = 'inline-block';
+        stopBtn.style.display = 'none';
+    }
+    if (progressDiv) {
+        progressDiv.style.display = 'none';
+    }
     
-    statusDiv.className = 'alert alert-warning';
-    document.getElementById('webTrainingMessage').textContent = 'Eğitim kullanıcı tarafından durduruldu.';
+    if (statusDiv) {
+        statusDiv.className = 'alert alert-warning';
+        document.getElementById('webTrainingMessage').textContent = 'Eğitim kullanıcı tarafından durduruldu.';
+    }
     
     currentTrainingSession = null;
     trainingStartTime = null;
     
-    // WebSocket cleanup burada olabilir
+    // SSE connection kapat
+    if (window.webEventSource) {
+        window.webEventSource.close();
+        window.webEventSource = null;
+        console.log('[SSE] Web training SSE connection closed by user');
+    }
 }
 
 // WebSocket event listeners
 function setupTrainingWebSocketListeners(sessionId) {
+    console.log('[DEBUG] setupTrainingWebSocketListeners called with sessionId:', sessionId);
+    console.log('[DEBUG] Socket connected:', socket.connected);
+    console.log('[DEBUG] Socket object:', socket);
+    console.log('[DEBUG] isModalTraining flag:', window.isModalTraining);
+    
+    // Add a global listener to catch ALL events for debugging
+    socket.onAny((eventName, data) => {
+        console.log('[SOCKET DEBUG] ANY EVENT RECEIVED:', eventName, data);
+        if (eventName === 'training_progress') {
+            console.log('[SOCKET DEBUG] TRAINING_PROGRESS EVENT DETECTED!', data);
+        }
+    });
+    
+    // Add a global catch-all listener for ANY training_progress event
+    socket.off('training_progress');
+    socket.on('training_progress', (data) => {
+        console.log('[GLOBAL CATCH-ALL] training_progress event received:', data);
+        console.log('[GLOBAL CATCH-ALL] Expected sessionId:', sessionId);
+        console.log('[GLOBAL CATCH-ALL] Received sessionId:', data.session_id);
+        console.log('[GLOBAL CATCH-ALL] Session ID match:', data.session_id === sessionId);
+        console.log('[GLOBAL CATCH-ALL] isModalTraining:', window.isModalTraining);
+        
+        // If this is our session, handle the progress update
+        if (data.session_id === sessionId) {
+            console.log('[GLOBAL CATCH-ALL] Processing training progress for our session');
+            
+            // Check if we should update modal or web training progress
+            const isUsingModal = window.isModalTraining === true;
+            console.log('[GLOBAL CATCH-ALL] Using modal training:', isUsingModal);
+            
+            if (isUsingModal) {
+                // Update modal progress
+                const modalProgressDiv = document.getElementById('modal-training-progress');
+                console.log('[GLOBAL CATCH-ALL] Modal progress div found:', !!modalProgressDiv);
+                console.log('[GLOBAL CATCH-ALL] Modal progress div display style:', modalProgressDiv ? modalProgressDiv.style.display : 'not found');
+                console.log('[GLOBAL CATCH-ALL] Modal progress div computed display:', modalProgressDiv ? window.getComputedStyle(modalProgressDiv).display : 'not found');
+                
+                if (modalProgressDiv) {
+                    const progressPercent = (data.current_epoch / data.total_epochs) * 100;
+                    const progressBar = document.getElementById('modal-progress-bar');
+                    const currentEpoch = document.getElementById('modal-current-epoch');
+                    const currentLoss = document.getElementById('modal-current-loss');
+                    const currentMAE = document.getElementById('modal-current-mae');
+                    
+                    console.log('[GLOBAL CATCH-ALL] Modal elements found:', {
+                        progressDiv: !!modalProgressDiv,
+                        progressBar: !!progressBar,
+                        currentEpoch: !!currentEpoch,
+                        currentLoss: !!currentLoss,
+                        currentMAE: !!currentMAE
+                    });
+                    
+                    if (progressBar) {
+                        progressBar.style.width = progressPercent + '%';
+                        progressBar.setAttribute('aria-valuenow', Math.round(progressPercent));
+                        console.log('[GLOBAL CATCH-ALL] Progress bar updated to:', progressPercent + '%');
+                    }
+                    if (currentEpoch) {
+                        currentEpoch.textContent = `${data.current_epoch}/${data.total_epochs}`;
+                        console.log('[GLOBAL CATCH-ALL] Epoch updated to:', `${data.current_epoch}/${data.total_epochs}`);
+                    }
+                    if (currentLoss) {
+                        currentLoss.textContent = data.current_loss?.toFixed(4) || '-';
+                        console.log('[GLOBAL CATCH-ALL] Loss updated to:', data.current_loss?.toFixed(4));
+                    }
+                    if (currentMAE) {
+                        currentMAE.textContent = data.current_mae?.toFixed(4) || '-';
+                        console.log('[GLOBAL CATCH-ALL] MAE updated to:', data.current_mae?.toFixed(4));
+                    }
+                    
+                    // Durum mesajını güncelle
+                    showModalTrainingStatus(`Eğitim devam ediyor... Epoch ${data.current_epoch}/${data.total_epochs} (${Math.round(progressPercent)}%)`, 'info');
+                    console.log('[GLOBAL CATCH-ALL] Modal status updated');
+                } else {
+                    console.log('[GLOBAL CATCH-ALL] Modal training requested but modal not found or not visible');
+                }
+            } else {
+                // Update web training progress (the original way)
+                console.log('[GLOBAL CATCH-ALL] Using web training progress');
+                const webProgressDiv = document.getElementById('webTrainingProgress');
+                if (webProgressDiv) {
+                    webProgressDiv.style.display = 'block';
+                    const progressPercent = (data.current_epoch / data.total_epochs) * 100;
+                    const webProgressBar = document.getElementById('webProgressBar');
+                    const webProgressText = document.getElementById('webProgressText');
+                    
+                    if (webProgressBar) {
+                        webProgressBar.style.width = progressPercent + '%';
+                        webProgressBar.setAttribute('aria-valuenow', Math.round(progressPercent));
+                    }
+                    if (webProgressText) {
+                        webProgressText.textContent = Math.round(progressPercent) + '%';
+                    }
+                    console.log('[GLOBAL CATCH-ALL] Web progress updated to:', progressPercent + '%');
+                }
+            }
+            
+            // Convert backend data format to frontend expected format for compatibility
+            const progressData = {
+                progress: (data.current_epoch / data.total_epochs) * 100,
+                epoch: data.current_epoch,
+                total_epochs: data.total_epochs,
+                metrics: {
+                    val_loss: data.current_loss,
+                    current_loss: data.current_loss,
+                    val_mae: data.current_mae,
+                    current_mae: data.current_mae,
+                    val_r2: data.current_r2,
+                    current_r2: data.current_r2
+                }
+            };
+            
+            // Also call the standard update functions for compatibility
+            try {
+                updateWebTrainingProgress(progressData);
+                console.log('[GLOBAL CATCH-ALL] updateWebTrainingProgress called successfully');
+            } catch (error) {
+                console.error('[GLOBAL CATCH-ALL] Error in updateWebTrainingProgress:', error);
+            }
+            
+            try {
+                updateModalTrainingProgress(progressData);
+                console.log('[GLOBAL CATCH-ALL] updateModalTrainingProgress called successfully');
+            } catch (error) {
+                console.error('[GLOBAL CATCH-ALL] Error in updateModalTrainingProgress:', error);
+            }
+        }
+    });
+    
+    // Global listener for all training_progress events (for debugging)
+    socket.off('training_progress_global_debug');
+    socket.on('training_progress_global', (data) => {
+        console.log('[GLOBAL DEBUG] ANY training_progress event received:', data);
+        
+        // Modal progress güncellemesi (eğer modal açıksa)
+        const modalProgressDiv = document.getElementById('modal-training-progress');
+        if (modalProgressDiv && modalProgressDiv.style.display === 'block') {
+            // Modal progress bar güncelle
+            const progressPercent = (data.current_epoch / data.total_epochs) * 100;
+            const progressBar = document.getElementById('modal-progress-bar');
+            const currentEpoch = document.getElementById('modal-current-epoch');
+            const currentLoss = document.getElementById('modal-current-loss');
+            const currentMAE = document.getElementById('modal-current-mae');
+            
+            if (progressBar) {
+                progressBar.style.width = progressPercent + '%';
+                progressBar.setAttribute('aria-valuenow', Math.round(progressPercent));
+            }
+            if (currentEpoch) {
+                currentEpoch.textContent = `${data.current_epoch}/${data.total_epochs}`;
+            }
+            if (currentLoss) {
+                currentLoss.textContent = data.current_loss?.toFixed(4) || '-';
+            }
+            if (currentMAE) {
+                currentMAE.textContent = data.current_mae?.toFixed(4) || '-';
+            }
+            
+            // Durum mesajını güncelle
+            showModalTrainingStatus(`Eğitim devam ediyor... Epoch ${data.current_epoch}/${data.total_epochs} (${Math.round(progressPercent)}%)`, 'info');
+            
+            console.log('[GLOBAL DEBUG] Modal progress updated:', {
+                epoch: `${data.current_epoch}/${data.total_epochs}`,
+                progress: progressPercent + '%',
+                loss: data.current_loss,
+                mae: data.current_mae
+            });
+        }
+    });
+    
     // Training started
     socket.off('training_started');
     socket.on('training_started', (data) => {
+        console.log('[DEBUG] training_started event received:', data);
         if (data.session_id === sessionId) {
             console.log('Training started:', data);
             document.getElementById('webTrainingMessage').textContent = 
                 `Eğitim başladı (${data.total_samples} örnek)`;
-            
-            // Modal progress için de güncelle
+        }
+        
+        // Modal için de güncelle
+        const modalProgressDiv = document.getElementById('modal-training-progress');
+        if (modalProgressDiv && modalProgressDiv.style.display === 'block') {
             showModalTrainingStatus(`Eğitim başladı (${data.total_samples} örnek)`, 'info');
+            console.log('[GLOBAL DEBUG] Modal training started updated');
         }
     });
     
     // Training progress
-    socket.off('training_progress');
     socket.on('training_progress', (data) => {
+        console.log('[DEBUG] training_progress event received:', data, 'expected sessionId:', sessionId);
+        console.log('[DEBUG] session_id match:', data.session_id === sessionId);
         if (data.session_id === sessionId) {
-            updateWebTrainingProgress(data);
+            console.log('[DEBUG] Calling updateWebTrainingProgress and updateModalTrainingProgress');
+            
+            // Convert backend data format to frontend expected format
+            const progressData = {
+                progress: (data.current_epoch / data.total_epochs) * 100,
+                epoch: data.current_epoch,
+                total_epochs: data.total_epochs,
+                metrics: {
+                    val_loss: data.current_loss,
+                    current_loss: data.current_loss,
+                    val_mae: data.current_mae,
+                    current_mae: data.current_mae,
+                    val_r2: data.current_r2,
+                    current_r2: data.current_r2
+                }
+            };
+            
+            updateWebTrainingProgress(progressData);
             
             // Modal progress'i de güncelle
-            updateModalTrainingProgress(data);
+            updateModalTrainingProgress(progressData);
+            
+            // Also directly update modal elements
+            const modalProgressDiv = document.getElementById('modal-training-progress');
+            if (modalProgressDiv && modalProgressDiv.style.display === 'block') {
+                const progressPercent = (data.current_epoch / data.total_epochs) * 100;
+                const progressBar = document.getElementById('modal-progress-bar');
+                const currentEpoch = document.getElementById('modal-current-epoch');
+                const currentLoss = document.getElementById('modal-current-loss');
+                const currentMAE = document.getElementById('modal-current-mae');
+                
+                if (progressBar) {
+                    progressBar.style.width = progressPercent + '%';
+                    progressBar.setAttribute('aria-valuenow', Math.round(progressPercent));
+                }
+                if (currentEpoch) {
+                    currentEpoch.textContent = `${data.current_epoch}/${data.total_epochs}`;
+                }
+                if (currentLoss) {
+                    currentLoss.textContent = data.current_loss?.toFixed(4) || '-';
+                }
+                if (currentMAE) {
+                    currentMAE.textContent = data.current_mae?.toFixed(4) || '-';
+                }
+                
+                // Durum mesajını güncelle
+                showModalTrainingStatus(`Eğitim devam ediyor... Epoch ${data.current_epoch}/${data.total_epochs} (${Math.round(progressPercent)}%)`, 'info');
+                
+                console.log('[DEBUG] Direct modal update completed:', {
+                    epoch: `${data.current_epoch}/${data.total_epochs}`,
+                    progress: progressPercent + '%',
+                    loss: data.current_loss,
+                    mae: data.current_mae
+                });
+            }
+        } else {
+            console.log('[DEBUG] Session ID mismatch - ignoring event');
         }
     });
     
     // Training completed
     socket.off('training_completed');
     socket.on('training_completed', (data) => {
+        console.log('[DEBUG] training_completed event received:', data);
+        console.log('[DEBUG] isModalTraining flag:', window.isModalTraining);
+        
         if (data.session_id === sessionId) {
+            // Reset modal training flag
+            if (window.isModalTraining) {
+                console.log('[DEBUG] Resetting isModalTraining flag');
+                window.isModalTraining = false;
+            }
+            
             handleWebTrainingCompleted(data);
             
             // Modal completion'ı da handle et
             handleModalTrainingCompleted(data);
         }
+        
+        // Modal için de global güncelle - ensure modal gets completion message
+        const modalProgressDiv = document.getElementById('modal-training-progress');
+        if (modalProgressDiv && modalProgressDiv.style.display === 'block') {
+            const progressBar = document.getElementById('modal-progress-bar');
+            if (progressBar) {
+                progressBar.style.width = '100%';
+                progressBar.setAttribute('aria-valuenow', 100);
+            }
+            showModalTrainingStatus(`Eğitim tamamlandı! Model: ${data.model_version}`, 'success');
+            console.log('[DEBUG] Modal training completion updated');
+        }
     });
     
-    // Training error
+    // Training error handler
     socket.off('training_error');
     socket.on('training_error', (data) => {
+        console.log('[DEBUG] training_error event received:', data);
         if (data.session_id === sessionId) {
+            // Reset modal training flag
+            if (window.isModalTraining) {
+                console.log('[DEBUG] Resetting isModalTraining flag due to error');
+                window.isModalTraining = false;
+            }
+            
             handleWebTrainingError(data);
             
-            // Modal error handling
-            showModalTrainingStatus(`Eğitim hatası: ${data.error}`, 'danger');
-            
-            // Eğitim butonlarını aktif et
-            const trainButtons = document.querySelectorAll('[onclick*="trainModelFromModal"]');
-            trainButtons.forEach(btn => {
-                btn.disabled = false;
-                btn.innerHTML = `<i class="fas fa-play me-2"></i>Yeni Eğitim Başlat`;
-            });
+            // Modal için error message
+            const modalProgressDiv = document.getElementById('modal-training-progress');
+            if (modalProgressDiv && modalProgressDiv.style.display === 'block') {
+                showModalTrainingStatus(`Eğitim hatası: ${data.error}`, 'danger');
+                console.log('[DEBUG] Modal training error updated');
+            }
         }
     });
 }
@@ -5252,6 +5441,7 @@ function getRiskLevel(score, category) {
 
 // Modal training progress güncelle
 function updateModalTrainingProgress(data) {
+    console.log('[DEBUG] updateModalTrainingProgress called with data:', data);
     const progressBar = document.getElementById('modal-progress-bar');
     const currentEpoch = document.getElementById('modal-current-epoch');
     const currentLoss = document.getElementById('modal-current-loss');
@@ -5344,4 +5534,276 @@ function handleModalTrainingCompleted(data) {
     
     // Toast notification
     showToast('Başarılı', 'Model eğitimi başarıyla tamamlandı!', 'success');
+}
+
+// WebSocket test fonksiyonu
+async function testWebSocket() {
+    try {
+        console.log('[DEBUG] Testing WebSocket connection...');
+        const response = await fetch('/api/model/test_websocket', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        });
+        
+        const data = await response.json();
+        console.log('[DEBUG] WebSocket test response:', data);
+        
+        if (data.success) {
+            console.log(`[DEBUG] Test WebSocket event sent with session_id: ${data.test_session_id}`);
+            // Test session için listener kuralım
+            setupTrainingWebSocketListeners(data.test_session_id);
+        }
+        
+    } catch (error) {
+        console.error('[DEBUG] WebSocket test error:', error);
+    }
+}
+
+
+
+// Test WebSocket butonunu console'dan çağırmak için global yapıyoruz
+window.testWebSocket = testWebSocket;
+
+// Test function to verify modal elements and manually trigger updates
+function testModalProgressUpdate() {
+    console.log('[TEST] Testing modal progress update...');
+    
+    const modalProgressDiv = document.getElementById('modal-training-progress');
+    const progressBar = document.getElementById('modal-progress-bar');
+    const currentEpoch = document.getElementById('modal-current-epoch');
+    const currentLoss = document.getElementById('modal-current-loss');
+    const currentMAE = document.getElementById('modal-current-mae');
+    
+    console.log('[TEST] Modal elements:', {
+        modalProgressDiv: !!modalProgressDiv,
+        modalVisible: modalProgressDiv ? modalProgressDiv.style.display : 'not found',
+        progressBar: !!progressBar,
+        currentEpoch: !!currentEpoch,
+        currentLoss: !!currentLoss,
+        currentMAE: !!currentMAE
+    });
+    
+    if (modalProgressDiv) {
+        console.log('[TEST] Modal div display style:', modalProgressDiv.style.display);
+        console.log('[TEST] Modal div computed style:', window.getComputedStyle(modalProgressDiv).display);
+    }
+    
+    // Try to update with test data
+    const testData = {
+        current_epoch: 5,
+        total_epochs: 20,
+        current_loss: 0.1234,
+        current_mae: 0.5678,
+        current_r2: 0.0
+    };
+    
+    const progressPercent = (testData.current_epoch / testData.total_epochs) * 100;
+    
+    if (progressBar) {
+        progressBar.style.width = progressPercent + '%';
+        progressBar.setAttribute('aria-valuenow', Math.round(progressPercent));
+        console.log('[TEST] Progress bar updated to:', progressPercent + '%');
+    }
+    if (currentEpoch) {
+        currentEpoch.textContent = `${testData.current_epoch}/${testData.total_epochs}`;
+        console.log('[TEST] Epoch updated to:', `${testData.current_epoch}/${testData.total_epochs}`);
+    }
+    if (currentLoss) {
+        currentLoss.textContent = testData.current_loss.toFixed(4);
+        console.log('[TEST] Loss updated to:', testData.current_loss.toFixed(4));
+    }
+    if (currentMAE) {
+        currentMAE.textContent = testData.current_mae.toFixed(4);
+        console.log('[TEST] MAE updated to:', testData.current_mae.toFixed(4));
+    }
+    
+    // Test status message
+    if (typeof showModalTrainingStatus === 'function') {
+        showModalTrainingStatus(`Test Epoch ${testData.current_epoch}/${testData.total_epochs} (${Math.round(progressPercent)}%)`, 'info');
+        console.log('[TEST] Modal status updated');
+    } else {
+        console.log('[TEST] showModalTrainingStatus function not found');
+    }
+}
+
+// Global function to check WebSocket status
+function checkWebSocketStatus() {
+    console.log('[DEBUG] WebSocket Status Check:');
+    console.log('- Socket connected:', socket ? socket.connected : 'socket not defined');
+    console.log('- Socket ID:', socket ? socket.id : 'N/A');
+    console.log('- Socket listeners for training_progress:', socket ? socket.listeners('training_progress').length : 'N/A');
+    
+    if (socket) {
+        console.log('- All listeners:', Object.keys(socket._callbacks || {}));
+    }
+}
+
+// Make test functions available globally
+window.testModalProgressUpdate = testModalProgressUpdate;
+window.checkWebSocketStatus = checkWebSocketStatus;
+
+// Modal'dan model sıfırla
+function resetModelFromModal(modelType) {
+    if (confirm(`${modelType === 'age' ? 'Yaş tahmin' : 'İçerik analiz'} modelini sıfırlamak istediğinizden emin misiniz?\n\nDikkat: Model sıfırlama işlemi sistem yeniden başlatılmasını gerektirir.`)) {
+        console.log(`Modal - Resetting ${modelType} model`);
+        
+        showModalTrainingStatus('Model sıfırlanıyor...', 'info');
+        
+        // Yükleyici göster
+        const settingsSaveLoader = document.getElementById('settingsSaveLoader');
+        if (settingsSaveLoader) {
+            settingsSaveLoader.style.display = 'flex';
+        }
+        
+        // Model sıfırlama API çağrısı
+        fetch(`/api/model/reset/${modelType}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        })
+        .then(response => {
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            return response.json();
+        })
+        .then(data => {
+            if (data.success) {
+                if (modelType === 'age' && data.restart_required) {
+                    // Yaş modeli sıfırlandığında sistem yeniden başlatılmalı
+                    showModalTrainingStatus('Model sıfırlandı. Sistem yeniden başlatılıyor...', 'success');
+                    showToast('Bilgi', 'Model başarıyla sıfırlandı. Sistem yeniden başlatılıyor, lütfen bekleyin...', 'info');
+                    
+                    // Yeniden başlatma sonrası sayfa yenilenmesi için işaret koy
+                    localStorage.setItem('modelChangedReloadRequired', 'true');
+                    
+                    // Modal'ı kapat
+                    const modalElement = document.getElementById('modelManagementModal');
+                    if (modalElement) {
+                        const modalInstance = bootstrap.Modal.getInstance(modalElement);
+                        if (modalInstance) {
+                            modalInstance.hide();
+                        }
+                    }
+                } else {
+                    showModalTrainingStatus('Model başarıyla sıfırlandı!', 'success');
+                    
+                    // Model versiyonlarını ve istatistikleri yenile
+                    setTimeout(() => {
+                        loadModalModelVersions();
+                        loadModalModelStats();
+                        hideModalTrainingStatus();
+                        if (settingsSaveLoader) {
+                            settingsSaveLoader.style.display = 'none';
+                        }
+                    }, 2000);
+                }
+            } else {
+                showModalTrainingStatus('Model sıfırlanırken hata oluştu: ' + (data.error || data.message || 'Bilinmeyen hata'), 'danger');
+                setTimeout(() => {
+                    hideModalTrainingStatus();
+                    if (settingsSaveLoader) {
+                        settingsSaveLoader.style.display = 'none';
+                    }
+                }, 3000);
+            }
+        })
+        .catch(error => {
+            console.error('Model sıfırlama hatası:', error);
+            showModalTrainingStatus('Model sıfırlanırken hata oluştu: ' + error.message, 'danger');
+            setTimeout(() => {
+                hideModalTrainingStatus();
+                if (settingsSaveLoader) {
+                    settingsSaveLoader.style.display = 'none';
+                }
+            }, 3000);
+        });
+    }
+}
+
+// Modal'dan versiyon aktifleştir
+function activateVersionFromModal(versionId) {
+    console.log(`Modal - Activating version ${versionId}`);
+    
+    if (!confirm('Bu model versiyonunu aktifleştirmek istediğinizden emin misiniz?\n\nDikkat: Model değişikliği sistem yeniden başlatılmasını gerektirir.')) {
+        return;
+    }
+    
+    showModalTrainingStatus('Model versiyonu aktifleştiriliyor...', 'info');
+    
+    // Yükleyici göster (analiz parametrelerinde olduğu gibi)
+    const settingsSaveLoader = document.getElementById('settingsSaveLoader');
+    if (settingsSaveLoader) {
+        settingsSaveLoader.style.display = 'flex';
+    }
+    
+    fetch(`/api/model/activate/${versionId}`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        }
+    })
+    .then(response => {
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        return response.json();
+    })
+    .then(data => {
+        if (data.success) {
+            if (data.restart_required) {
+                // Sistem yeniden başlatılıyor
+                showModalTrainingStatus('Model aktifleştirildi. Sistem yeniden başlatılıyor...', 'success');
+                showToast('Bilgi', 'Model başarıyla aktifleştirildi. Sistem yeniden başlatılıyor, lütfen bekleyin...', 'info');
+                
+                // Yeniden başlatma sonrası sayfa yenilenmesi için işaret koy
+                localStorage.setItem('modelChangedReloadRequired', 'true');
+                
+                // Modal'ı kapat
+                const modalElement = document.getElementById('modelManagementModal');
+                if (modalElement) {
+                    const modalInstance = bootstrap.Modal.getInstance(modalElement);
+                    if (modalInstance) {
+                        modalInstance.hide();
+                    }
+                }
+                
+                // Yükleyici gösterilmeye devam edecek, socket bağlantısı kurulunca kapanacak
+            } else {
+                // Normal durum (yeniden başlatma gerekmez)
+                showModalTrainingStatus('Model versiyonu başarıyla aktifleştirildi!', 'success');
+                
+                // Model versiyonlarını ve istatistikleri yenile
+                setTimeout(() => {
+                    loadModalModelVersions();
+                    loadModalModelStats();
+                    hideModalTrainingStatus();
+                    if (settingsSaveLoader) {
+                        settingsSaveLoader.style.display = 'none';
+                    }
+                }, 2000);
+            }
+        } else {
+            showModalTrainingStatus('Model versiyonu aktifleştirilirken hata oluştu: ' + (data.error || data.message || 'Bilinmeyen hata'), 'danger');
+            setTimeout(() => {
+                hideModalTrainingStatus();
+                if (settingsSaveLoader) {
+                    settingsSaveLoader.style.display = 'none';
+                }
+            }, 3000);
+        }
+    })
+    .catch(error => {
+        console.error('Model versiyon aktifleştirme hatası:', error);
+        showModalTrainingStatus('Model versiyonu aktifleştirilirken hata oluştu: ' + error.message, 'danger');
+        setTimeout(() => {
+            hideModalTrainingStatus();
+            if (settingsSaveLoader) {
+                settingsSaveLoader.style.display = 'none';
+            }
+        }, 3000);
+    });
 }

@@ -2,38 +2,25 @@ import re
 import os
 import signal
 from flask import Blueprint, request, jsonify, current_app
-from config import Config # config.py'''daki ana Config sınıfını import ediyoruz
+from config import Config # config.py'daki ana Config sınıfını import ediyoruz
 import datetime
 
 bp = Blueprint('settings_bp', __name__, url_prefix='/api')
+"""
+Ayar yönetimi için blueprint.
+- Sistem ve model ayarlarını yönetmeye yönelik endpointleri içerir.
+"""
 
 # config.py dosyasının yolu
 # Proje kök dizinini bulmak için __file__ (settings_routes.py) üzerinden ../../ yaparak git
 # WSANALIZ/app/routes/settings_routes.py -> WSANALIZ/config.py
 CONFIG_PY_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', 'config.py'))
 
-# Güncellenebilecek parametrelerin listesi ve türleri (config.py'''daki isimleriyle)
-UPDATABLE_PARAMS = {
-    # "MIN_FACE_SIZE": int, (KALDIRILDI)
-    # "CONTENT_ANALYSIS_PROFILE": str, (KALDIRILDI)
-    # "VIDEO_FRAME_SAMPLING_RATE": int, (KALDIRILDI)
-    # "DEFAULT_CONFIDENCE_THRESHOLD": float, (Bu modal için KALDIRILDI, config.py'da genel ayar olarak kalabilir)
-    # "DEFAULT_FRAMES_PER_SECOND": int (Bu modal için KALDIRILDI, config.py'da genel ayar olarak kalabilir)
-    "FACE_DETECTION_CONFIDENCE": float,
-    "TRACKING_RELIABILITY_THRESHOLD": float,
-    "ID_CHANGE_THRESHOLD": float,
-    "MAX_LOST_FRAMES": int,
-    "EMBEDDING_DISTANCE_THRESHOLD": float
-}
+# Güncellenebilecek parametrelerin listesi ve türleri (config.py'daki isimleriyle)
+UPDATABLE_PARAMS = Config.UPDATABLE_PARAMS
 
 # Kullanıcının referans resmindeki sabit fabrika ayarları
-FACTORY_DEFAULTS = {
-    "FACE_DETECTION_CONFIDENCE": 0.5,
-    "TRACKING_RELIABILITY_THRESHOLD": 0.5,
-    "ID_CHANGE_THRESHOLD": 0.45,
-    "MAX_LOST_FRAMES": 30,
-    "EMBEDDING_DISTANCE_THRESHOLD": 0.4
-}
+FACTORY_DEFAULTS = Config.FACTORY_DEFAULTS
 
 def update_settings_state_file(params):
     """

@@ -1,6 +1,5 @@
 from flask import Blueprint, jsonify, request, current_app
 from app.services import model_service
-from app import db  # Doğru import
 import logging
 
 logger = logging.getLogger(__name__)

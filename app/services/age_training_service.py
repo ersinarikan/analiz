@@ -13,18 +13,24 @@ from app import db
 from app.models.feedback import Feedback
 from app.models.content import ModelVersion
 from app.ai.insightface_age_estimator import CustomAgeHead
+from config import Config
+from app.utils.model_utils import save_torch_model
+from app.utils.file_utils import ensure_dir, safe_copytree, safe_remove, write_json, read_json, get_folder_size
 
 # Root logger'ı kullan (terminalde görünmesi için)
 logger = logging.getLogger('app.age_training')
 
 class AgeTrainingService:
-    """Custom Age modelini geri bildirimlerle eğiten servis"""
+    """
+    Yaş tahmini modelinin eğitimini ve veri hazırlığını yöneten servis sınıfı.
+    - Geri bildirim verisi toplama, eğitim ve temizlik işlemlerini içerir.
+    """
     
     def __init__(self):
         self.device = torch.device("cuda" if torch.cuda.is_available() and current_app.config.get('USE_GPU', True) else "cpu")
         logger.info(f"AgeTrainingService initialized with device: {self.device}")
     
-    def prepare_training_data(self, min_samples=10):
+    def prepare_training_data(self, min_samples: int = 10) -> dict | None:
         """
         Feedback tablosundan yaş eğitim verilerini hazırlar
         
@@ -164,23 +170,14 @@ class AgeTrainingService:
     def train_model(self, training_data, params=None):
         """
         Custom Age modelini eğitir
-        
-        Args:
-            training_data: prepare_training_data() fonksiyonundan dönen veri
-            params: Eğitim parametreleri
-            
-        Returns:
-            dict: Eğitim sonuçları
         """
         if params is None:
-            params = {
-                'epochs': 50,
-                'batch_size': 32,
-                'learning_rate': 0.001,
-                'hidden_dims': [256, 128],
-                'test_size': 0.2,
-                'early_stopping_patience': 10
-            }
+            params = Config.DEFAULT_TRAINING_PARAMS.copy()
+        else:
+            default_params = Config.DEFAULT_TRAINING_PARAMS.copy()
+            for key, value in default_params.items():
+                if key not in params:
+                    params[key] = value
         
         logger.info(f"Starting training with params: {params}")
         
@@ -346,26 +343,14 @@ class AgeTrainingService:
     def save_model_version(self, model, training_result, version_name=None):
         """
         Eğitilmiş modeli yeni bir versiyon olarak kaydet
-        
-        Args:
-            model: Eğitilmiş PyTorch modeli
-            training_result: train_model() fonksiyonundan dönen sonuç
-            version_name: Opsiyonel versiyon adı
-            
-        Returns:
-            ModelVersion: Oluşturulan model versiyonu
         """
         # Versiyon numarasını belirle
         last_version = ModelVersion.query.filter_by(
             model_type='age'
         ).order_by(ModelVersion.version.desc()).first()
-        
         new_version_num = 1 if last_version is None else last_version.version + 1
-        
         if version_name is None:
             version_name = f"v{new_version_num}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-        
-        # Model dosyalarını kaydet
         version_dir = os.path.join(
             current_app.config['MODELS_FOLDER'],
             'age',
@@ -373,55 +358,44 @@ class AgeTrainingService:
             'versions',
             version_name
         )
-        os.makedirs(version_dir, exist_ok=True)
-        
-        # Model ağırlıklarını kaydet
-        model_path = os.path.join(version_dir, 'model.pth')
-        torch.save({
-            'model_state_dict': model.state_dict(),
-            'model_config': {
-                'input_dim': model.network[0].in_features,
-                'hidden_dims': [layer.out_features for layer in model.network if isinstance(layer, nn.Linear)][:-1],
-                'output_dim': 1
-            }
-        }, model_path)
-        
+        # Model ağırlıklarını ve metadata'yı kaydet
+        config_dict = {
+            'input_dim': model.network[0].in_features,
+            'hidden_dims': [layer.out_features for layer in model.network if hasattr(layer, 'out_features')][:-1],
+            'output_dim': 1
+        }
+        extra_metadata = {
+            'version': new_version_num,
+            'version_name': version_name,
+            'created_at': datetime.now().isoformat(),
+            'model_type': 'age',
+            'metrics': training_result['metrics'],
+            'training_samples': training_result['training_samples'],
+            'validation_samples': training_result['validation_samples'],
+            'used_feedback_ids': training_result['used_feedback_ids']
+        }
+        model_path = save_torch_model(model, version_dir, config_dict, extra_metadata)
         # Eğitim detaylarını kaydet
         details_path = os.path.join(version_dir, 'training_details.json')
         with open(details_path, 'w') as f:
-            json.dump({
-                'metrics': training_result['metrics'],
-                'history': training_result['history'],
-                'training_samples': training_result['training_samples'],
-                'validation_samples': training_result['validation_samples'],
-                'training_date': datetime.now().isoformat()
-            }, f, indent=4)
-        
+            json.dump(training_result, f, indent=4, default=str)
         # Veritabanına kaydet
         model_version = ModelVersion(
             model_type='age',
             version=new_version_num,
             version_name=version_name,
-            file_path=version_dir,
-            weights_path=model_path,
+            created_at=datetime.now(),
             metrics=training_result['metrics'],
+            is_active=False,
             training_samples=training_result['training_samples'],
             validation_samples=training_result['validation_samples'],
             epochs=len(training_result['history']['train_loss']),
-            is_active=False,  # Manuel olarak aktif edilmeli
-            created_at=datetime.now(),
+            file_path=version_dir,
+            weights_path=model_path,
             used_feedback_ids=training_result['used_feedback_ids']
         )
-        
         db.session.add(model_version)
         db.session.commit()
-        
-        # Eğitimde kullanılan verileri işaretle
-        if 'used_feedback_ids' in training_result:
-            self.mark_training_data_used(training_result['used_feedback_ids'], version_name)
-        
-        logger.info(f"Model version saved: {version_name} (ID: {model_version.id})")
-        
         return model_version
     
     def activate_model_version(self, version_id):
@@ -483,7 +457,7 @@ class AgeTrainingService:
             db.session.rollback()
             return False
     
-    def get_model_versions(self):
+    def get_model_versions(self) -> list[dict]:
         """Tüm Custom Age model versiyonlarını listeler"""
         versions = ModelVersion.query.filter_by(
             model_type='age'
@@ -500,7 +474,7 @@ class AgeTrainingService:
             'validation_samples': v.validation_samples
         } for v in versions]
 
-    def cleanup_training_data(self, dry_run=True):
+    def cleanup_training_data(self, dry_run: bool = True) -> dict:
         """
         Eğitim verilerini temizler (silmez, sadece işaretler)
         
@@ -611,7 +585,7 @@ class AgeTrainingService:
         
         return cleanup_report
 
-    def cleanup_used_training_data(self, used_feedback_ids, model_version_name):
+    def cleanup_used_training_data(self, used_feedback_ids: list[int], model_version_name: str) -> dict:
         """
         Eğitimde kullanılan verileri tamamen temizler (VT + dosyalar)
         
@@ -712,7 +686,7 @@ class AgeTrainingService:
             
         return cleanup_report
 
-    def mark_training_data_used(self, feedback_ids, model_version_name):
+    def mark_training_data_used(self, feedback_ids: list[int], model_version_name: str):
         """
         Eğitimde kullanılan verileri işaretler
         
@@ -732,7 +706,7 @@ class AgeTrainingService:
         db.session.commit()
         logger.info("Feedback records marked as used")
 
-    def reset_to_base_model(self):
+    def reset_to_base_model(self) -> bool:
         """
         Yaş tahmin modelini base (ön eğitimli) modele sıfırlar
         

@@ -4,6 +4,10 @@ import logging
 
 logger = logging.getLogger(__name__)
 ensemble_bp = Blueprint('ensemble_bp', __name__, url_prefix='/api/ensemble')
+"""
+Ensemble işlemleri için blueprint.
+- Model birleştirme ve ensemble yönetimi endpointlerini içerir.
+"""
 
 @ensemble_bp.route('/status', methods=['GET'])
 def get_ensemble_status():

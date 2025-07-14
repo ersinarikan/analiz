@@ -1,11 +1,18 @@
 import os
-from flask import current_app
+
+# Kullanılmayan importlar kaldırıldı
 
 # Proje kök dizinini belirle (ör: WSANALIZ klasörü) - workspace root olmalı
 BASE_DIR = os.path.abspath(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))  # Go up 2 levels from app/utils/ to workspace root
 
-def to_rel_path(abs_path):
-    """Mutlak yolu, workspace köküne göre bağıl yapar ve slash normalize eder."""
+def to_rel_path(abs_path: str) -> str:
+    """
+    Mutlak dosya yolunu göreli yola çevirir.
+    Args:
+        abs_path (str): Mutlak dosya yolu.
+    Returns:
+        str: Göreli dosya yolu.
+    """
     if not abs_path:
         return ""
     
@@ -19,10 +26,10 @@ def to_rel_path(abs_path):
         # farklı drive'larda olabilir (Windows)
         return abs_path.replace("\\", "/")
 
-def to_abs_path(rel_path):
+def to_abs_path(rel_path: str) -> str:
     """Bağıl yolu, proje köküne göre mutlak yapar."""
     return os.path.abspath(os.path.join(BASE_DIR, rel_path))
 
-def is_subpath(path, base=BASE_DIR):
+def is_subpath(path: str, base: str = BASE_DIR) -> bool:
     """Bir path'in base'in altında olup olmadığını kontrol eder (güvenlik için)."""
     return os.path.commonpath([os.path.abspath(path), base]) == base 

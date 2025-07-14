@@ -1,55 +1,22 @@
 /**
  * İçerik Analiz Sistemi JavaScript Kodu
+ * HTTP API tabanlı - SocketIO kaldırıldı
  */
 
 // Global değişkenler
 const API_URL = '/api';
-const SOCKET_URL = window.location.origin;
-let socket;
 let uploadedFiles = [];
 let analysisResults = {};
 let currentAnalysisIds = [];
 
 // DOM elementlerini al
 document.addEventListener('DOMContentLoaded', () => {
-    // Socket.io bağlantısını kur
-    initializeSocketConnection();
+    // HTTP API kullanacağız - SocketIO kaldırıldı
+    console.log('HTTP API tabanlı sistem başlatıldı');
     
     // Event listenerları ekle
     setupEventListeners();
 });
-
-/**
- * Socket.io bağlantısını başlatır
- */
-function initializeSocketConnection() {
-    socket = io(SOCKET_URL);
-    
-    // Socket olaylarını dinle
-    socket.on('connect', () => {
-        console.log('Socket.io bağlantısı kuruldu');
-    });
-    
-    socket.on('disconnect', () => {
-        console.log('Socket.io bağlantısı kesildi');
-    });
-    
-    // Analiz ilerleme olayları
-    socket.on('analysis_started', handleAnalysisStarted);
-    socket.on('analysis_progress', handleAnalysisProgress);
-    socket.on('analysis_completed', handleAnalysisCompleted);
-    socket.on('analysis_failed', handleAnalysisFailed);
-    
-    // Batch analiz olayları
-    socket.on('batch_analysis_progress', handleBatchAnalysisProgress);
-    socket.on('batch_analysis_completed', handleBatchAnalysisCompleted);
-    
-    // Eğitim olayları
-    socket.on('training_started', handleTrainingStarted);
-    socket.on('training_progress', handleTrainingProgress);
-    socket.on('training_completed', handleTrainingCompleted);
-    socket.on('training_failed', handleTrainingFailed);
-}
 
 /**
  * Olay dinleyicileri ekler

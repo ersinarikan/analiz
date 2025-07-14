@@ -4,6 +4,8 @@ import shutil
 from datetime import datetime
 from flask import current_app
 import logging
+from config import Config
+from app.utils.file_utils import ensure_dir, safe_copytree, safe_remove, write_json, read_json, get_folder_size
 
 class CLIPVersionService:
     """CLIP Model Version Management Service"""
@@ -16,7 +18,7 @@ class CLIPVersionService:
         self.versions_path = os.path.join(self.clip_models_path, 'versions')
         
         # Versions klasörünün var olduğundan emin ol
-        os.makedirs(self.versions_path, exist_ok=True)
+        ensure_dir(self.versions_path)
     
     def get_all_versions(self):
         """Tüm CLIP versiyonlarını listele"""
@@ -105,18 +107,7 @@ class CLIPVersionService:
     
     def _get_folder_size(self, folder_path):
         """Klasör boyutunu hesapla (MB)"""
-        try:
-            total_size = 0
-            for dirpath, dirnames, filenames in os.walk(folder_path):
-                for filename in filenames:
-                    file_path = os.path.join(dirpath, filename)
-                    if os.path.exists(file_path):
-                        total_size += os.path.getsize(file_path)
-            
-            return round(total_size / (1024 * 1024), 2)  # MB
-            
-        except Exception as e:
-            return 0
+        return get_folder_size(folder_path)
     
     def create_new_version(self, version_name, source_model='base'):
         """Yeni model versiyonu oluştur"""
@@ -140,7 +131,7 @@ class CLIPVersionService:
             
             # Model'i kopyala
             self.logger.info(f"Model kopyalanıyor: {source_path} -> {new_version_path}")
-            shutil.copytree(source_path, new_version_path)
+            safe_copytree(source_path, new_version_path)
             
             # Metadata oluştur
             metadata = {
@@ -153,8 +144,7 @@ class CLIPVersionService:
             }
             
             metadata_file = os.path.join(new_version_path, 'metadata.json')
-            with open(metadata_file, 'w') as f:
-                json.dump(metadata, f, indent=2)
+            write_json(metadata_file, metadata)
             
             self.logger.info(f"Yeni versiyon oluşturuldu: {version_name}")
             return new_version_path, None
@@ -174,12 +164,12 @@ class CLIPVersionService:
             
             if os.path.exists(self.active_model_path):
                 self.logger.info(f"Mevcut active model backup'lanıyor: {backup_path}")
-                shutil.copytree(self.active_model_path, backup_path)
-                shutil.rmtree(self.active_model_path)
+                safe_copytree(self.active_model_path, backup_path)
+                safe_remove(self.active_model_path)
             
             # Yeni versiyonu active yap
             self.logger.info(f"Yeni active model ayarlanıyor: {version_path}")
-            shutil.copytree(version_path, self.active_model_path)
+            safe_copytree(version_path, self.active_model_path)
             
             # Active model metadata'sını güncelle
             metadata = {
@@ -190,8 +180,7 @@ class CLIPVersionService:
             }
             
             metadata_file = os.path.join(self.active_model_path, 'metadata.json')
-            with open(metadata_file, 'w') as f:
-                json.dump(metadata, f, indent=2)
+            write_json(metadata_file, metadata)
             
             self.logger.info(f"Active model güncellendi: {os.path.basename(version_path)}")
             return True, None
@@ -213,10 +202,7 @@ class CLIPVersionService:
                 return False, "Base ve active model silinemez"
             
             # Versiyonu sil
-            if os.path.isdir(version_path):
-                shutil.rmtree(version_path)
-            else:
-                os.remove(version_path)
+            safe_remove(version_path)
             
             self.logger.info(f"Versiyon silindi: {version_name}")
             return True, None

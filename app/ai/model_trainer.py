@@ -8,9 +8,13 @@ from sklearn.model_selection import train_test_split
 from flask import current_app
 from app.services.model_service import prepare_training_data
 from app.utils.image_utils import load_image
+import cv2
 
 class ModelTrainer:
-    """Yapay zeka modellerini eğiten sınıf."""
+    """
+    Model eğitimi ve değerlendirmesini yöneten ana sınıf.
+    - Eğitim verisi hazırlama, model eğitimi ve değerlendirme işlemlerini içerir.
+    """
     
     def __init__(self, model_type):
         """Eğitim için sınıfı başlat."""
@@ -57,8 +61,15 @@ class ModelTrainer:
         except Exception as e:
             current_app.logger.error(f"Konfigürasyon kaydetme hatası: {str(e)}")
     
-    def train(self, epochs=5, batch_size=32, learning_rate=0.001):
-        """Modeli eğit."""
+    def train(self, epochs: int = 5, batch_size: int = 32, learning_rate: float = 0.001) -> None:
+        """
+        Modeli eğitir.
+        - Eğitim verisini hazırlar.
+        - Mevcut modeli yedekler.
+        - İçerik veya yaş modeline göre eğitim yapar.
+        - Eğitim geçmişini ve metrikleri günceller.
+        - Konfigürasyonu kaydeder.
+        """
         # Eğitim verisini hazırla
         training_data, message = prepare_training_data(self.model_type)
         
@@ -139,7 +150,13 @@ class ModelTrainer:
             current_app.logger.error(f"Model yedekleme hatası: {str(e)}")
     
     def _train_content_model(self, training_data, epochs, batch_size, learning_rate):
-        """İçerik analiz modelini eğit."""
+        """
+        İçerik analiz modelini eğitir.
+        - Eğitim verisini hazırlar.
+        - Gerçek bir eğitim yerine basit bir simülasyon yapar.
+        - Eğitim performansını simüle eder.
+        - Sonuçları hesaplar ve grafikler oluşturur.
+        """
         try:
             # Örnek uygulama: Burada gerçek bir eğitim yapılacak
             # Şu an için basit bir simülasyon yapalım
@@ -261,7 +278,13 @@ class ModelTrainer:
             return False, str(e)
     
     def _train_age_model(self, training_data, epochs, batch_size, learning_rate):
-        """Yaş tahmin modelini eğit."""
+        """
+        Yaş tahmin modelini eğitir.
+        - Eğitim verisini hazırlar.
+        - Gerçek bir eğitim yerine basit bir simülasyon yapar.
+        - Eğitim performansını simüle eder.
+        - Sonuçları hesaplar ve grafikler oluşturur.
+        """
         try:
             # Örnek uygulama: Burada gerçek bir eğitim yapılacak
             # Şu an için basit bir simülasyon yapalım
@@ -339,7 +362,10 @@ class ModelTrainer:
             return False, str(e)
     
     def _create_training_plots(self, loss_history, metrics, epochs):
-        """İçerik analiz modeli için eğitim grafiklerini oluştur."""
+        """
+        İçerik analiz modeli için eğitim grafiklerini oluşturur.
+        - Kayıp, F1 skor ve doğruluk grafiklerini oluşturur.
+        """
         try:
             # Grafikler için dizin oluştur
             plots_dir = os.path.join(self.model_folder, 'plots')
@@ -385,7 +411,10 @@ class ModelTrainer:
             current_app.logger.error(f"Grafik oluşturma hatası: {str(e)}")
     
     def _create_age_training_plots(self, loss_history, y_true, y_pred, epochs):
-        """Yaş tahmin modeli için eğitim grafiklerini oluştur."""
+        """
+        Yaş tahmin modeli için eğitim grafiklerini oluşturur.
+        - Kayıp, Gerçek vs Tahmin edilen yaş ve Hata histogramı grafiklerini oluşturur.
+        """
         try:
             # Grafikler için dizin oluştur
             plots_dir = os.path.join(self.model_folder, 'plots')

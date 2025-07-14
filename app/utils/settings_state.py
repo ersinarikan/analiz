@@ -5,11 +5,11 @@
 SETTINGS_STATE = {
     'face_detection_confidence': 0.5,
     'tracking_reliability_threshold': 0.5,
-    'id_change_threshold': 0.45,
+    'id_change_threshold': 0.4,
     'max_lost_frames': 30,
     'embedding_distance_threshold': 0.4
 }
 
 # Bu satır Flask'ın dosya değişikliklerini algılaması için
 # Her parametre değişikliğinde timestamp güncellenir
-LAST_UPDATE = "2025-06-02T18:47:48.448006"
+LAST_UPDATE = "2025-07-12T22:44:22.550130"

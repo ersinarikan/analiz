@@ -17,9 +17,8 @@ logger = logging.getLogger(__name__)
 
 class Analysis(db.Model):
     """
-    İçerik analiz sonuçlarını saklayan model.
-    Resim ve video dosyalarının şiddet, yetişkin içerik, taciz, silah ve madde kullanımı 
-    kategorilerindeki analiz sonuçlarını içerir.
+    Analiz ana modeli.
+    - Yüklenen dosya, analiz türü, sonuçlar ve ilişkili içerik/yaş tespitleriyle bağlantı sağlar.
     """
     __tablename__ = 'analyses'
     
@@ -79,7 +78,7 @@ class Analysis(db.Model):
         self.status_message = 'Analiz başlatıldı'
         db.session.commit()
     
-    def update_progress(self, progress):
+    def update_progress(self, progress: int):
         """
         Analiz ilerleme durumunu günceller.
         
@@ -96,7 +95,7 @@ class Analysis(db.Model):
         self.status_message = 'Analiz tamamlandı'
         db.session.commit()
     
-    def fail_analysis(self, message):
+    def fail_analysis(self, message: str):
         """
         Analizi başarısız olarak işaretler.
         
@@ -107,7 +106,7 @@ class Analysis(db.Model):
         self.status_message = message
         db.session.commit()
     
-    def to_dict(self):
+    def to_dict(self) -> dict:
         """
         Analiz verilerini sözlük formatında döndürür.
         
@@ -179,7 +178,7 @@ class ContentDetection(db.Model):
     # Tespit edilen nesneler JSON formatında
     _detected_objects = db.Column(db.Text)  # JSON olarak saklanan tespit edilen nesneler
     
-    def set_detected_objects(self, detected_objects):
+    def set_detected_objects(self, detected_objects: list | dict):
         """
         Algılanan nesneleri JSON olarak ayarlar. NumPy tiplerini düzgün bir şekilde işler.
         
@@ -208,7 +207,7 @@ class ContentDetection(db.Model):
             logging.error(f"Hata detected_objects serileştirirken: {str(e)}")
             self.detected_objects_json = "{}"
     
-    def get_detected_objects(self):
+    def get_detected_objects(self) -> list:
         """
         Tespit edilen nesneleri JSON formatından döndürür.
         
@@ -220,16 +219,16 @@ class ContentDetection(db.Model):
         return []
     
     @property
-    def detected_objects_json(self):
+    def detected_objects_json(self) -> str:
         """Return the detected objects as a JSON string."""
         return self._detected_objects
 
     @detected_objects_json.setter 
-    def detected_objects_json(self, value):
+    def detected_objects_json(self, value: str):
         """Set the detected objects JSON string."""
         self._detected_objects = value
     
-    def to_dict(self):
+    def to_dict(self) -> dict:
         """
         İçerik tespitini sözlük formatında döndürür.
         
@@ -272,11 +271,11 @@ class AgeEstimation(db.Model):
     # Yaş tahmini
     estimated_age = db.Column(db.Float, nullable=True)
     @property
-    def confidence_score(self):
+    def confidence_score(self) -> float:
         return self._confidence_score
 
     @confidence_score.setter
-    def confidence_score(self, value):
+    def confidence_score(self, value: float | None):
         if value is None:
             self._confidence_score = 0.50
         else:
@@ -292,7 +291,7 @@ class AgeEstimation(db.Model):
     
     embedding = db.Column(db.Text, nullable=True)  # Virgül ile ayrılmış float string
     
-    def set_face_location(self, x, y, width, height):
+    def set_face_location(self, x: int, y: int, width: int, height: int):
         """
         Yüz konumunu ayarlar ve JSON formatında saklar.
         
@@ -306,7 +305,7 @@ class AgeEstimation(db.Model):
         x, y, width, height = int(x), int(y), int(width), int(height)
         self._face_location = json.dumps([x, y, width, height])
     
-    def get_face_location(self):
+    def get_face_location(self) -> list | None:
         """
         Yüz konumunu JSON formatından döndürür.
         
@@ -319,7 +318,7 @@ class AgeEstimation(db.Model):
     
     face_location = property(get_face_location, set_face_location)
     
-    def set_age_estimations(self, age_estimations):
+    def set_age_estimations(self, age_estimations: list | dict):
         """
         Yaş tahminlerini JSON olarak ayarlar. NumPy tiplerini düzgün bir şekilde işler.
         
@@ -348,7 +347,7 @@ class AgeEstimation(db.Model):
             logging.error(f"Hata age_estimations serileştirirken: {str(e)}")
             self.age_estimations_json = "{}"
     
-    def get_age_estimations(self):
+    def get_age_estimations(self) -> str:
         """
         Yaş tahminlerini JSON formatından döndürür.
         
@@ -357,7 +356,7 @@ class AgeEstimation(db.Model):
         """
         return self.age_estimations_json
     
-    def to_dict(self):
+    def to_dict(self) -> dict:
         """
         Yaş tahminini sözlük formatında döndürür.
         Returns:
@@ -404,7 +403,7 @@ class AnalysisFeedback(db.Model):
     def __repr__(self):
         return f"<AnalysisFeedback {self.id}: {self.feedback_type} - {self.category}>"
 
-    def set_age_estimations(self, age_estimations):
+    def set_age_estimations(self, age_estimations: list | dict):
         """
         Yaş tahminlerini JSON string olarak ayarlar.
         """
@@ -434,7 +433,7 @@ class AnalysisFeedback(db.Model):
             self._age_estimations = "[]"
             raise ValueError(f"Yaş tahminlerini JSON'a dönüştürürken hata: {str(e)}")
 
-    def to_dict(self):
+    def to_dict(self) -> dict:
         """Analiz geri bildirimini sözlüğe dönüştürür."""
         try:
             detected_objects = json.loads(self._detected_objects) if self._detected_objects else []

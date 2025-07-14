@@ -1,15 +1,19 @@
 from flask import Blueprint, request, jsonify, current_app
-from app import db, socketio
+from app import db
 from app.models.feedback import Feedback
 from app.models.analysis import FaceTracking, AgeEstimation
 import logging
 import os
 from app.utils.path_utils import to_rel_path
 
-bp = Blueprint('feedback', __name__, url_prefix='/api/feedback')
+feedback_bp = Blueprint('feedback', __name__, url_prefix='/api/feedback')
+"""
+Geri bildirim işlemleri için blueprint.
+- Kullanıcı geri bildirimi gönderme ve yönetme endpointlerini içerir.
+"""
 logger = logging.getLogger(__name__)
 
-@bp.route('/submit', methods=['POST'])
+@feedback_bp.route('/submit', methods=['POST'])
 def submit_feedback():
     """
     İçerik analizi için geri bildirim gönderir.
@@ -74,7 +78,7 @@ def submit_feedback():
         logger.error(f"Geri bildirim kaydedilirken hata: {str(e)}")
         return jsonify({'error': f'Geri bildirim kaydedilemedi: {str(e)}'}), 500
 
-@bp.route('/age', methods=['POST'])
+@feedback_bp.route('/age', methods=['POST'])
 def submit_age_feedback():
     """
     Yaş tahmini için geri bildirim gönderir.
@@ -159,7 +163,7 @@ def submit_age_feedback():
         logger.error(f"Yaş geri bildirimi kaydedilirken hata: {str(e)}")
         return jsonify({'error': f'Yaş geri bildirimi kaydedilemedi: {str(e)}'}), 500
 
-@bp.route('/content/<content_id>', methods=['GET'])
+@feedback_bp.route('/content/<content_id>', methods=['GET'])
 def get_content_feedback(content_id):
     """
     Belirli bir içerik için geri bildirimleri getirir.
@@ -179,3 +183,5 @@ def get_content_feedback(content_id):
     except Exception as e:
         logger.error(f"Geri bildirim getirme hatası: {str(e)}")
         return jsonify({'error': f'Geri bildirimler getirilirken bir hata oluştu: {str(e)}'}), 500 
+
+bp = feedback_bp 

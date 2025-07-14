@@ -5,6 +5,7 @@ import shutil
 # from app.config import Config # Eski import
 from config import Config # config.py kök dizinde olduğu için doğrudan import
 import insightface # Bu import burada gerekli, model indirme için.
+from app.utils.file_utils import ensure_dir
 
 def download_insightface_model():
     """
@@ -18,7 +19,7 @@ def download_insightface_model():
     # Config.MODELS_FOLDER, Config.INSIGHTFACE_AGE_MODEL_NAME vs. kullanılacak
     base_model_root = os.path.join(Config.MODELS_FOLDER, 'age', Config.INSIGHTFACE_AGE_MODEL_NAME, 'base_model')
     target_path_for_onnx_base = os.path.join(base_model_root, 'models', 'buffalo_l')
-    os.makedirs(target_path_for_onnx_base, exist_ok=True)
+    ensure_dir(target_path_for_onnx_base)
 
     # active_model_root = os.path.join(Config.MODELS_FOLDER, 'age', Config.INSIGHTFACE_AGE_MODEL_NAME, 'active_model') # KALDIRILDI
     # target_path_for_onnx_active = os.path.join(active_model_root, 'models', 'buffalo_l') # KALDIRILDI

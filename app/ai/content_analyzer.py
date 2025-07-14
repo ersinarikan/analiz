@@ -12,28 +12,33 @@ from ultralytics import YOLO
 import torch
 import open_clip
 from PIL import Image  # CLIP için PIL gerekiyor
-import shutil
 import time
 import json
-import math
 import threading
-import weakref
 from app.utils.serialization_utils import convert_numpy_types_to_python
+from config import Config
 
 logger = logging.getLogger(__name__)
 
-# Thread-safe singleton pattern için model repository
-_models_cache = {}
+# Thread-safe cache lock
 _cache_lock = threading.Lock()
+# Thread-safe model cache
+_models_cache = {}
+
+# Kullanılmayan global _models_cache kaldırıldı
 
 class ContentAnalyzer:
-    """İçerik analiz sınıfı, görüntülerdeki şiddet, yetişkin içeriği, vb. kategorileri tespit eder."""
+    """
+    İçerik analiz sınıfı, görüntülerdeki şiddet, yetişkin içeriği, vb. kategorileri tespit eder.
+    - YOLO, OpenCLIP ve diğer modelleri kullanır.
+    - Thread-safe singleton pattern ile çalışır.
+    """
     
     # Thread-safe singleton implementation
     _instance = None
     _lock = threading.Lock()
     
-    def __new__(cls):
+    def __new__(cls) -> 'ContentAnalyzer':
         """Thread-safe singleton pattern implementasyonu"""
         if cls._instance is None:
             with cls._lock:
@@ -368,7 +373,7 @@ class ContentAnalyzer:
             logger.warning(f"Classification head yüklenirken hata: {str(e)}, prompt-based yaklaşım kullanılacak")
             return None
     
-    def analyze_image(self, image_path):
+    def analyze_image(self, image_path: str) -> tuple[float, float, float, float, float, float, float, float, float, float, list[dict]]:
         """
         Bir resmi CLIP modeli ile analiz eder ve içerik skorlarını hesaplar.
         (YENİ: Her kategori için 'var mı/yok mu' promptları ve farkın normalize edilmesi)
@@ -483,7 +488,7 @@ class ContentAnalyzer:
                     MAX_CLIP_SCORE = 0.58  # En yüksek gözlenen skor
                     
                     # Linear normalizasyon fonksiyonu
-                    def linear_normalize(raw_score, min_val=MIN_CLIP_SCORE, max_val=MAX_CLIP_SCORE):
+                    def linear_normalize(raw_score: float, min_val: float = MIN_CLIP_SCORE, max_val: float = MAX_CLIP_SCORE) -> float:
                         # Aralık dışı değerleri sınırla
                         clamped_score = max(min_val, min(max_val, raw_score))
                         
@@ -556,7 +561,7 @@ class ContentAnalyzer:
             logger.error(f"CLIP görüntü analizi hatası: {str(e)}")
             raise
     
-    def _apply_contextual_adjustments(self, scores, object_labels, person_count):
+    def _apply_contextual_adjustments(self, scores: dict[str, float], object_labels: list[str], person_count: int) -> dict[str, float]:
         """
         Nesne tespitine dayalı bağlamsal ayarlamalar yapar.
         Bu fonksiyon, CLIP sonuçlarını tespit edilen nesnelere göre ayarlar.
@@ -669,7 +674,13 @@ class ContentAnalyzer:
 
         return scores
 
-def get_content_analyzer():
+    # Backward compatibility: eski fonksiyon isimleri için alias
+    analyze_content = analyze_image
+    _preprocess_image = lambda self, *args, **kwargs: self.clip_preprocess(*args, **kwargs) if hasattr(self, 'clip_preprocess') else None
+    _get_text_features = lambda self, *args, **kwargs: self.clip_model.encode_text(*args, **kwargs) if hasattr(self, 'clip_model') else None
+    _calculate_similarities = lambda self, img_feat, txt_feat: (img_feat @ txt_feat.T).cpu().numpy() if hasattr(self, 'clip_model') else None
+
+def get_content_analyzer() -> ContentAnalyzer:
     """
     Performance-optimized factory function for ContentAnalyzer singleton
     

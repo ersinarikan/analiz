@@ -17,7 +17,11 @@ from app.utils.security import (
 
 logger = logging.getLogger(__name__)
 
-bp = Blueprint('files', __name__, url_prefix='/api/files')
+files_bp = Blueprint('files', __name__, url_prefix='/api/files')
+"""
+Dosya işlemleri için blueprint.
+- Dosya yükleme, indirme ve dosya yönetimi endpointlerini içerir.
+"""
 
 # Kabul edilen dosya uzantıları (güvenlik kontrolü ile)
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'mp4', 'avi', 'mov', 'mkv', 'webm'}
@@ -39,7 +43,7 @@ def allowed_file(filename):
     return '.' in filename and \
            filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
-@bp.route('/', methods=['POST'])
+@files_bp.route('/', methods=['POST'])
 def upload_file():
     """
     Güvenli dosya yükleme endpoint'i.
@@ -144,7 +148,7 @@ def upload_file():
         logger.error(f"Dosya yüklenirken beklenmeyen hata: {str(e)}")
         return jsonify({'error': 'Dosya yüklenirken bir hata oluştu'}), 500
 
-@bp.route('/', methods=['GET'])
+@files_bp.route('/', methods=['GET'])
 def get_files():
     """
     Güvenli dosya listesi endpoint'i. Parametreleri doğrular ve güvenli sorgu yapar.
@@ -210,7 +214,7 @@ def get_files():
         logger.error(f"Dosya listesi alınırken hata: {str(e)}")
         return jsonify({'error': 'Dosya listesi alınırken bir hata oluştu'}), 500
 
-@bp.route('/<int:file_id>', methods=['GET'])
+@files_bp.route('/<int:file_id>', methods=['GET'])
 def get_file(file_id):
     """
     Belirtilen ID'ye sahip dosyanın bilgilerini getirir.
@@ -233,7 +237,7 @@ def get_file(file_id):
         logger.error(f"Dosya bilgisi alınırken hata oluştu: {str(e)}")
         return jsonify({'error': f'Dosya bilgisi alınırken bir hata oluştu: {str(e)}'}), 500
 
-@bp.route('/<int:file_id>/download', methods=['GET'])
+@files_bp.route('/<int:file_id>/download', methods=['GET'])
 def download_file(file_id):
     """
     Güvenli dosya indirme endpoint'i. Path traversal saldırılarına karşı korumalı.
@@ -282,7 +286,7 @@ def download_file(file_id):
         logger.error(f"Dosya indirme hatası: {str(e)}")
         return jsonify({'error': 'Dosya indirilemedi'}), 500
 
-@bp.route('/<int:file_id>', methods=['DELETE'])
+@files_bp.route('/<int:file_id>', methods=['DELETE'])
 def delete_file(file_id):
     """
     Belirtilen ID'ye sahip dosyayı sistemden ve veritabanından siler.
@@ -312,7 +316,7 @@ def delete_file(file_id):
         logger.error(f"Dosya silinirken hata oluştu: {str(e)}")
         return jsonify({'error': f'Dosya silinirken bir hata oluştu: {str(e)}'}), 500
 
-@bp.route('/frames/<int:frame_id>/<path:filename>', methods=['GET'])
+@files_bp.route('/frames/<int:frame_id>/<path:filename>', methods=['GET'])
 def serve_frame_file(frame_id, filename):
     """
     Belirli bir frame klasöründeki işlenmiş görseli sunar.
@@ -362,7 +366,7 @@ def serve_frame_file(frame_id, filename):
         logger.error(f"Frame görsel servis hatası: {str(e)}")
         return jsonify({'error': f'Dosya servis hatası: {str(e)}'}), 500
 
-@bp.route('/processed/<path:filename>', methods=['GET'])
+@files_bp.route('/processed/<path:filename>', methods=['GET'])
 def serve_processed_image(filename):
     """
     İşlenmiş bir görseli sunar.
@@ -394,7 +398,7 @@ def serve_processed_image(filename):
         return jsonify({'error': f'Dosya sunum hatası: {str(e)}'}), 500
 
 # İşlenmiş dosyaları servis etmek için genel bir route
-@bp.route('/storage/processed/<path:filename>', methods=['GET'])
+@files_bp.route('/storage/processed/<path:filename>', methods=['GET'])
 def serve_storage_processed_file(filename):
     """
     İşlenmiş dosyaları storage/processed/ klasöründen sunar.
@@ -437,7 +441,7 @@ def serve_storage_processed_file(filename):
         return jsonify({'error': f'Dosya bulunamadı: {str(e)}'}), 404
 
 # Video karelerini doğrudan sunmak için yeni rota
-@bp.route('/frames/<analysis_id>/<path:frame_file>', methods=['GET'])
+@files_bp.route('/frames/<analysis_id>/<path:frame_file>', methods=['GET'])
 def serve_analysis_frame(analysis_id, frame_file):
     """
     Analiz ID'sine göre işlenmiş bir video karesini sunar.
@@ -490,7 +494,7 @@ def serve_analysis_frame(analysis_id, frame_file):
         current_app.logger.error(f"Kare dosyası görüntülenirken hata: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
-@bp.route('/files/processed/<path:frame_file>', methods=['GET'])
+@files_bp.route('/files/processed/<path:frame_file>', methods=['GET'])
 def get_processed_frame(frame_file):
     """
     İşlenmiş bir video karesini doğrudan dosyasından getirir.
@@ -544,3 +548,5 @@ def get_processed_frame(frame_file):
     except Exception as e:
         current_app.logger.error(f"İşlenmiş kare dosyası servis edilirken hata: {str(e)}")
         return jsonify({'error': str(e)}), 500 
+
+bp = files_bp 

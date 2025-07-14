@@ -71,15 +71,15 @@ def add_to_queue(analysis_id):
 
 def emit_queue_status():
     """
-    Socket.io aracılığıyla kuyruk durum bilgilerini gönderir
+    HTTP API üzerinden kuyruk durum bilgilerini sağlar
+    SocketIO yerine HTTP polling kullanılıyor
     """
     try:
-        from app import socketio
         status = get_queue_status()
-        socketio.emit('queue_status', status)
-        logger.debug(f"Kuyruk durumu bildirildi: {status}")
+        logger.debug(f"Kuyruk durumu mevcut: {status}")
+        # HTTP endpoint /api/queue/status üzerinden erişilebilir
     except Exception as e:
-        logger.warning(f"Kuyruk durumu bildirimi gönderilemedi: {str(e)}")
+        logger.warning(f"Kuyruk durumu güncellemesi hatası: {str(e)}")
 
 def start_processor():
     """
@@ -217,69 +217,21 @@ def process_queue():
                 start_processor()
 
 def _emit_analysis_status(analysis_id, file_id, status, progress, message):
-    """Socket.io analiz durumu bildirimi helper fonksiyonu"""
+    """Analiz durumu - HTTP API üzerinden erişilebilir"""
     try:
-        from app import socketio
-        socketio.emit('analysis_status_update', {
-            'analysis_id': analysis_id,
-            'file_id': file_id,
-            'status': status,
-            'progress': progress,
-            'message': message
-        })
-        
-        # Özel olarak durumu da bildirelim (eski client'lar için)
-        socketio.emit('analysis_progress', {
-            'analysis_id': analysis_id,
-            'file_id': file_id,
-            'current_frame': 0,
-            'total_frames': 100, 
-            'progress': progress,
-            'message': message
-        })
-    except Exception as socket_err:
-        logger.warning(f"Socket bildirim hatası: {str(socket_err)}")
+        logger.info(f"Analiz durumu güncellendi: {analysis_id} - {status} ({progress}%)")
+        # HTTP endpoint /api/analysis/{analysis_id}/status üzerinden erişilebilir
+    except Exception as e:
+        logger.warning(f"Analiz durumu güncelleme hatası: {str(e)}")
 
 def _emit_analysis_completion(analysis_id, file_id, success, elapsed_time, message):
-    """Socket.io analiz tamamlanma bildirimi helper fonksiyonu"""
+    """Analiz tamamlanma - HTTP API üzerinden erişilebilir"""
     try:
-        from app import socketio
-        if success:
-            # Tamamlandığında klasik completed eventi
-            socketio.emit('analysis_completed', {
-                'analysis_id': analysis_id,
-                'file_id': file_id,
-                'elapsed_time': elapsed_time,
-                'message': message
-            })
-            
-            # Eski client'lar için analysis_status_update de gönder
-            socketio.emit('analysis_status_update', {
-                'analysis_id': analysis_id, 
-                'file_id': file_id,
-                'status': 'completed',
-                'progress': 100,
-                'message': 'Tamamlandı'
-            })
-        else:
-            # Klasik failed eventi
-            socketio.emit('analysis_failed', {
-                'analysis_id': analysis_id,
-                'file_id': file_id,
-                'elapsed_time': elapsed_time,
-                'error': message
-            })
-            
-            # Eski client'lar için analysis_status_update de gönder
-            socketio.emit('analysis_status_update', {
-                'analysis_id': analysis_id,
-                'file_id': file_id,
-                'status': 'failed',
-                'progress': 0,
-                'message': message
-            })
-    except Exception as socket_err:
-        logger.warning(f"Socket bildirim hatası: {str(socket_err)}")
+        status_text = "completed" if success else "failed"
+        logger.info(f"Analiz tamamlandı: {analysis_id} - {status_text} ({elapsed_time:.2f}s)")
+        # HTTP endpoint /api/analysis/{analysis_id}/result üzerinden erişilebilir
+    except Exception as e:
+        logger.warning(f"Analiz tamamlanma bildirimi hatası: {str(e)}")
 
 def get_queue_status():
     """

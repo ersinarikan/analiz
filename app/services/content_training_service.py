@@ -18,12 +18,17 @@ import shutil
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, mean_absolute_error
 import pickle
+from config import Config
+from app.utils.model_utils import save_torch_model
 
 # Root logger'ı kullan (terminalde görünmesi için)
 logger = logging.getLogger('app.content_training')
 
 class ContentTrainingService:
-    """OpenCLIP modeli için fine-tuning servisi - Geliştirilmiş Feedback Sistemi"""
+    """
+    İçerik tabanlı modelin eğitimini ve değerlendirmesini yöneten servis sınıfı.
+    - Geri bildirim verisiyle fine-tuning, eğitim ve değerlendirme işlemlerini içerir.
+    """
     
     def __init__(self):
         self.device = "cuda" if torch.cuda.is_available() and current_app.config.get('USE_GPU', True) else "cpu"
@@ -34,34 +39,37 @@ class ContentTrainingService:
         logger.info(f"ContentTrainingService initialized with device: {self.device}")
     
     def load_base_model(self):
-        """Base OpenCLIP modelini yükle"""
+        """Base CLIP model'i yükle"""
         try:
-            clip_model_name = 'ViT-H-14-378-quickgelu'
-            pretrained_weights_path = current_app.config['OPENCLIP_MODEL_BASE_PATH']
+            logger.info("Loading CLIP base model...")
             
-            if not os.path.exists(pretrained_weights_path):
-                logger.error(f"Base model path not found: {pretrained_weights_path}")
-                return False
+            # Gerçek CLIP model yükleme
+            import open_clip
+            import torch
+            from PIL import Image
+            from torchvision import transforms
             
+            # OpenCLIP model'i yükle
             model, _, preprocess = open_clip.create_model_and_transforms(
-                clip_model_name, 
-                pretrained=pretrained_weights_path,
-                device=self.device,
-                jit=False
+                'ViT-H-14-378-quickgelu', 
+                pretrained='laion2b_s32b_b79k'
             )
             
-            self.model = model
+            self.model = model.to(self.device)
             self.preprocess = preprocess
-            self.tokenizer = open_clip.get_tokenizer(clip_model_name)
             
-            logger.info("Base OpenCLIP model loaded successfully")
+            # Tokenizer
+            self.tokenizer = open_clip.get_tokenizer('ViT-H-14-378-quickgelu')
+            
+            logger.info("CLIP base model loaded successfully")
             return True
             
         except Exception as e:
-            logger.error(f"Error loading base model: {str(e)}")
+            logger.error(f"Error loading CLIP base model: {str(e)}")
+            logger.warning("Using simplified training mode due to model loading failure")
             return False
     
-    def prepare_training_data(self, min_samples=50, validation_strategy='strict'):
+    def prepare_training_data(self, min_samples: int = 50, validation_strategy: str = 'strict') -> dict | None:
         """
         Geliştirilmiş eğitim verisi hazırlama - Feedback verilerini düzgün işle
         
@@ -243,7 +251,7 @@ class ContentTrainingService:
             logger.error(f"Error preparing training data: {str(e)}")
             return None
     
-    def _calculate_target_score(self, feedback_type, user_score):
+    def _calculate_target_score(self, feedback_type: str, user_score: float | int) -> float | None:
         """
         Feedback türüne göre hedef skor hesapla
         
@@ -277,7 +285,7 @@ class ContentTrainingService:
         
         return None
     
-    def _validate_sample(self, feedback_type, target_score, strategy):
+    def _validate_sample(self, feedback_type: str, target_score: float, strategy: str) -> bool:
         """Validation strategy'ye göre örneği kabul et/reddet"""
         if strategy == 'strict':
             # Sadece kesin feedback'leri kabul et (correct dahil)
@@ -293,7 +301,7 @@ class ContentTrainingService:
         
         return False
     
-    def detect_feedback_conflicts(self, training_data):
+    def detect_feedback_conflicts(self, training_data: dict) -> list:
         """
         Çelişkili feedback'leri tespit et
         Örnek: Aynı resim için birisi %20 diğeri %80 demiş
@@ -326,7 +334,7 @@ class ContentTrainingService:
         
         return conflicts
     
-    def create_classification_head(self, regression_mode=True):
+    def create_classification_head(self, regression_mode: bool = True) -> nn.Sequential:
         """
         CLIP feature'ları için classification/regression head oluştur
         
@@ -360,7 +368,7 @@ class ContentTrainingService:
                 nn.Sigmoid()  # Multi-label için
             ).to(self.device)
     
-    def train_model(self, training_data, params):
+    def train_model(self, training_data: dict, params: dict) -> dict:
         """
         Geliştirilmiş model eğitimi - Regression ve conflict detection ile
         """
@@ -389,13 +397,18 @@ class ContentTrainingService:
                 regression_mode=regression_mode
             )
             
-            # Train/validation split
-            train_size = int(0.8 * len(dataset))
-            val_size = len(dataset) - train_size
-            train_dataset, val_dataset = torch.utils.data.random_split(dataset, [train_size, val_size])
+            # Train/validation split - tek sample varsa hepsini training'de kullan
+            if len(dataset) > 1:
+                train_size = max(1, int(0.8 * len(dataset)))
+                val_size = len(dataset) - train_size
+                train_dataset, val_dataset = torch.utils.data.random_split(dataset, [train_size, val_size])
+            else:
+                # Tek sample varsa hem train hem validation'da kullan
+                train_dataset = dataset
+                val_dataset = dataset
             
-            train_loader = DataLoader(train_dataset, batch_size=params.get('batch_size', 16), shuffle=True)
-            val_loader = DataLoader(val_dataset, batch_size=params.get('batch_size', 16), shuffle=False)
+            train_loader = DataLoader(train_dataset, batch_size=params.get('batch_size', Config.DEFAULT_TRAINING_PARAMS['batch_size']), shuffle=True)
+            val_loader = DataLoader(val_dataset, batch_size=params.get('batch_size', Config.DEFAULT_TRAINING_PARAMS['batch_size']), shuffle=False)
             
             # Loss function ve optimizer
             if regression_mode:
@@ -403,7 +416,7 @@ class ContentTrainingService:
             else:
                 criterion = nn.BCELoss()  # Classification için BCE
                 
-            optimizer = optim.Adam(classifier.parameters(), lr=params.get('learning_rate', 0.001))
+            optimizer = optim.Adam(classifier.parameters(), lr=params.get('learning_rate', Config.DEFAULT_TRAINING_PARAMS['learning_rate']))
             scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=3, factor=0.5)
             
             # CLIP modelini freeze et (sadece classification head'i eğit)
@@ -411,13 +424,13 @@ class ContentTrainingService:
                 param.requires_grad = False
             
             # Training loop
-            num_epochs = params.get('epochs', 20)
+            num_epochs = params.get('epochs', Config.DEFAULT_TRAINING_PARAMS['epochs'])
             train_losses = []
             val_losses = []
             mae_scores = []
             best_val_loss = float('inf')
             patience_counter = 0
-            max_patience = params.get('patience', 5)
+            max_patience = params.get('patience', Config.DEFAULT_TRAINING_PARAMS.get('patience', 5))
             
             logger.info(f"Starting training: {num_epochs} epochs, {len(train_loader)} batches")
             logger.info(f"Mode: {'Regression' if regression_mode else 'Classification'}")
@@ -500,14 +513,28 @@ class ContentTrainingService:
                     if 'session_id' in params and params['session_id']:
                         try:
                             from app import socketio
-                            socketio.emit('training_progress', {
+                            from flask import current_app
+                            
+                            progress_data = {
                                 'session_id': params['session_id'],
                                 'current_epoch': epoch + 1,
                                 'total_epochs': num_epochs,
                                 'current_loss': float(avg_val_loss),
                                 'current_mae': float(mae),
                                 'current_r2': float(r2_score)
-                            })
+                            }
+                            
+                            # Flask app instance'ini al
+                            app = current_app._get_current_object()
+                            
+                            # Eventlet background task ile emit et
+                            def emit_progress(app_instance, data):
+                                with app_instance.app_context():
+                                    socketio.emit('training_progress', data)
+                                    logger.info(f"[DEBUG] training_progress emitted via background task: {data}")
+                            
+                            socketio.start_background_task(emit_progress, app, progress_data)
+                            logger.info(f"[DEBUG] Background task started for training_progress")
                         except Exception as ws_error:
                             logger.warning(f"WebSocket emit error: {str(ws_error)}")
                     
@@ -526,13 +553,27 @@ class ContentTrainingService:
                     if 'session_id' in params and params['session_id']:
                         try:
                             from app import socketio
-                            socketio.emit('training_progress', {
+                            from flask import current_app
+                            
+                            progress_data = {
                                 'session_id': params['session_id'],
                                 'current_epoch': epoch + 1,
                                 'total_epochs': num_epochs,
                                 'current_loss': float(avg_val_loss),
                                 'current_accuracy': float(accuracy)
-                            })
+                            }
+                            
+                            # Flask app instance'ini al
+                            app = current_app._get_current_object()
+                            
+                            # Eventlet background task ile emit et
+                            def emit_progress(app_instance, data):
+                                with app_instance.app_context():
+                                    socketio.emit('training_progress', data)
+                                    logger.info(f"[DEBUG] training_progress emitted via background task: {data}")
+                            
+                            socketio.start_background_task(emit_progress, app, progress_data)
+                            logger.info(f"[DEBUG] Background task started for training_progress")
                         except Exception as ws_error:
                             logger.warning(f"WebSocket emit error: {str(ws_error)}")
                 
@@ -592,7 +633,7 @@ class ContentTrainingService:
             logger.error(f"Training error: {str(e)}")
             raise
     
-    def _resolve_conflicts(self, training_data, resolution_strategy):
+    def _resolve_conflicts(self, training_data: dict, resolution_strategy: str) -> dict:
         """Çelişkili feedback'leri çöz"""
         conflicts = self.detect_feedback_conflicts(training_data)
         if not conflicts:
@@ -646,46 +687,35 @@ class ContentTrainingService:
             'conflicts_resolved': len(conflicts)
         }
     
-    def save_model_version(self, classifier, training_result):
+    def save_model_version(self, classifier: nn.Sequential, training_result: dict) -> ModelVersion:
         """Eğitilmiş modeli versiyonla birlikte kaydet"""
         try:
             # Yeni versiyon numarası
             last_version = db.session.query(ModelVersion).filter_by(
                 model_type='content'
             ).order_by(ModelVersion.version.desc()).first()
-            
             new_version = 1 if not last_version else last_version.version + 1
-            
             # Versiyon klasörü oluştur
             timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
             version_name = f"v{new_version}_{timestamp}"
-            
             version_path = os.path.join(
                 current_app.config['OPENCLIP_MODEL_VERSIONS_PATH'],
                 version_name
             )
             os.makedirs(version_path, exist_ok=True)
-            
-            # Base CLIP modelini doğru şekilde kaydet (HuggingFace checkpoint sorununu atla)
+            # Base CLIP modelini kaydetme (değişmeden bırakıldı)
             try:
-                # Option 1: Doğru pretrained modelini kaydet
-                logger.info("Doğru DFN5B CLIP modeli kaydediliyor...")
                 import open_clip
-                
                 temp_model, _, _ = open_clip.create_model_and_transforms(
                     model_name="ViT-H-14-378-quickgelu",
-                    pretrained="dfn5b",  # Doğru pretrained
+                    pretrained="dfn5b",
                     device='cpu'
                 )
-                
-                # Doğru OpenCLIP state_dict'i kaydet
                 version_model_path = os.path.join(version_path, 'open_clip_pytorch_model.bin')
                 torch.save(temp_model.state_dict(), version_model_path)
                 logger.info(f"✅ Doğru CLIP modeli kaydedildi: {version_model_path}")
-                
             except Exception as clip_save_error:
                 logger.error(f"CLIP model kaydetme hatası: {clip_save_error}")
-                # Fallback: Base dosyayı kopyala (eski davranış)
                 base_model_path = os.path.join(
                     current_app.config['OPENCLIP_MODEL_BASE_PATH'],
                     'open_clip_pytorch_model.bin'
@@ -693,13 +723,9 @@ class ContentTrainingService:
                 version_model_path = os.path.join(version_path, 'open_clip_pytorch_model.bin')
                 shutil.copy2(base_model_path, version_model_path)
                 logger.warning("⚠️ Base model kopyalandı - bu HuggingFace formatında olabilir")
-            
-            # Classification head'i kaydet
-            classifier_path = os.path.join(version_path, 'classification_head.pth')
-            torch.save(classifier.state_dict(), classifier_path)
-            
-            # Metadata kaydet
-            metadata = {
+            # Classification head'i kaydet (yardımcı fonksiyon ile)
+            config_dict = None  # classifier için özel config yok
+            extra_metadata = {
                 'version': new_version,
                 'version_name': version_name,
                 'created_at': timestamp,
@@ -709,10 +735,8 @@ class ContentTrainingService:
                 'training_samples': training_result['training_samples'],
                 'validation_samples': training_result['validation_samples']
             }
-            
-            with open(os.path.join(version_path, 'metadata.json'), 'w') as f:
-                json.dump(metadata, f, indent=4)
-            
+            classifier_path = save_torch_model(classifier, version_path, config_dict, extra_metadata, filename='classification_head.pth')
+            # Metadata kaydet (zaten save_torch_model ile yazıldı)
             # Veritabanına kaydet
             model_version = ModelVersion(
                 model_type='content',
@@ -728,32 +752,91 @@ class ContentTrainingService:
                 weights_path=classifier_path,
                 used_feedback_ids=training_result['used_feedback_ids']
             )
-            
             db.session.add(model_version)
             db.session.commit()
-            
             logger.info(f"Model version {version_name} saved successfully")
             return model_version
-            
         except Exception as e:
             logger.error(f"Error saving model version: {str(e)}")
             db.session.rollback()
             raise
 
-
+    def cleanup_used_training_data(self, used_feedback_ids: list[int], model_version_name: str) -> dict:
+        """
+        Eğitimde kullanılan content feedback verilerini temizler
+        
+        Args:
+            used_feedback_ids: Kullanılan feedback ID'leri
+            model_version_name: Model versiyon adı
+            
+        Returns:
+            dict: Temizlik raporu
+        """
+        logger.info(f"Cleaning up content training data for model {model_version_name}")
+        
+        cleanup_report = {
+            'deleted_feedbacks': 0,
+            'deleted_files': 0,
+            'errors': []
+        }
+        
+        try:
+            # 1. Önce feedback'leri al (dosya yollarını almak için)
+            feedbacks_to_delete = Feedback.query.filter(
+                Feedback.id.in_(used_feedback_ids)
+            ).all()
+            
+            # 2. İlgili dosya yollarını topla
+            frame_paths = set()
+            
+            for feedback in feedbacks_to_delete:
+                if feedback.frame_path:
+                    frame_paths.add(feedback.frame_path)
+            
+            logger.info(f"Found {len(frame_paths)} frame paths to clean")
+            
+            # 3. Frame dosyalarını sil
+            for frame_path in frame_paths:
+                try:
+                    if frame_path and os.path.exists(frame_path):
+                        os.remove(frame_path)
+                        cleanup_report['deleted_files'] += 1
+                        logger.info(f"Deleted content file: {frame_path}")
+                except Exception as e:
+                    logger.error(f"Error deleting content file {frame_path}: {str(e)}")
+                    cleanup_report['errors'].append(f"File deletion error: {str(e)}")
+            
+            # 4. Veritabanından feedback kayıtlarını sil
+            deleted_feedbacks = Feedback.query.filter(
+                Feedback.id.in_(used_feedback_ids)
+            ).delete(synchronize_session=False)
+            
+            cleanup_report['deleted_feedbacks'] = deleted_feedbacks
+            logger.info(f"Deleted {deleted_feedbacks} content feedback records from database")
+            
+            db.session.commit()
+            logger.info(f"Content training data cleanup completed for model {model_version_name}")
+            
+        except Exception as e:
+            logger.error(f"Error during content training data cleanup: {str(e)}")
+            cleanup_report['errors'].append(str(e))
+            db.session.rollback()
+            
+        return cleanup_report
+    
 class ContentTrainingDataset(Dataset):
     """OpenCLIP content training için geliştirilmiş dataset"""
     
-    def __init__(self, data, preprocess, categories, regression_mode=True):
+    def __init__(self, data: list, preprocess, categories: list, regression_mode: bool = True):
         self.data = data
         self.preprocess = preprocess
         self.categories = categories
         self.regression_mode = regression_mode
         
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self.data)
     
-    def __getitem__(self, idx):
+    def __getitem__(self, idx: int) -> tuple[torch.Tensor, torch.Tensor]:
         item = self.data[idx]
         
         try:

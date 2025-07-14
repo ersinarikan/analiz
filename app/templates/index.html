@@ -130,20 +130,6 @@
                             Dijital içeriklerin güvenlik analizi ve değerlendirmesi için geliştirilmiş resmi platform. 
                             Çocukların korunması ve aile güvenliği kapsamında içerik denetimi yapılmaktadır.
                         </p>
-                        <div class="hero-stats">
-                            <div class="stat-item">
-                                <span class="stat-number official-red">Güvenli</span>
-                                <span class="stat-label">İçerik Analizi</span>
-                            </div>
-                            <div class="stat-item">
-                                <span class="stat-number official-red">Hızlı</span>
-                                <span class="stat-label">Değerlendirme</span>
-                            </div>
-                            <div class="stat-item">
-                                <span class="stat-number official-red">Güvenilir</span>
-                                <span class="stat-label">Sonuçlar</span>
-                            </div>
-                        </div>
                         <div class="hero-actions">
                             <button class="btn btn-primary btn-lg me-3" onclick="document.getElementById('uploadFileBtn').click()">
                                 <i class="fas fa-shield-alt me-2"></i>Analiz Başlat
@@ -1330,12 +1316,39 @@
                                                 </div>
                                             </div>
                                             
-                                            <!-- Eğitim Sonuçları -->
-                                            <div id="webTrainingResults" style="display: none;">
-                                                <hr>
-                                                <h6><i class="fas fa-trophy me-2"></i>Eğitim Tamamlandı!</h6>
-                                                <div id="webTrainingMetrics"></div>
+                                                                        <!-- Eğitim Sonuçları -->
+                            <div id="webTrainingResults" style="display: none;">
+                                <hr>
+                                <h6><i class="fas fa-trophy me-2"></i>Eğitim Tamamlandı!</h6>
+                                <div id="webTrainingMetrics">
+                                    <div class="row">
+                                        <div class="col-md-4">
+                                            <div class="card text-center border-success">
+                                                <div class="card-body">
+                                                    <h5 class="card-title text-success">Final MAE</h5>
+                                                    <h4 class="card-text" id="finalMAE">-</h4>
+                                                </div>
                                             </div>
+                                        </div>
+                                        <div class="col-md-4">
+                                            <div class="card text-center border-info">
+                                                <div class="card-body">
+                                                    <h5 class="card-title text-info">Final Doğruluk</h5>
+                                                    <h4 class="card-text" id="finalAccuracy">-</h4>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="col-md-4">
+                                            <div class="card text-center border-primary">
+                                                <div class="card-body">
+                                                    <h5 class="card-title text-primary">Eğitim Örnekleri</h5>
+                                                    <h4 class="card-text" id="finalTrainingSamples">-</h4>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
                                         </div>
                                     </div>
                                 </div>
@@ -1475,11 +1488,11 @@
     <!-- Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     
-    <!-- Socket.io -->
-    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
-    
     <!-- Training Stats JS -->
     <script src="{{ url_for('static', filename='js/training-stats.js') }}"></script>
+    
+    <!-- Web SSE Functions -->
+    <script src="{{ url_for('static', filename='js/web-sse-functions.js') }}"></script>
     
     <!-- Main JS -->
     <script src="{{ url_for('static', filename='js/main.js') }}"></script>

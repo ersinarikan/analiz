@@ -1,12 +1,16 @@
 """Queue management routes for analysis processing"""
 
 from flask import Blueprint, jsonify, request
-from app.services.queue_service import get_queue_status, get_queue_stats
 import logging
+from app.services.queue_service import get_queue_status, get_queue_stats
 
 logger = logging.getLogger(__name__)
 
 queue_bp = Blueprint('queue', __name__, url_prefix='/api/queue')
+"""
+Analiz kuyruğu için blueprint.
+- Analiz işlemlerinin kuyruk yönetimi endpointlerini içerir.
+"""
 
 @queue_bp.route('/status', methods=['GET'])
 def get_queue_status_route():

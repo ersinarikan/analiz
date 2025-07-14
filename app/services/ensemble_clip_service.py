@@ -12,19 +12,14 @@ logger = logging.getLogger('app.ensemble_clip_service')
 
 class EnsembleClipService:
     """
-    Ensemble-based Incremental Learning for CLIP Model
-    
-    Strategy:
-    - Keep base CLIP model intact (never retrain!)
-    - Store content feedback corrections as lookup table
-    - Use content similarity matching for unknown cases
-    - Fallback to base model for completely unknown content
+    CLIP modeli için ensemble tabanlı artımsal öğrenme servis sınıfı.
+    - Temel modeli korur, geri bildirim düzeltmelerini uygular, içerik benzerliği ile eşleştirme yapar.
     """
     
     def __init__(self):
-        self.content_corrections = {}  # content_hash -> corrected_description
-        self.embedding_corrections = {}  # clip_embedding_hash -> correction
-        self.confidence_adjustments = {}  # content_hash -> confidence_adjustment
+        self.content_corrections: dict[int, dict] = {}  # content_hash -> corrected_description
+        self.embedding_corrections: dict[int, dict] = {}  # clip_embedding_hash -> correction
+        self.confidence_adjustments: dict[int, dict] = {}  # content_hash -> confidence_adjustment
         logger.info(f"EnsembleClipService initialized")
     
     def load_content_corrections(self):
@@ -104,29 +99,29 @@ class EnsembleClipService:
         
         return len(content_corrections)
     
-    def _hash_content(self, feedback):
+    def _hash_content(self, feedback) -> int:
         """Create hash for content identification"""
         # Combine content_id and person_id for unique identification
         content_key = f"{feedback.content_id}_{feedback.person_id}"
         return hash(content_key)
     
-    def _hash_embedding(self, embedding):
+    def _hash_embedding(self, embedding: np.ndarray) -> int:
         """Create hash for CLIP embedding"""
         return hash(tuple(embedding[:10].round(3)))
     
-    def predict_content_ensemble(self, base_description, base_confidence, content_id=None, person_id=None, clip_embedding=None):
+    def predict_content_ensemble(self, base_description: str, base_confidence: float, content_id: int | None = None, person_id: int | None = None, clip_embedding: np.ndarray | None = None) -> tuple[str, float, dict]:
         """
-        Ensemble prediction for content description and confidence
+        Ensemble prediction for content description and confidence.
         
         Args:
-            base_description: Base CLIP model description
-            base_confidence: Base CLIP confidence
-            content_id: Content ID (if known)
-            person_id: Person ID (if known)
-            clip_embedding: CLIP embedding (if available)
+            base_description: Base CLIP model description.
+            base_confidence: Base CLIP confidence.
+            content_id: Content ID (if known).
+            person_id: Person ID (if known).
+            clip_embedding: CLIP embedding (if available).
             
         Returns:
-            tuple: (final_description, final_confidence, correction_info)
+            tuple: (final_description, final_confidence, correction_info).
         """
         
         # 1. Direct content lookup
@@ -222,7 +217,7 @@ class EnsembleClipService:
             'base_confidence': base_confidence
         }
     
-    def get_statistics(self):
+    def get_statistics(self) -> dict:
         """Get ensemble statistics"""
         stats = {
             'total_content_corrections': len(self.content_corrections),
@@ -246,7 +241,7 @@ class EnsembleClipService:
         
         return stats
     
-    def test_ensemble_predictions(self):
+    def test_ensemble_predictions(self) -> list[dict]:
         """Test ensemble on known content feedback cases"""
         logger.info("Testing CLIP ensemble predictions...")
         
@@ -294,15 +289,15 @@ class EnsembleClipService:
         
         return test_results
     
-    def optimize_content_descriptions(self, content_list):
+    def optimize_content_descriptions(self, content_list: list[dict]) -> list[dict]:
         """
-        Optimize a list of content descriptions using ensemble corrections
+        Optimize a list of content descriptions using ensemble corrections.
         
         Args:
             content_list: List of dicts with 'description', 'confidence', 'content_id', etc.
             
         Returns:
-            List of optimized content descriptions
+            List of optimized content descriptions.
         """
         optimized_list = []
         

@@ -5,7 +5,10 @@ from sqlalchemy.dialects.postgresql import JSON, UUID
 from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, Text, ForeignKey, LargeBinary
 
 class Feedback(db.Model):
-    """İçerik analizlerine kullanıcı geri bildirimleri için model."""
+    """
+    Kullanıcı geri bildirimi modeli.
+    - Analiz sonuçlarına verilen yaş, içerik, doğruluk gibi geri bildirimleri tutar.
+    """
     __tablename__ = 'feedback'
     
     id = db.Column(db.Integer, primary_key=True)
@@ -52,7 +55,7 @@ class Feedback(db.Model):
     def __repr__(self):
         return f"<Feedback(id={self.id}, type='{self.feedback_type}', source='{self.feedback_source}')>"
     
-    def to_dict(self):
+    def to_dict(self) -> dict:
         data = {
             'id': self.id,
             'created_at': self.created_at.isoformat() if self.created_at else None,

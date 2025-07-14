@@ -13,7 +13,11 @@ from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
-performance_bp = Blueprint('performance', __name__, url_prefix='/api/performance')
+performance_bp = Blueprint('performance', __name__)
+"""
+Performans ölçümü için blueprint.
+- Sistem ve model performansını izlemeye yönelik endpointleri içerir.
+"""
 
 @performance_bp.route('/memory', methods=['GET'])
 def get_memory_stats():

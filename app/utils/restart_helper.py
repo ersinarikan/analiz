@@ -4,8 +4,60 @@ import os
 import logging
 import threading
 import time
+import signal
 
 logger = logging.getLogger(__name__)
+
+PID_FILE = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'wsanaliz.pid')
+
+# PID dosyası işlemleri
+def write_pid():
+    with open(PID_FILE, "w") as f:
+        f.write(str(os.getpid()))
+
+def read_pid():
+    try:
+        with open(PID_FILE, "r") as f:
+            return int(f.read().strip())
+    except Exception:
+        return None
+
+def remove_pid():
+    try:
+        os.remove(PID_FILE)
+    except Exception:
+        pass
+
+def stop_app():
+    if sys.platform == "win32":
+        # Komut satırında 'app.py' geçen tüm python.exe süreçlerini bul ve öldür
+        import subprocess
+        result = subprocess.check_output('wmic process where "CommandLine like \'%app.py%\' and Name=\'python.exe\'" get ProcessId', shell=True)
+        lines = result.decode().splitlines()
+        pids = [line.strip() for line in lines if line.strip().isdigit()]
+        if not pids:
+            print("Kapatılacak süreç bulunamadı.")
+        for pid in pids:
+            try:
+                subprocess.call(["taskkill", "/PID", pid, "/F"])
+                print(f"PID {pid} sonlandırıldı.")
+            except Exception as e:
+                print(f"PID {pid} sonlandırılamadı: {e}")
+    else:
+        # Linux/Mac: PID dosyasını kullan
+        pid = read_pid()
+        if pid:
+            try:
+                os.kill(pid, signal.SIGTERM)
+                print(f"PID {pid} sonlandırıldı.")
+            except Exception as e:
+                print(f"PID sonlandırılamadı: {e}")
+        else:
+            print("PID dosyası bulunamadı veya geçersiz.")
+
+def start_app():
+    subprocess.Popen([sys.executable, "app.py"])
+    print("Yeni uygulama başlatıldı.")
 
 def restart_application(delay=1):
     """
@@ -112,3 +164,14 @@ def is_windows():
 def is_unix():
     """Unix/Linux platformu kontrolü"""
     return sys.platform in ['linux', 'darwin', 'freebsd'] 
+
+if __name__ == "__main__":
+    if len(sys.argv) > 1:
+        if sys.argv[1] == "stop":
+            stop_app()
+        elif sys.argv[1] == "start":
+            start_app()
+        else:
+            print("Kullanım: python -m app.utils.restart_helper [stop|start]")
+    else:
+        print("Kullanım: python -m app.utils.restart_helper [stop|start]") 

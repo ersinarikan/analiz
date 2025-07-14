@@ -2,11 +2,19 @@ import os
 import shutil
 import uuid
 import mimetypes
+import json
+import logging
 from flask import current_app
 from werkzeug.utils import secure_filename
 
-def is_allowed_file(filename, allowed_extensions=None):
-    """Dosya uzantısının izin verilen uzantılar listesinde olup olmadığını kontrol eder."""
+def is_allowed_file(filename: str) -> bool:
+    """
+    Dosya adının izin verilen uzantıya sahip olup olmadığını kontrol eder.
+    Args:
+        filename (str): Dosya adı.
+    Returns:
+        bool: İzin veriliyorsa True, aksi halde False.
+    """
     if allowed_extensions is None:
         # Varsayılan izin verilen uzantılar
         allowed_extensions = {'png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp', 'mp4', 'avi', 'mov', 'wmv', 'mkv', 'webm'}
@@ -76,7 +84,7 @@ def create_directory(directory_path):
     os.makedirs(directory_path, exist_ok=True)
     return os.path.exists(directory_path)
 
-def move_file(source_path, destination_path):
+def move_file(source_path: str, destination_path: str) -> bool:
     """Bir dosyayı kaynaktan hedefe taşır."""
     try:
         # Hedef dizinin var olduğundan emin ol
@@ -91,7 +99,7 @@ def move_file(source_path, destination_path):
         current_app.logger.error(f"Dosya taşıma hatası: {str(e)}")
         return False
 
-def copy_file(source_path, destination_path):
+def copy_file(source_path: str, destination_path: str) -> bool:
     """Bir dosyayı kaynaktan hedefe kopyalar."""
     try:
         # Hedef dizinin var olduğundan emin ol
@@ -106,7 +114,7 @@ def copy_file(source_path, destination_path):
         current_app.logger.error(f"Dosya kopyalama hatası: {str(e)}")
         return False
 
-def delete_file(file_path):
+def delete_file(file_path: str) -> bool:
     """Belirtilen dosyayı siler."""
     try:
         if os.path.exists(file_path):
@@ -118,7 +126,7 @@ def delete_file(file_path):
         current_app.logger.error(f"Dosya silme hatası: {str(e)}")
         return False
 
-def get_file_list(directory_path, filter_func=None):
+def get_file_list(directory_path: str, filter_func=None):
     """Belirtilen dizindeki dosyaları listeler."""
     try:
         if not os.path.exists(directory_path):
@@ -142,7 +150,7 @@ def get_file_list(directory_path, filter_func=None):
         current_app.logger.error(f"Dosya listeleme hatası: {str(e)}")
         return []
 
-def get_media_files(directory_path):
+def get_media_files(directory_path: str):
     """Belirtilen dizindeki resim ve video dosyalarını listeler."""
     def is_media_file(file_path):
         mime_type = get_file_mimetype(file_path)
@@ -150,7 +158,7 @@ def get_media_files(directory_path):
     
     return get_file_list(directory_path, is_media_file)
 
-def format_file_size(size_bytes):
+def format_file_size(size_bytes: int) -> str:
     """Bayt cinsinden dosya boyutunu okunabilir bir formata dönüştürür."""
     # İkinin katları için bölme katsayısı (1024)
     factor = 1024
@@ -170,3 +178,74 @@ def format_file_size(size_bytes):
     
     # Sonucu formatla (1 decimal precision)
     return f"{size_bytes:.1f} {size_units[i]}" 
+
+def ensure_dir(path):
+    """Dizini yoksa oluşturur."""
+    try:
+        os.makedirs(path, exist_ok=True)
+        logging.info(f"Dizin oluşturuldu veya zaten mevcut: {path}")
+    except Exception as e:
+        logging.error(f"Dizin oluşturulurken hata: {path} - {e}")
+        raise
+
+def safe_copytree(src, dst):
+    """Varışta varsa silip src'den dst'ye kopyalar."""
+    try:
+        if os.path.exists(dst):
+            shutil.rmtree(dst)
+            logging.info(f"Varış dizini silindi: {dst}")
+        shutil.copytree(src, dst)
+        logging.info(f"Kopyalandı: {src} -> {dst}")
+    except Exception as e:
+        logging.error(f"Kopyalama hatası: {src} -> {dst} - {e}")
+        raise
+
+def safe_remove(path):
+    """Dosya veya dizini güvenli şekilde siler."""
+    try:
+        if os.path.isdir(path):
+            shutil.rmtree(path)
+            logging.info(f"Dizin silindi: {path}")
+        elif os.path.isfile(path):
+            os.remove(path)
+            logging.info(f"Dosya silindi: {path}")
+    except Exception as e:
+        logging.error(f"Silme hatası: {path} - {e}")
+        raise
+
+def write_json(path, data):
+    """Verilen veriyi JSON olarak yazar."""
+    try:
+        with open(path, 'w') as f:
+            json.dump(data, f, indent=4, default=str)
+        logging.info(f"JSON dosyası yazıldı: {path}")
+    except Exception as e:
+        logging.error(f"JSON yazma hatası: {path} - {e}")
+        raise
+
+def read_json(path):
+    """JSON dosyasını okur ve döndürür."""
+    try:
+        with open(path, 'r') as f:
+            data = json.load(f)
+        logging.info(f"JSON dosyası okundu: {path}")
+        return data
+    except Exception as e:
+        logging.error(f"JSON okuma hatası: {path} - {e}")
+        raise
+
+def get_folder_size(path):
+    """Dizinin boyutunu MB cinsinden döndürür."""
+    total_size = 0
+    try:
+        for dirpath, dirnames, filenames in os.walk(path):
+            for filename in filenames:
+                file_path = os.path.join(dirpath, filename)
+                if os.path.exists(file_path):
+                    total_size += os.path.getsize(file_path)
+        size_mb = round(total_size / (1024 * 1024), 2)
+        logging.info(f"Dizin boyutu hesaplandı: {path} = {size_mb} MB")
+        return size_mb
+    except Exception as e:
+        logging.error(f"Dizin boyutu hesaplanırken hata: {path} - {e}")
+        return 0 

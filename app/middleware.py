@@ -1,9 +1,12 @@
-from flask import Flask, jsonify, current_app
-import numpy as np
-from functools import wraps
+from flask import Flask, jsonify
 import json
-import traceback
+from functools import wraps
 from app.json_encoder import NumPyJSONEncoder
+
+"""
+Uygulama genelinde kullanılan middleware fonksiyonları.
+- Güvenlik, özel JSON encoder ve hata yönetimi içerir.
+"""
 
 def register_json_middleware(app: Flask):
     """
@@ -16,8 +19,7 @@ def register_json_middleware(app: Flask):
     # Flask'ın varsayılan JSON encoder'ını özel encoder ile değiştir
     app.json_encoder = NumPyJSONEncoder
     
-    # jsonify fonksiyonunu override et
-    original_jsonify = jsonify
+    # Kullanılmayan importlar kaldırıldı
     
     @wraps(jsonify)
     def numpy_jsonify(*args, **kwargs):

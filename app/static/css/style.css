@@ -1,3 +1,1806 @@
+/* 🎨 Modern 2025 Design System */
+:root {
+    /* 🇹🇷 T.C. Aile ve Sosyal Hizmetler Bakanlığı Renk Paleti */
+    --primary-50: #fef2f2;
+    --primary-100: #fee2e2;
+    --primary-200: #fecaca;
+    --primary-300: #fca5a5;
+    --primary-400: #f87171;
+    --primary-500: #dc2626;  /* Türk Bayrağı Kırmızısı */
+    --primary-600: #b91c1c;
+    --primary-700: #991b1b;
+    --primary-800: #7f1d1d;
+    --primary-900: #651e1e;
+    
+    /* 🎯 Semantic Colors */
+    --success-50: #f0fdf4;
+    --success-500: #10b981;
+    --success-600: #059669;
+    
+    --danger-50: #fef2f2;
+    --danger-500: #ef4444;
+    --danger-600: #dc2626;
+    
+    --warning-50: #fffbeb;
+    --warning-500: #f59e0b;
+    --warning-600: #d97706;
+    
+    /* 🌑 Neutral Palette */
+    --gray-50: #f8fafc;
+    --gray-100: #f1f5f9;
+    --gray-200: #e2e8f0;
+    --gray-300: #cbd5e1;
+    --gray-400: #94a3b8;
+    --gray-500: #64748b;
+    --gray-600: #475569;
+    --gray-700: #334155;
+    --gray-800: #1e293b;
+    --gray-900: #0f172a;
+    
+    /* 🎭 Background System */
+    --bg-primary: #ffffff;
+    --bg-secondary: var(--gray-50);
+    --bg-tertiary: var(--gray-100);
+    --bg-surface: rgba(255, 255, 255, 0.8);
+    --bg-glass: rgba(255, 255, 255, 0.1);
+    
+    /* 💫 Glassmorphism Effects */
+    --glass-border: rgba(255, 255, 255, 0.2);
+    --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+    --glass-backdrop: blur(20px);
+    
+    /* 🎯 Modern Shadows */
+    --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.05);
+    --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.1), 0 1px 2px rgba(0, 0, 0, 0.06);
+    --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.07), 0 2px 4px rgba(0, 0, 0, 0.06);
+    --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.1), 0 4px 6px rgba(0, 0, 0, 0.05);
+    --shadow-xl: 0 20px 25px rgba(0, 0, 0, 0.1), 0 10px 10px rgba(0, 0, 0, 0.04);
+    --shadow-glow: 0 0 20px rgba(99, 102, 241, 0.3);
+    
+    /* 📐 Spacing & Sizing */
+    --border-radius-sm: 8px;
+    --border-radius-md: 12px;
+    --border-radius-lg: 16px;
+    --border-radius-xl: 24px;
+    
+    /* ⚡ Transitions */
+    --transition-fast: all 0.15s ease;
+    --transition-normal: all 0.3s ease;
+    --transition-slow: all 0.5s ease;
+    
+    /* 📝 Typography */
+    --font-mono: 'SF Mono', 'Monaco', 'Menlo', 'Roboto Mono', monospace;
+    --font-sans: 'Inter', 'SF Pro Display', -apple-system, BlinkMacSystemFont, sans-serif;
+    
+    /* Legacy Support - Gradual Migration */
+    --primary-color: var(--primary-500);
+    --secondary-color: var(--primary-600);
+    --success-color: var(--success-500);
+    --danger-color: var(--danger-500);
+    --warning-color: var(--warning-500);
+    --light-color: var(--gray-50);
+    --dark-color: var(--gray-900);
+    --gray-color: var(--gray-500);
+    --border-radius: var(--border-radius-md);
+    --box-shadow: var(--shadow-lg);
+    --transition: var(--transition-normal);
+}
+
+/* 🌐 Global Styles */
+* {
+    box-sizing: border-box;
+}
+
+body {
+    font-family: var(--font-sans);
+    background: linear-gradient(135deg, var(--gray-50) 0%, var(--primary-50) 100%);
+    color: var(--gray-800);
+    line-height: 1.6;
+    font-size: 16px;
+    font-weight: 400;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    margin: 0;
+    padding: 0;
+    min-height: 100vh;
+}
+
+.container-fluid {
+    padding: 20px;
+    max-width: 1400px;
+    margin: 0 auto;
+}
+
+/* 🎯 Modern Navigation */
+.navbar,
+.navbar-expand-lg,
+nav.navbar {
+    background: #334155 !important; /* Footer ile aynı koyu lacivert */
+    background-color: #334155 !important;
+    border-bottom: 3px solid var(--primary-600);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    padding: 16px 0;
+    position: sticky;
+    top: 0;
+    z-index: 1000;
+    transition: var(--transition-normal);
+}
+
+.navbar-brand {
+    font-weight: 700;
+    color: white !important;
+    font-size: 1.5rem;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    display: flex;
+    align-items: center;
+    transition: var(--transition-fast);
+}
+
+.navbar-brand:hover {
+    color: var(--primary-300) !important;
+    transform: translateY(-1px);
+}
+
+.navbar-brand span {
+    color: var(--primary-400);
+    margin-left: 2px;
+}
+
+.navbar-brand i {
+    margin-right: 8px;
+    font-size: 1.2rem;
+    color: var(--primary-400);
+}
+
+/* 💎 Modern Card System */
+.card {
+    background: var(--bg-surface);
+    backdrop-filter: var(--glass-backdrop);
+    -webkit-backdrop-filter: var(--glass-backdrop);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--border-radius-lg);
+    box-shadow: var(--shadow-md);
+    margin-bottom: 25px;
+    overflow: hidden;
+    transition: var(--transition-normal);
+    position: relative;
+}
+
+.card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--primary-200), transparent);
+    opacity: 0;
+    transition: var(--transition-normal);
+}
+
+.card:hover {
+    transform: translateY(-4px);
+    box-shadow: var(--shadow-xl);
+    border-color: var(--primary-200);
+}
+
+.card:hover::before {
+    opacity: 1;
+}
+
+.card-header {
+    background: var(--bg-primary);
+    border-bottom: 1px solid var(--gray-200);
+    font-weight: 600;
+    padding: 20px 24px;
+    font-size: 1.1rem;
+    color: var(--gray-700);
+    display: flex;
+    align-items: center;
+    position: relative;
+}
+
+.card-header i {
+    color: var(--primary-500);
+    margin-right: 8px;
+    font-size: 1.1rem;
+}
+
+.card-body {
+    padding: 24px;
+}
+
+/* 🎨 Modern Upload Area */
+.upload-area {
+    border: 2px dashed var(--primary-300);
+    border-radius: var(--border-radius-xl);
+    padding: 48px 24px;
+    text-align: center;
+    margin-bottom: 32px;
+    background: linear-gradient(135deg, var(--primary-50), var(--bg-primary));
+    position: relative;
+    transition: var(--transition-normal);
+    overflow: hidden;
+}
+
+.upload-area::before {
+    content: '';
+    position: absolute;
+    top: -50%;
+    left: -50%;
+    width: 200%;
+    height: 200%;
+    background: conic-gradient(transparent, var(--primary-100), transparent);
+    animation: rotate 4s linear infinite;
+    opacity: 0;
+    transition: var(--transition-normal);
+}
+
+.upload-area::after {
+    content: '';
+    position: absolute;
+    inset: 2px;
+    border-radius: var(--border-radius-xl);
+    background: linear-gradient(135deg, var(--primary-50), var(--bg-primary));
+    z-index: 1;
+}
+
+.upload-area > * {
+    position: relative;
+    z-index: 2;
+}
+
+.upload-area:hover,
+.upload-area.drag-over {
+    border-color: var(--primary-500);
+    background: linear-gradient(135deg, var(--primary-100), var(--bg-primary));
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-xl), var(--shadow-glow);
+}
+
+.upload-area:hover::before,
+.upload-area.drag-over::before {
+    opacity: 0.5;
+}
+
+@keyframes rotate {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+.upload-area i {
+    font-size: 64px;
+    margin-bottom: 24px;
+    background: linear-gradient(135deg, var(--primary-500), var(--success-500));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    display: block;
+    transition: var(--transition-normal);
+}
+
+.upload-area:hover i {
+    transform: scale(1.1);
+}
+
+.upload-area h4 {
+    margin-bottom: 16px;
+    color: var(--gray-800);
+    font-weight: 600;
+    font-size: 1.25rem;
+}
+
+.upload-area p {
+    color: var(--gray-600);
+    max-width: 80%;
+    margin: 0 auto 24px;
+    font-size: 0.95rem;
+}
+
+/* 🎮 Modern Buttons */
+.btn {
+    border-radius: var(--border-radius-md);
+    font-weight: 500;
+    padding: 12px 24px;
+    font-size: 0.95rem;
+    border: none;
+    cursor: pointer;
+    transition: var(--transition-fast);
+    position: relative;
+    overflow: hidden;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+}
+
+.btn::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
+    transition: var(--transition-fast);
+}
+
+.btn:hover::before {
+    left: 100%;
+}
+
+.btn-primary {
+    background: linear-gradient(135deg, var(--primary-500), var(--primary-600));
+    color: white;
+    box-shadow: var(--shadow-md);
+}
+
+.btn-primary:hover {
+    background: linear-gradient(135deg, var(--primary-600), var(--primary-700));
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-lg);
+    color: white;
+}
+
+.btn-success {
+    background: linear-gradient(135deg, var(--success-500), var(--success-600));
+    color: white;
+    box-shadow: var(--shadow-md);
+}
+
+.btn-success:hover {
+    background: linear-gradient(135deg, var(--success-600), var(--success-600));
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-lg);
+    color: white;
+}
+
+.btn-danger {
+    background: linear-gradient(135deg, var(--danger-500), var(--danger-600));
+    color: white;
+    box-shadow: var(--shadow-md);
+}
+
+.btn-danger:hover {
+    background: linear-gradient(135deg, var(--danger-600), var(--danger-600));
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-lg);
+    color: white;
+}
+
+/* 📊 Modern Progress System */
+.progress {
+    background-color: var(--gray-200);
+    border-radius: var(--border-radius-md);
+    overflow: hidden;
+    box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.06);
+    height: 8px;
+}
+
+.progress-bar {
+    background: linear-gradient(90deg, var(--primary-500), var(--primary-400));
+    transition: width 0.8s ease-in-out;
+    position: relative;
+    overflow: hidden;
+}
+
+.progress-bar::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: linear-gradient(
+        45deg,
+        transparent 25%,
+        rgba(255, 255, 255, 0.2) 25%,
+        rgba(255, 255, 255, 0.2) 50%,
+        transparent 50%,
+        transparent 75%,
+        rgba(255, 255, 255, 0.2) 75%
+    );
+    background-size: 20px 20px;
+    animation: progress-shine 2s linear infinite;
+}
+
+@keyframes progress-shine {
+    0% { transform: translateX(-20px); }
+    100% { transform: translateX(20px); }
+}
+
+/* 🎯 File Preview Cards */
+.file-preview-card {
+    border-radius: var(--border-radius-lg);
+    overflow: hidden;
+    position: relative;
+    height: 220px;
+    background: var(--gray-800);
+    box-shadow: var(--shadow-lg);
+    transition: var(--transition-normal);
+}
+
+.file-preview-card:hover {
+    transform: translateY(-4px);
+    box-shadow: var(--shadow-xl);
+}
+
+.file-preview-card img,
+.file-preview-card video {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    transition: var(--transition-normal);
+}
+
+.file-preview-card:hover img,
+.file-preview-card:hover video {
+    transform: scale(1.02);
+}
+
+.file-preview-card .file-info {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: linear-gradient(transparent, rgba(0, 0, 0, 0.8));
+    color: white;
+    padding: 20px 16px 16px;
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+}
+
+.file-preview-card .file-info .filename {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-weight: 500;
+    margin-bottom: 4px;
+}
+
+.file-status {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    color: white;
+    padding: 6px 12px;
+    border-radius: var(--border-radius-md);
+    font-size: 0.8rem;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+/* 📱 Responsive Design */
+@media (max-width: 992px) {
+    .container-fluid {
+        padding: 16px;
+    }
+    
+    .file-preview-card {
+        height: 180px;
+    }
+    
+    .card-header {
+        padding: 16px 20px;
+        font-size: 1rem;
+    }
+    
+    .upload-area {
+        padding: 32px 20px;
+    }
+    
+    .upload-area i {
+        font-size: 48px;
+    }
+}
+
+@media (max-width: 768px) {
+    .file-preview-card {
+        height: 160px;
+    }
+    
+    .navbar-brand {
+        font-size: 1.3rem;
+    }
+    
+    .upload-area {
+        padding: 24px 16px;
+    }
+    
+    .upload-area p {
+        max-width: 100%;
+    }
+    
+    .btn {
+        padding: 10px 20px;
+        font-size: 0.9rem;
+    }
+}
+
+/* 🎭 Dark Mode Support (Future) */
+@media (prefers-color-scheme: dark) {
+    :root {
+        --bg-primary: var(--gray-900);
+        --bg-secondary: var(--gray-800);
+        --bg-tertiary: var(--gray-700);
+        --bg-surface: rgba(0, 0, 0, 0.8);
+        --bg-glass: rgba(0, 0, 0, 0.1);
+        --glass-border: rgba(255, 255, 255, 0.1);
+    }
+    
+    body {
+        background: linear-gradient(135deg, var(--gray-900) 0%, var(--gray-800) 100%);
+        color: var(--gray-100);
+    }
+}
+
+/* 🎨 Utility Classes */
+.glass-effect {
+    background: var(--bg-glass);
+    backdrop-filter: var(--glass-backdrop);
+    -webkit-backdrop-filter: var(--glass-backdrop);
+    border: 1px solid var(--glass-border);
+}
+
+.gradient-text {
+    background: linear-gradient(135deg, var(--primary-500), var(--success-500));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+.shadow-glow {
+    box-shadow: var(--shadow-glow);
+}
+
+/* 🎯 Hero Section Styles */
+.hero-section {
+    padding: 60px 0;
+    position: relative;
+    overflow: hidden;
+}
+
+.hero-content {
+    padding-right: 2rem;
+}
+
+.hero-title {
+    font-size: 3.5rem;
+    font-weight: 800;
+    line-height: 1.1;
+    margin-bottom: 1.5rem;
+    color: var(--gray-900);
+}
+
+.hero-description {
+    font-size: 1.2rem;
+    color: var(--gray-600);
+    margin-bottom: 2rem;
+    line-height: 1.6;
+}
+
+.hero-stats {
+    display: flex;
+    gap: 2rem;
+    margin-bottom: 2.5rem;
+    flex-wrap: wrap;
+}
+
+.stat-item {
+    text-align: center;
+}
+
+.stat-number {
+    display: block;
+    font-size: 2rem;
+    font-weight: 700;
+    line-height: 1;
+    margin-bottom: 0.25rem;
+}
+
+.stat-label {
+    display: block;
+    font-size: 0.9rem;
+    color: var(--gray-500);
+    font-weight: 500;
+}
+
+.hero-actions {
+    display: flex;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
+.btn-outline-primary {
+    background: transparent;
+    border: 2px solid var(--primary-500);
+    color: var(--primary-600);
+    transition: var(--transition-fast);
+}
+
+.btn-outline-primary:hover {
+    background: var(--primary-500);
+    border-color: var(--primary-500);
+    color: white;
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-lg);
+}
+
+.btn-lg {
+    padding: 14px 28px;
+    font-size: 1rem;
+}
+
+/* 🎨 Hero Visual */
+.hero-visual {
+    position: relative;
+    height: 400px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.floating-card {
+    position: absolute;
+    background: var(--bg-surface);
+    backdrop-filter: var(--glass-backdrop);
+    -webkit-backdrop-filter: var(--glass-backdrop);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--border-radius-lg);
+    padding: 1rem 1.5rem;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    box-shadow: var(--shadow-lg);
+    animation: float 6s ease-in-out infinite;
+    font-weight: 500;
+    color: var(--gray-700);
+    white-space: nowrap;
+}
+
+.floating-card i {
+    font-size: 1.25rem;
+    color: var(--primary-500);
+}
+
+.card-1 {
+    top: 10%;
+    right: 20%;
+    animation-delay: 0s;
+}
+
+.card-2 {
+    top: 50%;
+    right: 5%;
+    animation-delay: 2s;
+}
+
+.card-3 {
+    bottom: 20%;
+    right: 30%;
+    animation-delay: 4s;
+}
+
+.hero-graphic {
+    position: relative;
+    width: 200px;
+    height: 200px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.pulse-ring {
+    position: absolute;
+    border: 2px solid var(--primary-300);
+    border-radius: 50%;
+    width: 100px;
+    height: 100px;
+    animation: pulse 2s infinite;
+    opacity: 0;
+}
+
+.pulse-ring.delay-1 {
+    animation-delay: 0.5s;
+    width: 140px;
+    height: 140px;
+}
+
+.pulse-ring.delay-2 {
+    animation-delay: 1s;
+    width: 180px;
+    height: 180px;
+}
+
+.center-icon {
+    width: 80px;
+    height: 80px;
+    background: linear-gradient(135deg, var(--primary-500), var(--success-500));
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: var(--shadow-xl);
+    z-index: 10;
+    position: relative;
+}
+
+.center-icon i {
+    font-size: 2rem;
+    color: white;
+    animation: rotate-slow 8s linear infinite;
+}
+
+@keyframes float {
+    0%, 100% { transform: translateY(0px); }
+    50% { transform: translateY(-20px); }
+}
+
+@keyframes pulse {
+    0% {
+        transform: scale(0.8);
+        opacity: 1;
+    }
+    100% {
+        transform: scale(2);
+        opacity: 0;
+    }
+}
+
+@keyframes rotate-slow {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+/* 📱 Hero Responsive */
+@media (max-width: 992px) {
+    .hero-section {
+        padding: 40px 0;
+    }
+    
+    .hero-content {
+        padding-right: 0;
+        text-align: center;
+        margin-bottom: 2rem;
+    }
+    
+    .hero-title {
+        font-size: 2.5rem;
+    }
+    
+    .hero-description {
+        font-size: 1.1rem;
+    }
+    
+    .hero-stats {
+        justify-content: center;
+    }
+    
+    .hero-actions {
+        justify-content: center;
+    }
+    
+    .hero-visual {
+        height: 300px;
+    }
+    
+    .floating-card {
+        padding: 0.75rem 1rem;
+        font-size: 0.9rem;
+    }
+}
+
+@media (max-width: 768px) {
+    .hero-title {
+        font-size: 2rem;
+    }
+    
+    .hero-description {
+        font-size: 1rem;
+    }
+    
+    .hero-stats {
+        gap: 1rem;
+    }
+    
+    .stat-number {
+        font-size: 1.5rem;
+    }
+    
+    .btn-lg {
+        padding: 12px 24px;
+        font-size: 0.95rem;
+    }
+    
+    .hero-visual {
+        height: 250px;
+    }
+    
+    .hero-graphic {
+        width: 150px;
+        height: 150px;
+    }
+    
+    .center-icon {
+        width: 60px;
+        height: 60px;
+    }
+    
+    .center-icon i {
+        font-size: 1.5rem;
+    }
+    
+    .floating-card {
+        display: none; /* Hide floating cards on mobile for cleaner look */
+    }
+}
+
+/* 🎨 Modern Upload Area */
+.modern-upload {
+    position: relative;
+    background: var(--bg-surface);
+    border: 2px dashed var(--primary-300);
+    border-radius: var(--border-radius-xl);
+    padding: 48px 24px;
+    text-align: center;
+    margin-bottom: 32px;
+    transition: var(--transition-normal);
+    overflow: hidden;
+    min-height: 300px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+}
+
+.upload-backdrop {
+    position: absolute;
+    top: -50%;
+    left: -50%;
+    width: 200%;
+    height: 200%;
+    background: conic-gradient(transparent, var(--primary-100), transparent);
+    animation: rotate 8s linear infinite;
+    opacity: 0;
+    transition: var(--transition-normal);
+}
+
+.modern-upload:hover .upload-backdrop,
+.modern-upload.drag-over .upload-backdrop {
+    opacity: 0.3;
+}
+
+.upload-content {
+    position: relative;
+    z-index: 2;
+}
+
+.upload-icon-container {
+    position: relative;
+    margin-bottom: 24px;
+    display: inline-block;
+}
+
+.upload-icon {
+    font-size: 64px;
+    background: linear-gradient(135deg, var(--primary-500), var(--success-500));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    transition: var(--transition-normal);
+    z-index: 2;
+    position: relative;
+}
+
+.upload-progress-ring {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    opacity: 0;
+    transition: var(--transition-normal);
+}
+
+.progress-ring {
+    transform: rotate(-90deg);
+}
+
+.progress-ring-circle {
+    fill: none;
+    stroke: var(--primary-400);
+    stroke-width: 3;
+    stroke-linecap: round;
+    stroke-dasharray: 226;
+    stroke-dashoffset: 226;
+    transition: stroke-dashoffset 0.8s ease-in-out;
+}
+
+.modern-upload.uploading .upload-progress-ring {
+    opacity: 1;
+}
+
+.modern-upload.uploading .upload-icon {
+    opacity: 0.3;
+}
+
+.upload-title {
+    font-size: 1.5rem;
+    font-weight: 600;
+    color: var(--gray-800);
+    margin-bottom: 12px;
+}
+
+.upload-description {
+    color: var(--gray-600);
+    margin-bottom: 24px;
+    font-size: 1rem;
+}
+
+.upload-buttons {
+    margin-bottom: 24px;
+}
+
+.modern-btn {
+    position: relative;
+    overflow: hidden;
+    transition: var(--transition-fast);
+}
+
+.btn-content {
+    transition: var(--transition-fast);
+}
+
+.btn-loading {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: inherit;
+    opacity: 0;
+    transform: translateY(100%);
+    transition: var(--transition-fast);
+}
+
+.modern-btn.loading .btn-content {
+    opacity: 0;
+    transform: translateY(-100%);
+}
+
+.modern-btn.loading .btn-loading {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+.upload-formats {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+}
+
+.format-tags {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    justify-content: center;
+}
+
+.format-tag {
+    background: var(--primary-100);
+    color: var(--primary-700);
+    padding: 4px 12px;
+    border-radius: var(--border-radius-md);
+    font-size: 0.8rem;
+    font-weight: 500;
+    letter-spacing: 0.5px;
+    transition: var(--transition-fast);
+}
+
+.format-tag:hover {
+    background: var(--primary-200);
+    transform: translateY(-1px);
+}
+
+.format-info {
+    color: var(--gray-500);
+    font-size: 0.85rem;
+}
+
+/* Upload Status Indicators */
+.upload-status {
+    position: absolute;
+    top: 20px;
+    right: 20px;
+    z-index: 10;
+}
+
+.status-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 16px;
+    border-radius: var(--border-radius-md);
+    font-size: 0.9rem;
+    font-weight: 500;
+    opacity: 0;
+    transform: translateX(100px);
+    transition: var(--transition-normal);
+    margin-bottom: 8px;
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.status-processing {
+    background: rgba(99, 102, 241, 0.9);
+    color: white;
+}
+
+.status-success {
+    background: rgba(16, 185, 129, 0.9);
+    color: white;
+}
+
+.status-error {
+    background: rgba(239, 68, 68, 0.9);
+    color: white;
+}
+
+.status-item.show {
+    opacity: 1;
+    transform: translateX(0);
+}
+
+.status-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+}
+
+/* Drag and Drop States */
+.modern-upload.drag-over {
+    border-color: var(--primary-500);
+    background: linear-gradient(135deg, var(--primary-50), var(--bg-surface));
+    transform: scale(1.02);
+    box-shadow: var(--shadow-xl), var(--shadow-glow);
+}
+
+.modern-upload.drag-over .upload-icon {
+    transform: scale(1.2);
+    filter: drop-shadow(0 0 20px rgba(99, 102, 241, 0.5));
+}
+
+/* Toast Notifications */
+.toast-container {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    z-index: 9999;
+    pointer-events: none;
+}
+
+.custom-toast {
+    background: var(--bg-surface);
+    backdrop-filter: var(--glass-backdrop);
+    -webkit-backdrop-filter: var(--glass-backdrop);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--border-radius-lg);
+    padding: 16px 20px;
+    margin-bottom: 12px;
+    box-shadow: var(--shadow-xl);
+    transform: translateX(400px);
+    transition: var(--transition-normal);
+    pointer-events: auto;
+    max-width: 350px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.custom-toast.show {
+    transform: translateX(0);
+}
+
+.toast-icon {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.toast-success .toast-icon {
+    background: var(--success-500);
+    color: white;
+}
+
+.toast-error .toast-icon {
+    background: var(--danger-500);
+    color: white;
+}
+
+.toast-warning .toast-icon {
+    background: var(--warning-500);
+    color: white;
+}
+
+.toast-info .toast-icon {
+    background: var(--primary-500);
+    color: white;
+}
+
+.toast-content {
+    flex: 1;
+}
+
+.toast-title {
+    font-weight: 600;
+    margin-bottom: 4px;
+    color: var(--gray-800);
+}
+
+.toast-message {
+    font-size: 0.9rem;
+    color: var(--gray-600);
+    line-height: 1.4;
+}
+
+.toast-close {
+    background: none;
+    border: none;
+    color: var(--gray-400);
+    font-size: 16px;
+    cursor: pointer;
+    padding: 0;
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    transition: var(--transition-fast);
+}
+
+.toast-close:hover {
+    background: var(--gray-200);
+    color: var(--gray-600);
+}
+
+/* 📱 Mobile-First Interactive Optimizations */
+@media (max-width: 992px) {
+    .modern-upload {
+        padding: 32px 20px;
+        min-height: 250px;
+    }
+    
+    .upload-icon {
+        font-size: 48px;
+    }
+    
+    .upload-title {
+        font-size: 1.3rem;
+    }
+    
+    .upload-description {
+        font-size: 0.95rem;
+    }
+    
+    .upload-buttons {
+        flex-direction: column;
+        align-items: center;
+        gap: 12px;
+    }
+    
+    .upload-buttons .btn {
+        min-width: 200px;
+    }
+    
+    .format-tags {
+        gap: 6px;
+    }
+    
+    .format-tag {
+        padding: 3px 8px;
+        font-size: 0.75rem;
+    }
+    
+    .toast-container {
+        top: 10px;
+        right: 10px;
+        left: 10px;
+    }
+    
+    .custom-toast {
+        max-width: none;
+        margin: 0 0 8px 0;
+    }
+}
+
+@media (max-width: 768px) {
+    .modern-upload {
+        padding: 24px 16px;
+        min-height: 220px;
+    }
+    
+    .upload-icon {
+        font-size: 40px;
+    }
+    
+    .upload-title {
+        font-size: 1.2rem;
+    }
+    
+    .upload-description {
+        font-size: 0.9rem;
+    }
+    
+    .upload-buttons .btn {
+        min-width: 180px;
+        padding: 10px 20px;
+        font-size: 0.9rem;
+    }
+    
+    .upload-status {
+        position: static;
+        margin-top: 16px;
+        display: flex;
+        justify-content: center;
+    }
+    
+    .status-item {
+        transform: none;
+        position: relative;
+    }
+    
+    .format-tags {
+        gap: 4px;
+    }
+    
+    .format-tag {
+        padding: 2px 6px;
+        font-size: 0.7rem;
+    }
+    
+    .format-info {
+        font-size: 0.8rem;
+        text-align: center;
+    }
+    
+    .hero-actions .btn {
+        width: 100%;
+        margin-bottom: 12px;
+    }
+    
+    .hero-actions .btn:last-child {
+        margin-bottom: 0;
+    }
+}
+
+/* Touch and Gesture Optimizations */
+@media (hover: none) and (pointer: coarse) {
+    .btn {
+        min-height: 44px; /* iOS touch target minimum */
+        min-width: 44px;
+    }
+    
+    .format-tag {
+        min-height: 32px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+    
+    .floating-card {
+        display: none; /* Hide on touch devices for performance */
+    }
+    
+    .upload-backdrop {
+        animation: none; /* Disable animations on touch devices */
+    }
+    
+    .modern-upload:hover .upload-backdrop {
+        opacity: 0;
+    }
+}
+
+/* High DPI Display Optimizations */
+@media (-webkit-min-device-pixel-ratio: 2), (min-resolution: 192dpi) {
+    .upload-icon,
+    .center-icon i,
+    .navbar-brand i {
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+    }
+    
+    .progress-ring-circle {
+        stroke-width: 2;
+    }
+}
+
+/* Reduced Motion Preferences */
+@media (prefers-reduced-motion: reduce) {
+    * {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+    }
+    
+    .upload-backdrop,
+    .pulse-ring,
+    .center-icon i,
+    .floating-card {
+        animation: none !important;
+    }
+    
+    .modern-upload:hover .upload-icon {
+        transform: none !important;
+    }
+}
+
+/* Performance Optimizations */
+.modern-upload,
+.card,
+.floating-card,
+.custom-toast {
+    will-change: transform;
+    backface-visibility: hidden;
+    perspective: 1000px;
+}
+
+.upload-backdrop,
+.pulse-ring {
+    transform: translateZ(0);
+    will-change: transform;
+}
+
+/* Focus Accessibility */
+.btn:focus-visible,
+.format-tag:focus-visible {
+    outline: 2px solid var(--primary-500);
+    outline-offset: 2px;
+    box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.2);
+}
+
+.modern-upload:focus-within {
+    border-color: var(--primary-500);
+    box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.1);
+}
+
+/* Loading States Enhancement */
+.modern-upload.uploading {
+    pointer-events: none;
+    opacity: 0.8;
+}
+
+.modern-upload.uploading .upload-icon {
+    animation: pulse-subtle 2s ease-in-out infinite;
+}
+
+@keyframes pulse-subtle {
+    0%, 100% { opacity: 0.3; }
+    50% { opacity: 0.6; }
+}
+
+/* 🏛️ T.C. Aile ve Sosyal Hizmetler Bakanlığı Resmi Stiller */
+.official-header {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    padding: 32px 0; /* Daha büyük padding */
+    border-bottom: 4px solid var(--primary-300); /* Daha kalın border */
+    margin-bottom: 32px;
+    background: linear-gradient(135deg, 
+        rgba(220, 38, 38, 0.05), 
+        rgba(220, 38, 38, 0.02), 
+        rgba(255, 255, 255, 0.8)
+    ); /* Hafif kırmızı gradient background */
+    box-shadow: 0 4px 12px rgba(220, 38, 38, 0.1);
+    min-height: 100px; /* Minimum yükseklik */
+    border-radius: 0 0 16px 16px; /* Alt köşeleri yuvarla */
+}
+
+.tc-logo {
+    flex-shrink: 0;
+}
+
+.tc-emblem {
+    width: 60px;
+    height: 60px;
+    object-fit: contain;
+}
+
+.tc-emblem-real {
+    height: 80px; /* Daha büyük logo */
+    width: auto;
+    max-width: 250px;
+    object-fit: contain;
+    filter: drop-shadow(0 3px 6px rgba(220, 38, 38, 0.3));
+    transition: var(--transition-fast);
+}
+
+.tc-emblem-real:hover {
+    transform: scale(1.05);
+    filter: drop-shadow(0 4px 8px rgba(220, 38, 38, 0.3));
+}
+
+/* 🇹🇷 T.C. Aile ve Sosyal Hizmetler Bakanlığı Logo CSS */
+.tc-emblem-placeholder {
+    width: 60px;
+    height: 60px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.emblem-circle {
+    width: 56px;
+    height: 56px;
+    border: 3px solid var(--primary-600);
+    border-radius: 50%;
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, var(--primary-50), white);
+    box-shadow: 0 2px 8px rgba(220, 38, 38, 0.2);
+}
+
+/* Ay-Yıldız */
+.crescent-star {
+    position: absolute;
+    top: 8px;
+    width: 100%;
+    height: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.crescent {
+    width: 12px;
+    height: 12px;
+    border: 2px solid var(--primary-600);
+    border-radius: 50%;
+    border-right-color: transparent;
+    transform: rotate(-45deg);
+    margin-right: 2px;
+}
+
+.star {
+    width: 0;
+    height: 0;
+    border-left: 3px solid transparent;
+    border-right: 3px solid transparent;
+    border-bottom: 4px solid var(--primary-600);
+    position: relative;
+    transform: rotate(35deg);
+}
+
+.star:before {
+    content: '';
+    position: absolute;
+    left: -3px;
+    top: -2px;
+    width: 0;
+    height: 0;
+    border-left: 3px solid transparent;
+    border-right: 3px solid transparent;
+    border-bottom: 4px solid var(--primary-600);
+    transform: rotate(-70deg);
+}
+
+.star:after {
+    content: '';
+    position: absolute;
+    left: -3px;
+    top: 1px;
+    width: 0;
+    height: 0;
+    border-left: 3px solid transparent;
+    border-right: 3px solid transparent;
+    border-bottom: 4px solid var(--primary-600);
+    transform: rotate(70deg);
+}
+
+/* Koruyucu Eller */
+.protective-hands {
+    position: absolute;
+    bottom: 8px;
+    width: 100%;
+    height: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+}
+
+.hand {
+    width: 8px;
+    height: 12px;
+    background: var(--primary-600);
+    border-radius: 4px 4px 2px 2px;
+    position: relative;
+}
+
+.left-hand {
+    transform: rotate(-15deg);
+}
+
+.right-hand {
+    transform: rotate(15deg);
+}
+
+.hand:before {
+    content: '';
+    position: absolute;
+    top: -2px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 6px;
+    height: 6px;
+    background: var(--primary-600);
+    border-radius: 50%;
+}
+
+/* Çevre Yıldızları */
+.emblem-circle:after {
+    content: '★ ★ ★ ★ ★ ★ ★ ★ ★ ★ ★ ★ ★ ★ ★ ★';
+    position: absolute;
+    top: -8px;
+    left: -8px;
+    right: -8px;
+    bottom: -8px;
+    color: var(--primary-600);
+    font-size: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: space-around;
+    border-radius: 50%;
+    animation: rotate-stars 20s linear infinite;
+    pointer-events: none;
+}
+
+@keyframes rotate-stars {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+.ministry-info {
+    flex: 1;
+}
+
+.republic-title {
+    color: var(--primary-700);
+    font-weight: 700;
+    font-size: 1.1rem; /* Daha büyük font */
+    letter-spacing: 1.2px;
+    margin-bottom: 6px;
+    text-transform: uppercase;
+    text-shadow: 0 1px 2px rgba(220, 38, 38, 0.1);
+}
+
+.ministry-title {
+    color: var(--primary-600);
+    font-weight: 600;
+    font-size: 1.2rem; /* Daha büyük font */
+    letter-spacing: 0.8px;
+    margin-bottom: 0;
+    line-height: 1.3;
+    text-shadow: 0 1px 2px rgba(220, 38, 38, 0.1);
+}
+
+.system-name {
+    color: var(--primary-600);
+    font-weight: 700;
+}
+
+.official-red {
+    color: var(--primary-600) !important;
+    font-weight: 600;
+}
+
+/* Resmi Gradient Güncellemesi */
+.gradient-text {
+    background: linear-gradient(135deg, var(--primary-600), var(--primary-500));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+/* Navbar Resmi Stil */
+.navbar-brand {
+    font-weight: 600;
+    color: white !important;
+    font-size: 1.3rem;
+    text-transform: none;
+    letter-spacing: 0.5px;
+}
+
+.navbar-brand span {
+    color: var(--primary-400);
+    font-weight: 700;
+}
+
+.navbar-brand i {
+    color: var(--primary-400);
+}
+
+/* Navbar Links */
+.navbar-nav .nav-link {
+    color: var(--gray-200) !important;
+    font-weight: 500;
+    transition: var(--transition-fast);
+    padding: 8px 16px !important;
+    border-radius: var(--border-radius-md);
+}
+
+.navbar-nav .nav-link:hover {
+    color: white !important;
+    background: rgba(255, 255, 255, 0.1);
+    transform: translateY(-1px);
+}
+
+.navbar-nav .nav-link.active {
+    color: var(--primary-400) !important;
+    background: rgba(220, 38, 38, 0.1);
+}
+
+.navbar-nav .nav-link i {
+    color: var(--primary-400);
+    margin-right: 6px;
+}
+
+/* Bootstrap Navbar Override - Tüm navbar stillerini zorla override et */
+.navbar-dark,
+.navbar-light,
+.bg-primary,
+.bg-dark,
+nav.navbar,
+.navbar {
+    background: #334155 !important;
+    background-color: #334155 !important;
+}
+
+.navbar-dark .navbar-nav .nav-link,
+.navbar-light .navbar-nav .nav-link {
+    color: var(--gray-200) !important;
+}
+
+.navbar-dark .navbar-brand,
+.navbar-light .navbar-brand {
+    color: white !important;
+}
+
+/* Upload Area Resmi Stil */
+.upload-icon {
+    background: linear-gradient(135deg, var(--primary-600), var(--primary-500));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+/* Hero Visual Resmi Renkler */
+.center-icon {
+    background: linear-gradient(135deg, var(--primary-600), var(--primary-500));
+}
+
+/* Floating Cards Resmi İkonlar */
+.floating-card i {
+    color: var(--primary-600);
+}
+
+/* Progress Ring Resmi Renk */
+.progress-ring-circle {
+    stroke: var(--primary-500);
+}
+
+/* Format Tags Resmi Stil */
+.format-tag {
+    background: var(--primary-100);
+    color: var(--primary-800);
+    border: 1px solid var(--primary-200);
+}
+
+.format-tag:hover {
+    background: var(--primary-200);
+    border-color: var(--primary-300);
+}
+
+/* Pulse Ring Resmi Renk */
+.pulse-ring {
+    border-color: var(--primary-400);
+}
+
+/* Card Header İkonları */
+.card-header i {
+    color: var(--primary-600);
+}
+
+/* Resmi Kamu Kurumu Footer */
+.official-footer {
+    background: var(--gray-800);
+    color: var(--gray-200);
+    padding: 40px 0 20px;
+    margin-top: 60px;
+    border-top: 3px solid var(--primary-600);
+}
+
+.footer-content {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    flex-wrap: wrap;
+    gap: 30px;
+    margin-bottom: 30px;
+}
+
+.footer-section h6 {
+    color: var(--primary-400);
+    font-weight: 600;
+    margin-bottom: 16px;
+    font-size: 1rem;
+}
+
+.footer-section p,
+.footer-section a {
+    color: var(--gray-300);
+    font-size: 0.9rem;
+    line-height: 1.6;
+    text-decoration: none;
+}
+
+.footer-section a:hover {
+    color: var(--primary-400);
+}
+
+.footer-bottom {
+    border-top: 1px solid var(--gray-700);
+    padding-top: 20px;
+    text-align: center;
+    color: var(--gray-400);
+    font-size: 0.85rem;
+}
+
+/* Mobile Responsive Resmi Header */
+@media (max-width: 768px) {
+    .official-header {
+        flex-direction: column;
+        text-align: center;
+        gap: 12px;
+    }
+    
+    .tc-emblem {
+        width: 50px;
+        height: 50px;
+    }
+    
+    .republic-title {
+        font-size: 0.8rem;
+    }
+    
+    .ministry-title {
+        font-size: 0.9rem;
+    }
+    
+    .navbar-brand {
+        font-size: 1.2rem;
+    }
+}
+
 /* Main Layout Styles */
 :root {
     --primary-color: #4361ee;
@@ -93,6 +1896,8 @@ body {
 .upload-area h4 {
     margin-bottom: 15px;
     color: var(--dark-color);
+    max-width: 80%;
+    margin: 0 auto 20px;
 }
 
 .upload-area p {

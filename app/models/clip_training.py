@@ -3,7 +3,10 @@ from datetime import datetime
 import json
 
 class CLIPTrainingSession(db.Model):
-    """CLIP Fine-tuning Training Sessions"""
+    """
+    CLIP modeli için eğitim oturumu modeli.
+    - Eğitim parametreleri, sonuçlar ve ilişkili analizlerle bağlantı sağlar.
+    """
     
     __tablename__ = 'clip_training_sessions'
     
@@ -35,7 +38,7 @@ class CLIPTrainingSession(db.Model):
     def __repr__(self):
         return f'<CLIPTrainingSession {self.id}: {self.version_name}>'
     
-    def to_dict(self):
+    def to_dict(self) -> dict:
         """Model'i dictionary'ye çevir"""
         return {
             'id': self.id,
@@ -66,7 +69,7 @@ class CLIPTrainingSession(db.Model):
         """Training parametrelerini ayarla"""
         self.training_params = json.dumps(params_dict)
     
-    def get_training_params(self):
+    def get_training_params(self) -> dict:
         """Training parametrelerini getir"""
         if self.training_params:
             return json.loads(self.training_params)
@@ -76,7 +79,7 @@ class CLIPTrainingSession(db.Model):
         """Performance metriklerini ayarla"""
         self.performance_metrics = json.dumps(metrics_dict)
     
-    def get_performance_metrics(self):
+    def get_performance_metrics(self) -> dict:
         """Performance metriklerini getir"""
         if self.performance_metrics:
             return json.loads(self.performance_metrics)
@@ -109,19 +112,19 @@ class CLIPTrainingSession(db.Model):
         db.session.commit()
     
     @staticmethod
-    def get_active_session():
+    def get_active_session() -> 'CLIPTrainingSession':
         """Aktif training session'ı getir"""
         return CLIPTrainingSession.query.filter_by(is_active=True).first()
     
     @staticmethod
-    def get_latest_successful():
+    def get_latest_successful() -> 'CLIPTrainingSession':
         """En son başarılı training session'ı getir"""
         return CLIPTrainingSession.query.filter_by(
             is_successful=True
         ).order_by(CLIPTrainingSession.created_at.desc()).first()
     
     @staticmethod
-    def get_training_history(limit=10):
+    def get_training_history(limit=10) -> list['CLIPTrainingSession']:
         """Training geçmişini getir"""
         return CLIPTrainingSession.query.order_by(
             CLIPTrainingSession.created_at.desc()

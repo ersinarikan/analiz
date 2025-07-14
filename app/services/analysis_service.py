@@ -69,9 +69,9 @@ def safe_database_session():
 
 class AnalysisService:
     """
-    İçerik analiz servis sınıfı, yüklenen dosyaların analiz işlemlerini yönetir.
-    Bu sınıf, farklı kategorilerde (şiddet, taciz, yetişkin içeriği, vb.) 
-    içerik analizi gerçekleştirmek için gerekli tüm metotları içerir.
+    Analiz işlemlerini yöneten ana servis sınıfı.
+    - Yüz tespiti, yaş/cinsiyet tahmini, içerik analizi gibi işlemleri yönetir.
+    - Kuyruk ve arka plan işleyişini koordine eder.
     """
     
     def start_analysis(self, file_id, frames_per_second=None, include_age_analysis=False):
@@ -152,7 +152,7 @@ class AnalysisService:
                 return analysis
                     
         except Exception as e:
-            logger.error(f"Analiz başlatma hatası: {str(e)}")
+            logger.error(f"Analiz başlatma hatası: {str(e)}", exc_info=True)
             return None
     
     def cancel_analysis(self, analysis_id):
@@ -180,7 +180,7 @@ class AnalysisService:
                 return True
                 
         except Exception as e:
-            logger.error(f"Analiz iptal hatası: {str(e)}")
+            logger.error(f"Analiz iptal hatası: {str(e)}", exc_info=True)
             return False
     
     def retry_analysis(self, analysis_id):
@@ -219,7 +219,7 @@ class AnalysisService:
                 return new_analysis
                 
         except Exception as e:
-            logger.error(f"Analiz tekrar deneme hatası: {str(e)}")
+            logger.error(f"Analiz tekrar deneme hatası: {str(e)}", exc_info=True)
             return None
 
 def analyze_file(analysis_id):
@@ -285,15 +285,14 @@ def analyze_file(analysis_id):
                 
         except Exception as e:
             error_message = f"Analiz hatası: {str(e)}"
-            logger.error(error_message)
-            logger.error(traceback.format_exc())
+            logger.error(error_message, exc_info=True)
             try:
                 analysis = Analysis.query.get(analysis_id)
                 if analysis:
                     analysis.fail_analysis(error_message)
                     db.session.commit()
             except Exception as db_err:
-                logger.error(f"Error updating analysis status: {str(db_err)}")
+                logger.error(f"Error updating analysis status: {str(db_err)}", exc_info=True)
             return False, error_message
     
     # Context management
@@ -305,7 +304,7 @@ def analyze_file(analysis_id):
             with app.app_context():
                 return _perform_analysis()
         except Exception as e:
-            logger.error(f"App context oluşturma hatası: {str(e)}")
+            logger.error(f"App context oluşturma hatası: {str(e)}", exc_info=True)
             return False, f"App context hatası: {str(e)}"
     else:
         # Zaten app context var
@@ -541,11 +540,11 @@ def analyze_image(analysis):
                             db.session.add(age_est)
 
                         except Exception as overlay_err:
-                            logger.error(f"Overlay oluşturma hatası (person_id={person_id}): {str(overlay_err)}")
+                            logger.error(f"Overlay oluşturma hatası (person_id={person_id}): {str(overlay_err)}", exc_info=True)
                             continue
                             
                     except Exception as db_err:
-                        logger.error(f"[SVC_LOG] DB hatası (person_id={person_id}): {str(db_err)}")
+                        logger.error(f"[SVC_LOG] DB hatası (person_id={person_id}): {str(db_err)}", exc_info=True)
                         continue
             
             db.session.commit()
@@ -559,8 +558,8 @@ def analyze_image(analysis):
     
     except Exception as e:
         db.session.rollback()  # Hata durumunda değişiklikleri geri al
-        logger.error(f"[SVC_LOG][ANALYZE_IMAGE] Resim analizi HATASI: {str(e)}. Analiz ID: {analysis.id}") # YENİ LOG
-        logger.error(f"Detaylı Hata İzi (analyze_image): {traceback.format_exc()}") # YENİ LOG
+        logger.error(f"[SVC_LOG][ANALYZE_IMAGE] Resim analizi HATASI: {str(e)}. Analiz ID: {analysis.id}", exc_info=True)
+        logger.error(f"Detaylı Hata İzi (analyze_image): {traceback.format_exc()}")
         return False, f"Resim analizi hatası: {str(e)}"
 
 
@@ -1249,7 +1248,7 @@ def analyze_video(analysis):
 
     except Exception as e: # analyze_video için ana try bloğunun (satır 809'daki) except kısmı
         error_message = f"Video analizi sırasında genel hata: Analiz #{analysis.id}, Hata: {str(e)}"
-        logger.error(error_message)
+        logger.error(error_message, exc_info=True)
         logger.error(traceback.format_exc())
         db.session.rollback() 
         return False, f"Video analizi hatası: {str(e)}"
@@ -1459,7 +1458,7 @@ def get_analysis_results(analysis_id):
         final_result_json = json.dumps(result, indent=2, cls=NumPyJSONEncoder)
         logger.info(f"[SVC_LOG][RESULTS] get_analysis_results sonu - Dönecek Result: {final_result_json}")
     except Exception as e_dumps:
-        logger.error(f"[SVC_LOG][ERROR] get_analysis_results - json.dumps sırasında HATA: {str(e_dumps)}")
+        logger.error(f"[SVC_LOG][ERROR] get_analysis_results - json.dumps sırasında HATA: {str(e_dumps)}", exc_info=True)
         logger.error(f"[SVC_LOG][ERROR] Hata anındaki result sözlüğü (ilk 1000 karakter): {str(result)[:1000]}") # Hata anındaki result'ı logla (çok uzunsa kırp)
         # Hata durumunda da bir şeyler döndürmek gerekebilir, yoksa frontend askıda kalabilir.
         # Şimdilik orijinal davranışı koruyup, sadece logluyoruz.
@@ -1474,8 +1473,14 @@ def get_content_analyzer():
 # Deprecated get_age_estimator function removed - use app.utils.model_state.get_age_estimator() instead
 
 # --- PATH NORMALİZASYON HELPER ---
-def normalize_rel_storage_path(rel_path):
-    import os
+def normalize_rel_storage_path(rel_path: str) -> str:
+    """
+    Göreli depolama yolunu normalize eder.
+    Args:
+        rel_path (str): Göreli yol.
+    Returns:
+        str: Normalize edilmiş yol.
+    """
     rel_path = os.path.normpath(rel_path).replace("\\", "/")
     # Başındaki ../ veya ./ gibi ifadeleri tamamen temizle
     while rel_path.startswith("../") or rel_path.startswith("./"):

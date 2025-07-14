@@ -6,7 +6,10 @@ from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, Text, 
 from sqlalchemy.orm import relationship
 
 class ContentType(enum.Enum):
-    """İçerik türlerini temsil eden enum sınıfı."""
+    """
+    İçerik türü modeli.
+    - İçerik kategorilerini ve ilişkili analizleri tanımlar.
+    """
     IMAGE = "image"
     VIDEO = "video"
     UNKNOWN = "unknown"
@@ -28,7 +31,7 @@ class Content(db.Model):
     # İlişkiler
     analysis_results = db.relationship('AnalysisResult', backref='content', lazy=True)
     
-    def add_analysis_result(self, category, score, details=None):
+    def add_analysis_result(self, category: str, score: float, details: dict | None = None) -> 'AnalysisResult':
         """İçerik için analiz sonucu ekler."""
         result = AnalysisResult(
             content_id=self.id,
@@ -38,6 +41,19 @@ class Content(db.Model):
         )
         self.analysis_results.append(result)
         return result
+
+    def to_dict(self) -> dict:
+        return {
+            'id': self.id,
+            'filename': self.filename,
+            'file_path': self.file_path,
+            'file_size': self.file_size,
+            'mime_type': self.mime_type,
+            'content_type': self.content_type.value,
+            'user_id': self.user_id,
+            'upload_date': self.upload_date.isoformat(),
+            'thumbnail': self.thumbnail.decode('utf-8') if self.thumbnail else None
+        }
 
 class AnalysisResult(db.Model):
     """Bir içerik için analiz sonuçlarını tutan model sınıfı."""
@@ -50,7 +66,7 @@ class AnalysisResult(db.Model):
     details = db.Column(db.Text, nullable=True)  # JSON formatında detay bilgisi
     created_at = db.Column(db.DateTime, default=datetime.now)
     
-    def get_details(self):
+    def get_details(self) -> dict:
         """Detayları JSON nesnesine dönüştürür."""
         if self.details:
             try:

@@ -1,7 +1,10 @@
 from flask import Blueprint, render_template
-from flask import current_app as app
 
 main_bp = Blueprint('main', __name__)
+"""
+Ana uygulama blueprint'i.
+- Ana sayfa, sağlık kontrolü ve temel endpointleri içerir.
+"""
 
 @main_bp.route('/')
 def index():

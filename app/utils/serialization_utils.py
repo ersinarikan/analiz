@@ -1,6 +1,6 @@
-import numpy as np
 import json
 import logging
+import numpy as np
 
 logger = logging.getLogger(__name__)
 

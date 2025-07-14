@@ -9,7 +9,11 @@ import time
 from datetime import datetime
 
 # Blueprint oluştur
-clip_training_bp = Blueprint('clip_training', __name__, url_prefix='/api/clip-training')
+clip_training_bp = Blueprint('clip_training', __name__)
+"""
+CLIP eğitimi için blueprint.
+- CLIP modeli eğitimi ve izleme endpointlerini içerir.
+"""
 
 logger = logging.getLogger(__name__)
 

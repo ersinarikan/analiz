@@ -6,7 +6,10 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 class BaseHybridModel:
-    """Temel hibrit model sınıfı"""
+    """
+    Temel hibrit model sınıfı.
+    - Farklı model tiplerini birleştirerek tahmin ve eğitim işlemlerini yönetir.
+    """
     
     def __init__(self, model_type: str):
         """Temel hibrit modeli başlat"""

@@ -1,8 +1,9 @@
-import os
 import logging
 from app.models.content import ContentType
 
 logger = logging.getLogger(__name__)
+
+# Kullanılmayan importlar kaldırıldı
 
 # MIME tiplerine göre içerik türleri
 IMAGE_MIME_TYPES = [
@@ -15,15 +16,13 @@ VIDEO_MIME_TYPES = [
     'video/x-ms-wmv', 'video/webm', 'video/x-matroska', 'video/3gpp'
 ]
 
-def detect_content_type(mime_type):
+def detect_content_type(file_path: str) -> str:
     """
-    MIME tipine göre içerik türünü belirler.
-    
+    Dosya yoluna göre içerik türünü tespit eder.
     Args:
-        mime_type: Dosyanın MIME tipi
-        
+        file_path (str): Dosya yolu.
     Returns:
-        ContentType: İçerik türü (IMAGE, VIDEO veya UNKNOWN)
+        str: İçerik türü (ör. 'image', 'video', 'unknown').
     """
     if not mime_type:
         return ContentType.UNKNOWN
@@ -37,7 +36,7 @@ def detect_content_type(mime_type):
     else:
         return ContentType.UNKNOWN
 
-def check_content_size(file_size, content_type):
+def check_content_size(file_size: int, content_type: ContentType) -> bool:
     """
     Dosya boyutunun kabul edilebilir sınırlar içinde olup olmadığını kontrol eder.
     
@@ -59,7 +58,7 @@ def check_content_size(file_size, content_type):
     else:
         return False
 
-def get_file_extension_for_content_type(content_type):
+def get_file_extension_for_content_type(content_type: ContentType) -> list[str]:
     """
     İçerik türüne göre kabul edilebilir dosya uzantılarının listesini döndürür.
     
@@ -76,7 +75,7 @@ def get_file_extension_for_content_type(content_type):
     else:
         return []
 
-def validate_file(file_path, mime_type, file_size):
+def validate_file(file_path: str, mime_type: str, file_size: int) -> tuple[bool, ContentType | None, str | None]:
     """
     Dosyayı doğrular, türünü belirler ve boyut kontrolü yapar.
     

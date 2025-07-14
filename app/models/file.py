@@ -1,10 +1,11 @@
-import os
 import datetime
 from app import db
-from sqlalchemy import func, String
 
 class File(db.Model):
-    """Sistem tarafından analiz edilecek dosyaları temsil eder."""
+    """
+    Yüklenen dosya modeli.
+    - Dosya yolu, türü, yüklenme zamanı ve ilişkili analizlerle bağlantı sağlar.
+    """
     
     __tablename__ = 'files'
     
@@ -28,7 +29,7 @@ class File(db.Model):
     # Latest analysis tek bir analiz erişimi için kullanılabilir
     # Çakışmayı önlemek için analysis ilişkisi kaldırıldı
     
-    def __init__(self, filename, original_filename, file_path, file_size, mime_type, user_id=None):
+    def __init__(self, filename: str, original_filename: str, file_path: str, file_size: int, mime_type: str, user_id: int | None = None):
         self.filename = filename
         self.original_filename = original_filename
         self.file_path = file_path
@@ -44,7 +45,7 @@ class File(db.Model):
         else:
             self.file_type = 'unknown'
     
-    def to_dict(self):
+    def to_dict(self) -> dict:
         """Modeli JSON'a dönüştürmek için dict temsilini döndürür."""
         return {
             'id': self.id,
