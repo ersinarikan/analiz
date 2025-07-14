@@ -5,6 +5,7 @@ let uploadedFiles = [];
 let analysisResults = {};
 let currentAnalysisIds = [];
 let hideLoaderTimeout; // Add this missing variable
+let globalAnalysisParamsModalElement; // Global modal element
 
 // Global flags for training
 window.currentTrainingSessionId = null;
@@ -205,7 +206,7 @@ document.addEventListener('DOMContentLoaded', () => {
     addImageClickListeners();
 
     // --- Yeni Analiz Parametreleri Modalı (GLOBAL) için Event Listener'lar ve Fonksiyonlar ---
-    const globalAnalysisParamsModalElement = document.getElementById('analysisParamsModal'); 
+    globalAnalysisParamsModalElement = document.getElementById('analysisParamsModal'); 
     if (globalAnalysisParamsModalElement) {
         const globalAnalysisParamsModal = new bootstrap.Modal(globalAnalysisParamsModalElement);
         const globalAnalysisParamsForm = document.getElementById('analysisParamsForm'); 
@@ -4072,7 +4073,16 @@ function trainModelFromModal(modelType) {
     
     // UI durumunu ayarla
     button.disabled = true;
-    button.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Eğitim Başlatılıyor...';
+    
+    if (modelType === 'age') {
+        // Yaş modeli için ensemble refresh
+        button.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Corrections Yenileniyor...';
+        refreshEnsembleCorrections();
+        return;
+    } else {
+        // İçerik modeli için normal training
+        button.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Eğitim Başlatılıyor...';
+    }
     
     progressDiv.style.display = 'block';
     progressDiv.classList.remove('d-none');
@@ -4091,7 +4101,7 @@ function trainModelFromModal(modelType) {
     
     console.log('[SSE] Modal UI elements configured, making API call');
     
-    // API çağrısı
+    // API çağrısı (sadece content modeli için)
     fetch(`/api/model/train-web`, {
         method: 'POST',
         headers: {
@@ -5646,7 +5656,12 @@ window.checkWebSocketStatus = checkWebSocketStatus;
 
 // Modal'dan model sıfırla
 function resetModelFromModal(modelType) {
-    if (confirm(`${modelType === 'age' ? 'Yaş tahmin' : 'İçerik analiz'} modelini sıfırlamak istediğinizden emin misiniz?\n\nDikkat: Model sıfırlama işlemi sistem yeniden başlatılmasını gerektirir.`)) {
+    const isAgeModel = modelType === 'age';
+    const confirmMessage = isAgeModel 
+        ? 'Yaş tahmin modeli ensemble düzeltmelerini temizlemek istediğinizden emin misiniz?\n\nBu işlem base model\'e döner ve düzeltmeler silinir.'
+        : 'İçerik analiz modelini sıfırlamak istediğinizden emin misiniz?\n\nDikkat: Model sıfırlama işlemi sistem yeniden başlatılmasını gerektirir.';
+    
+    if (confirm(confirmMessage)) {
         console.log(`Modal - Resetting ${modelType} model`);
         
         showModalTrainingStatus('Model sıfırlanıyor...', 'info');
@@ -5657,8 +5672,11 @@ function resetModelFromModal(modelType) {
             settingsSaveLoader.style.display = 'flex';
         }
         
+        // Yaş modeli için ensemble reset, diğerleri için normal reset
+        const endpoint = isAgeModel ? `/api/ensemble/reset/${modelType}` : `/api/model/reset/${modelType}`;
+        
         // Model sıfırlama API çağrısı
-        fetch(`/api/model/reset/${modelType}`, {
+        fetch(endpoint, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
@@ -5805,5 +5823,52 @@ function activateVersionFromModal(versionId) {
                 settingsSaveLoader.style.display = 'none';
             }
         }, 3000);
+    });
+}
+
+// Ensemble corrections yenile (yaş modeli için)
+function refreshEnsembleCorrections() {
+    console.log('[ENSEMBLE] refreshEnsembleCorrections called');
+    
+    fetch('/api/ensemble/refresh', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        console.log('[ENSEMBLE] Refresh response:', data);
+        
+        if (data.success) {
+            showModalTrainingStatus(`Ensemble corrections başarıyla yenilendi! Yaş: ${data.age_corrections}, CLIP: ${data.clip_corrections}`, 'success');
+            
+            // Modal butonlarını geri aktif et
+            const button = document.querySelector('.btn-train-age');
+            if (button) {
+                button.disabled = false;
+                button.innerHTML = '<i class="fas fa-refresh me-2"></i>Corrections Yenile';
+            }
+            
+            // Model versiyonlarını yenile
+            setTimeout(() => {
+                loadModalModelVersions();
+                loadModalModelStats();
+            }, 1000);
+            
+        } else {
+            throw new Error(data.error || 'Ensemble refresh başarısız');
+        }
+    })
+    .catch(error => {
+        console.error('[ENSEMBLE] Refresh error:', error);
+        showModalTrainingStatus(`Ensemble refresh hatası: ${error.message}`, 'danger');
+        
+        // Button'ı geri aktif et
+        const button = document.querySelector('.btn-train-age');
+        if (button) {
+            button.disabled = false;
+            button.innerHTML = '<i class="fas fa-refresh me-2"></i>Corrections Yenile';
+        }
     });
 }

@@ -52,7 +52,7 @@ class ContentTrainingService:
             # OpenCLIP model'i yükle
             model, _, preprocess = open_clip.create_model_and_transforms(
                 'ViT-H-14-378-quickgelu', 
-                pretrained='laion2b_s32b_b79k'
+                pretrained='dfn5b'
             )
             
             self.model = model.to(self.device)
@@ -509,34 +509,22 @@ class ContentTrainingService:
                     logger.info(f"Epoch {epoch+1}/{num_epochs} - Train Loss: {avg_train_loss:.4f}, Val Loss: {avg_val_loss:.4f}")
                     logger.info(f"MAE: {mae:.4f}, R²: {r2_score:.4f}")
                     
-                    # WebSocket progress gönder (regression mode)
+                    # SSE progress gönder (regression mode)
                     if 'session_id' in params and params['session_id']:
                         try:
-                            from app import socketio
-                            from flask import current_app
+                            from app.utils.sse_state import emit_training_progress
                             
-                            progress_data = {
-                                'session_id': params['session_id'],
-                                'current_epoch': epoch + 1,
-                                'total_epochs': num_epochs,
-                                'current_loss': float(avg_val_loss),
-                                'current_mae': float(mae),
-                                'current_r2': float(r2_score)
-                            }
-                            
-                            # Flask app instance'ini al
-                            app = current_app._get_current_object()
-                            
-                            # Eventlet background task ile emit et
-                            def emit_progress(app_instance, data):
-                                with app_instance.app_context():
-                                    socketio.emit('training_progress', data)
-                                    logger.info(f"[DEBUG] training_progress emitted via background task: {data}")
-                            
-                            socketio.start_background_task(emit_progress, app, progress_data)
-                            logger.info(f"[DEBUG] Background task started for training_progress")
-                        except Exception as ws_error:
-                            logger.warning(f"WebSocket emit error: {str(ws_error)}")
+                            emit_training_progress(
+                                session_id=params['session_id'],
+                                current_epoch=epoch + 1,
+                                total_epochs=num_epochs,
+                                current_loss=float(avg_val_loss),
+                                current_mae=float(mae),
+                                current_r2=float(r2_score)
+                            )
+                            logger.info(f"[SSE] training_progress emitted: epoch {epoch + 1}/{num_epochs}")
+                        except Exception as sse_error:
+                            logger.warning(f"SSE emit error: {str(sse_error)}")
                     
                 else:
                     # Classification metrikleri
@@ -549,33 +537,21 @@ class ContentTrainingService:
                     logger.info(f"Epoch {epoch+1}/{num_epochs} - Train Loss: {avg_train_loss:.4f}, Val Loss: {avg_val_loss:.4f}")
                     logger.info(f"Accuracy: {accuracy:.4f}, Precision: {precision:.4f}, Recall: {recall:.4f}, F1: {f1:.4f}")
                     
-                    # WebSocket progress gönder (classification mode)
+                    # SSE progress gönder (classification mode)
                     if 'session_id' in params and params['session_id']:
                         try:
-                            from app import socketio
-                            from flask import current_app
+                            from app.utils.sse_state import emit_training_progress
                             
-                            progress_data = {
-                                'session_id': params['session_id'],
-                                'current_epoch': epoch + 1,
-                                'total_epochs': num_epochs,
-                                'current_loss': float(avg_val_loss),
-                                'current_accuracy': float(accuracy)
-                            }
-                            
-                            # Flask app instance'ini al
-                            app = current_app._get_current_object()
-                            
-                            # Eventlet background task ile emit et
-                            def emit_progress(app_instance, data):
-                                with app_instance.app_context():
-                                    socketio.emit('training_progress', data)
-                                    logger.info(f"[DEBUG] training_progress emitted via background task: {data}")
-                            
-                            socketio.start_background_task(emit_progress, app, progress_data)
-                            logger.info(f"[DEBUG] Background task started for training_progress")
-                        except Exception as ws_error:
-                            logger.warning(f"WebSocket emit error: {str(ws_error)}")
+                            emit_training_progress(
+                                session_id=params['session_id'],
+                                current_epoch=epoch + 1,
+                                total_epochs=num_epochs,
+                                current_loss=float(avg_val_loss),
+                                current_accuracy=float(accuracy)
+                            )
+                            logger.info(f"[SSE] training_progress emitted: epoch {epoch + 1}/{num_epochs}")
+                        except Exception as sse_error:
+                            logger.warning(f"SSE emit error: {str(sse_error)}")
                 
                 # Early stopping ve best model kaydetme
                 if avg_val_loss < best_val_loss:

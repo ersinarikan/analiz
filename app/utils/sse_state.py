@@ -58,6 +58,13 @@ class SSETrainingState:
             if session_id in self._sessions:
                 del self._sessions[session_id]
 
+    def get_session_info(self, session_id: str):
+        """Get session information"""
+        with self._lock:
+            if session_id in self._sessions:
+                return self._sessions[session_id]
+            return None
+
     def _cleanup_old_sessions(self):
         """Background thread to cleanup old sessions"""
         while True:
