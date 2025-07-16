@@ -1,5 +1,4 @@
 from flask import Blueprint, jsonify, request, current_app
-from app.services import model_service
 import logging
 import os
 from app.models import Feedback
@@ -9,6 +8,9 @@ from app.services.model_service import ModelService
 
 logger = logging.getLogger(__name__)
 model_management_bp = Blueprint('model_management_bp', __name__, url_prefix='/api/models')
+
+# Global model service instance
+model_service = ModelService()
 
 @model_management_bp.route('/stats/<string:model_type>', methods=['GET'])
 def get_model_stats_route(model_type):
@@ -26,7 +28,7 @@ def get_model_stats_route(model_type):
 
 @model_management_bp.route('/versions/<string:model_type>', methods=['GET'])
 def get_model_versions_route(model_type):
-    """ Belirtilen model tipi için versiyonları döndürür. """
+    """ Belirtilen model tipi için tüm versiyonları döndürür. """
     if model_type not in ['content', 'age']:
         return jsonify({"error": "Invalid model type"}), 400
     try:
@@ -34,7 +36,7 @@ def get_model_versions_route(model_type):
         if versions_data.get('success', False):
             return jsonify(versions_data), 200
         else:
-            return jsonify({"error": versions_data.get('error', 'Bilinmeyen hata')}), 500
+            return jsonify({"error": f"Versiyonlar alınamadı: {versions_data.get('error', 'Bilinmeyen hata')}"}), 500
     except Exception as e:
         logger.error(f"/{model_type}/versions endpoint hatası: {str(e)}", exc_info=True)
         return jsonify({"error": f"Versiyonlar alınırken sunucu hatası: {str(e)}"}), 500
@@ -153,7 +155,6 @@ def cleanup_system():
         }
         
         # Kapsamlı temizlik gerçekleştir
-        model_service = ModelService()
         result = model_service.comprehensive_cleanup(cleanup_config)
         
         return jsonify(result)
@@ -179,7 +180,6 @@ def cleanup_feedback():
                 "error": "Model türü 'age' veya 'content' olmalıdır"
             }), 400
         
-        model_service = ModelService()
         result = model_service.cleanup_ensemble_feedback_records(model_type, keep_count)
         
         return jsonify(result)
@@ -205,7 +205,6 @@ def cleanup_ensemble_files():
                 "error": "Model türü 'age' veya 'content' olmalıdır"
             }), 400
         
-        model_service = ModelService()
         result = model_service.cleanup_ensemble_model_files(model_type, keep_count)
         
         return jsonify(result)
@@ -224,7 +223,6 @@ def cleanup_unused_frames():
         data = request.get_json() or {}
         days_old = data.get('days_old', 30)
         
-        model_service = ModelService()
         result = model_service.cleanup_unused_analysis_frames(days_old)
         
         return jsonify(result)
@@ -240,7 +238,6 @@ def cleanup_unused_frames():
 def vacuum_database():
     """Veritabanını optimize et"""
     try:
-        model_service = ModelService()
         success = model_service.vacuum_database()
         
         if success:
@@ -266,7 +263,6 @@ def vacuum_database():
 def get_database_size():
     """Veritabanı boyutunu getir"""
     try:
-        model_service = ModelService()
         size_mb = model_service.get_database_size()
         
         return jsonify({
@@ -285,7 +281,6 @@ def get_database_size():
 def get_cleanup_status():
     """Temizlik durumunu getir"""
     try:
-        model_service = ModelService()
         
         # Ensemble feedback istatistikleri
         age_feedback_count = db.session.query(Feedback).filter(

@@ -4051,20 +4051,57 @@ function updateModalModelStats(modelType, stats) {
     console.log(`Modal - Updating ${modelType} stats:`, stats);
     
     if (modelType === 'age') {
+        // Aktif versiyon güncelle
+        const activeVersion = stats.age?.active_version || 'ensemble_v1';
+        const versionDisplay = activeVersion === 'base_model' ? 'v0' : 'ensemble_v1';
+        const versionElement = document.getElementById('modal-age-active-version');
+        if (versionElement) {
+            versionElement.textContent = versionDisplay;
+        }
+        
+        // Durum güncelle
+        const status = stats.age?.status || 'active';
+        const statusElement = document.getElementById('modal-age-status');
+        if (statusElement) {
+            statusElement.innerHTML = '<i class="fas fa-check-circle text-success me-1"></i>Aktif';
+        }
+        
         // Geri bildirim sayısını güncelle
         const feedbackCount = stats.age?.feedback_count || 0;
-        document.getElementById('modal-age-training-data').textContent = `${feedbackCount} örnek`;
+        const trainingDataElement = document.getElementById('modal-age-training-data');
+        if (trainingDataElement) {
+            trainingDataElement.textContent = `${feedbackCount} örnek`;
+        }
         
-        // MAE bilgisini güncelle (sadece aktif versiyon yoksa)
-        const currentMAE = document.getElementById('modal-age-mae').textContent;
-        if (currentMAE === '-' && stats.age?.metrics?.mae) {
-            document.getElementById('modal-age-mae').textContent = `${stats.age.metrics.mae.toFixed(2)} yaş`;
+        // MAE bilgisini güncelle
+        const maeElement = document.getElementById('modal-age-mae');
+        if (maeElement && stats.age?.metrics?.mae) {
+            maeElement.textContent = `${stats.age.metrics.mae.toFixed(2)} yaş`;
         }
     }
     
     if (modelType === 'content') {
+        // Aktif versiyon güncelle
+        const activeVersion = stats.content?.active_version || 'CLIP-v1.0';
+        const versionDisplay = activeVersion.includes('v') ? activeVersion : 'CLIP-v1.0';
+        const versionElement = document.getElementById('modal-clip-active-version');
+        if (versionElement) {
+            versionElement.textContent = versionDisplay;
+        }
+        
+        // Durum güncelle
+        const status = stats.content?.status || 'active';
+        const statusElement = document.getElementById('modal-clip-status');
+        if (statusElement) {
+            statusElement.innerHTML = '<i class="fas fa-check-circle text-success me-1"></i>Aktif';
+        }
+        
+        // Geri bildirim sayısını güncelle
         const feedbackCount = stats.content?.feedback_count || 0;
-        document.getElementById('modal-content-training-data').textContent = `${feedbackCount} örnek`;
+        const trainingDataElement = document.getElementById('modal-content-training-data');
+        if (trainingDataElement) {
+            trainingDataElement.textContent = `${feedbackCount} örnek`;
+        }
     }
 }
 

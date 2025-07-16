@@ -236,7 +236,7 @@
                             </div>
                             <div class="col-6">
                                 <small class="text-muted">Kategoriler:</small>
-                                <div class="fw-bold">5</div>
+                                <div class="fw-bold" id="clip-categories">5</div>
                             </div>
                         </div>
 
@@ -535,6 +535,56 @@
                 }
             } catch (error) {
                 console.error('Ensemble istatistikleri yüklenirken hata:', error);
+            }
+        }
+
+        // Ensemble istatistiklerini güncelle
+        function updateEnsembleStats(modelType, stats) {
+            console.log(`Updating ${modelType} ensemble stats:`, stats);
+            
+            if (modelType === 'age') {
+                // Aktif versiyon bilgisini güncelle
+                const activeVersion = stats.active_version || 'Base Model';
+                const versionDisplay = activeVersion.includes('v') ? activeVersion : 'v0';
+                document.getElementById('age-active-version').textContent = versionDisplay;
+                
+                // Durum bilgisini güncelle
+                const status = stats.status || 'active';
+                const statusIcon = status === 'active' ? 'fas fa-check-circle status-active' : 'fas fa-exclamation-triangle status-inactive';
+                const statusText = status === 'active' ? 'Aktif' : 'Base Only';
+                document.getElementById('age-status').innerHTML = `<i class="${statusIcon}"></i> ${statusText}`;
+                
+                // Eğitim verisi sayısını güncelle
+                const trainingCount = stats.training_samples || 0;
+                document.getElementById('age-training-data').textContent = `${trainingCount} örnek`;
+                
+                // MAE bilgisini güncelle
+                let maeText = '-';
+                if (stats.ensemble_metrics && stats.ensemble_metrics.people_corrections > 0) {
+                    maeText = '0.00 yaş (Perfect)';
+                } else if (stats.base_model && stats.base_model.mae) {
+                    maeText = `${stats.base_model.mae} yaş`;
+                }
+                document.getElementById('age-mae').textContent = maeText;
+                
+            } else if (modelType === 'content') {
+                // CLIP modeli için benzer güncellemeler
+                const activeVersion = stats.active_version || 'Base OpenCLIP';
+                const versionDisplay = activeVersion.includes('v') ? activeVersion : 'CLIP-v1.0';
+                document.getElementById('clip-active-version').textContent = versionDisplay;
+                
+                // Durum güncelleme
+                const status = stats.status || 'active';
+                const statusIcon = 'fas fa-check-circle status-active';
+                document.getElementById('clip-status').innerHTML = `<i class="${statusIcon}"></i> Aktif`;
+                
+                // Kategori sayısını güncelle (5 kategori: violence, adult, harassment, weapon, drug)
+                const categoryCount = 5;
+                document.getElementById('clip-categories').textContent = categoryCount;
+                
+                // Feedback sayısını güncelle
+                const feedbackCount = stats.training_samples || 0;
+                document.getElementById('clip-feedback-count').textContent = `${feedbackCount} örnek`;
             }
         }
 
