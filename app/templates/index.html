@@ -1171,15 +1171,15 @@
     </div>
     
     <!-- Resim Büyütme Modal -->
-    <div class="modal fade" id="imageZoomModal" tabindex="-1" aria-labelledby="imageZoomModalLabel" aria-hidden="true">
-        <div class="modal-dialog modal-lg modal-dialog-centered">
-            <div class="modal-content">
+    <div class="modal fade" id="imageZoomModal" tabindex="-1" aria-labelledby="imageZoomModalLabel" aria-hidden="true" data-bs-backdrop="true" data-bs-keyboard="true">
+        <div class="modal-dialog modal-lg modal-dialog-centered" style="z-index: 1060; width: 90%; max-width: 800px; margin: 0 auto;">
+            <div class="modal-content" style="width: 100%; height: auto;">
                 <div class="modal-header">
                     <h5 class="modal-title" id="imageZoomModalLabel">Resim Görüntüleyici</h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
-                <div class="modal-body text-center">
-                    <img id="zoomedImage" src="" alt="Büyütülmüş resim" class="img-fluid" style="max-height: 70vh;">
+                <div class="modal-body text-center" style="display: flex; flex-direction: column; justify-content: center; align-items: center; min-height: 400px; padding: 20px; width: 100%;">
+                    <img id="zoomedImage" src="" alt="Büyütülmüş resim" class="img-fluid" style="max-height: 70vh; max-width: 100%; width: auto; height: auto; display: block;">
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Kapat</button>

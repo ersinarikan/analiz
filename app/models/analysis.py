@@ -247,6 +247,9 @@ class AgeEstimation(db.Model):
     # Yaş aralığı bilgisi (opsiyonel)
     age_range = db.Column(db.String(20))  # Örn: "18-25", "26-35", vb.
     
+    # İşlenmiş görsel yolu (overlay'li resim)
+    processed_image_path = db.Column(db.String(255))  # Overlay'li resmin yolu
+    
     def to_dict(self) -> dict:
         """
         Yaş tahminini sözlük formatında döndürür.
@@ -266,7 +269,7 @@ class AgeEstimation(db.Model):
             'face_bbox': self.face_bbox,
             'face_landmarks': self.face_landmarks,
             'embedding': self.embedding,
-            'age_range': self.age_range
+            'processed_image_path': self.processed_image_path
         }
     
     def get_face_bbox(self) -> dict:

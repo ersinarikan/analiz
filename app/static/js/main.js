@@ -419,6 +419,67 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         }
     } // --- Yeni Analiz Parametreleri Modalı (GLOBAL) için SON ---
+
+    // Modal accessibility düzeltmesi - aria-hidden attribute'unu düzelt
+    const analysisModal = document.getElementById('runAnalysisSettingsModal');
+    if (analysisModal) {
+        analysisModal.addEventListener('show.bs.modal', function () {
+            this.removeAttribute('aria-hidden');
+            // Body scroll'unu engelle
+            document.body.style.overflow = 'hidden';
+            console.log('[DEBUG] Analysis modal açıldı, body scroll engellendi');
+        });
+        analysisModal.addEventListener('hide.bs.modal', function () {
+            this.setAttribute('aria-hidden', 'true');
+            console.log('[DEBUG] Analysis modal kapandı, aria-hidden eklendi');
+        });
+        analysisModal.addEventListener('hidden.bs.modal', function () {
+            // Modal tamamen kapandığında backdrop'ı temizle ve scroll'u geri getir
+            const backdrops = document.querySelectorAll('.modal-backdrop');
+            backdrops.forEach(backdrop => {
+                backdrop.remove();
+                console.log('[DEBUG] Backdrop temizlendi');
+            });
+            document.body.style.overflow = '';
+            console.log('[DEBUG] Body scroll geri getirildi');
+        });
+    }
+
+    // Image zoom modal için de aynı düzeltmeyi uygula
+    const imageModal = document.getElementById('imageZoomModal');
+    if (imageModal) {
+        imageModal.addEventListener('show.bs.modal', function () {
+            this.removeAttribute('aria-hidden');
+            // Body scroll'unu engelle
+            document.body.style.overflow = 'hidden';
+            console.log('[DEBUG] Image modal açıldı, body scroll engellendi');
+        });
+        imageModal.addEventListener('hide.bs.modal', function () {
+            this.setAttribute('aria-hidden', 'true');
+            console.log('[DEBUG] Image modal kapandı, aria-hidden eklendi');
+        });
+        imageModal.addEventListener('hidden.bs.modal', function () {
+            // Modal tamamen kapandığında backdrop'ı temizle ve scroll'u geri getir
+            const backdrops = document.querySelectorAll('.modal-backdrop');
+            backdrops.forEach(backdrop => {
+                backdrop.remove();
+                console.log('[DEBUG] Image modal backdrop temizlendi');
+            });
+            document.body.style.overflow = '';
+            console.log('[DEBUG] Body scroll geri getirildi');
+        });
+    }
+
+    // Analiz Et butonu tıklama olayı
+    document.getElementById('analyzeBtn').addEventListener('click', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (uploadedFiles.length > 0) {
+            // Analiz parametreleri modalını aç (ANLIK AYARLAR İÇİN YENİ MODAL)
+            const modal = new bootstrap.Modal(document.getElementById('runAnalysisSettingsModal'));
+            modal.show();
+        }
+    });
 });
 
 // Socket.io bağlantısını başlat - SocketIO artık kullanılmıyor, sadece SSE
@@ -1030,9 +1091,9 @@ function startAnalysisForAllFiles(framesPerSecond, includeAgeAnalysis) {
 
 // Analiz işlemini başlat
 function startAnalysis(fileId, serverFileId, framesPerSecond, includeAgeAnalysis) {
-    // Dosya durumunu "işleniyor" olarak ayarla
-    updateFileStatus(fileId, "processing", 0);
-    fileStatuses.set(fileId, "processing");
+    // Dosya durumunu "kuyruğa eklendi" olarak ayarla - backend'den gerçek durum gelecek
+    updateFileStatus(fileId, "Sırada", 0);
+    fileStatuses.set(fileId, "queued");
     
     // Analiz parametrelerini hazırla
     const analysisParams = {
@@ -1040,10 +1101,12 @@ function startAnalysis(fileId, serverFileId, framesPerSecond, includeAgeAnalysis
         frames_per_second: framesPerSecond,
         include_age_analysis: includeAgeAnalysis
     };
-    
-    // Analiz başlatma API çağrısı
-    fetch("/api/analysis/start", {
-        method: "POST",
+
+    console.log("Analiz başlatılıyor:", analysisParams);
+
+    // API'ye analiz isteği gönder
+    fetch('/api/analysis/start', {
+        method: 'POST',
         headers: {
             'Content-Type': 'application/json'
         },
@@ -1087,7 +1150,7 @@ function startAnalysis(fileId, serverFileId, framesPerSecond, includeAgeAnalysis
             // Hata sayacını sıfırla
             fileErrorCounts.set(fileId, 0);
             
-            // İlerlemeyi kontrol etmeye başla
+            // İlerlemeyi kontrol etmeye başla - HEMEN başlat ki gerçek durum gelsin
             setTimeout(() => checkAnalysisStatus(analysisId, fileId), 1000);
         }
     })
@@ -1155,13 +1218,24 @@ function checkAnalysisStatus(analysisId, fileId) {
             updateFileStatus(fileId, queueMessage, 0);
             
             // Kuyrukta bekleyen öğeyi kontrol etmeye devam et
-            setTimeout(() => checkAnalysisStatus(analysisId, fileId), 5000);
+            setTimeout(() => checkAnalysisStatus(analysisId, fileId), 3000);
+        } else if (status === "pending") {
+            // Henüz işleme alınmamış analiz
+            updateFileStatus(fileId, "Sırada", 0);
+            
+            // Pending durumunda da kontrol etmeye devam et
+            setTimeout(() => checkAnalysisStatus(analysisId, fileId), 2000);
         } else if (status === "processing") {
             // İşlem yapılıyorsa ilerleyişi göster
             updateFileStatus(fileId, status, progress);
             
+            // Processing durumunda da ara sonuçları göster
+            if (progress > 10) { // İlk %10'dan sonra ara sonuçlar olabilir
+                getAnalysisResults(fileId, analysisId, true); // true = partial results
+            }
+            
             // Analiz devam ediyorsa durumu kontrol etmeye devam et
-            setTimeout(() => checkAnalysisStatus(analysisId, fileId), 5000);
+            setTimeout(() => checkAnalysisStatus(analysisId, fileId), 2000);
         } else if (status === "completed") {
             // Analiz tamamlandıysa sonuçları göster
             updateFileStatus(fileId, status, 100);
@@ -1177,7 +1251,7 @@ function checkAnalysisStatus(analysisId, fileId) {
             
             // İşlem devam ediyorsa kontrol etmeye devam et
             if (status !== "completed" && status !== "failed") {
-                setTimeout(() => checkAnalysisStatus(analysisId, fileId), 5000);
+                setTimeout(() => checkAnalysisStatus(analysisId, fileId), 2000);
             }
         }
         
@@ -1191,7 +1265,7 @@ function checkAnalysisStatus(analysisId, fileId) {
         fileErrorCounts.set(fileId, errorCount + 1);
         
         // Bir süre bekleyip tekrar dene
-        setTimeout(() => checkAnalysisStatus(analysisId, fileId), 10000);
+        setTimeout(() => checkAnalysisStatus(analysisId, fileId), 5000);
     });
 }
 
@@ -1344,23 +1418,28 @@ function updateGlobalProgress(current, total) {
 }
 
 // Analiz sonuçlarını al
-function getAnalysisResults(fileId, analysisId) {
-    console.log(`Analiz sonuçları alınıyor: fileId=${fileId}, analysisId=${analysisId}`);
+function getAnalysisResults(fileId, analysisId, isPartial = false) {
+    console.log(`Analiz sonuçları alınıyor: fileId=${fileId}, analysisId=${analysisId}, partial=${isPartial}`);
     
     if (!analysisId) {
         console.error(`Analiz ID bulunamadı, fileId=${fileId}`);
-        showToast('Hata', `Analiz ID'si bulunamadı. Bu beklenmeyen bir durum.`, 'danger');
+        if (!isPartial) { // Sadece final results için hata göster
+            showToast('Hata', `Analiz ID'si bulunamadı. Bu beklenmeyen bir durum.`, 'danger');
+        }
         return;
     }
     
-    // Yükleme göstergesi ekleyin
+    // Yükleme göstergesi ekleyin (sadece final results için)
     const resultsList = document.getElementById('resultsList');
-    if (resultsList) {
-        const loadingEl = document.createElement('div');
-        loadingEl.id = `loading-${fileId}`;
-        loadingEl.className = 'text-center my-3';
-        loadingEl.innerHTML = '<div class="spinner-border text-primary" role="status"><span class="visually-hidden">Yükleniyor...</span></div><p class="mt-2">Sonuçlar yükleniyor...</p>';
-        resultsList.appendChild(loadingEl);
+    if (resultsList && !isPartial) {
+        const existingLoading = document.getElementById(`loading-${fileId}`);
+        if (!existingLoading) { // Zaten varsa ekleme
+            const loadingEl = document.createElement('div');
+            loadingEl.id = `loading-${fileId}`;
+            loadingEl.className = 'text-center my-3';
+            loadingEl.innerHTML = '<div class="spinner-border text-primary" role="status"><span class="visually-hidden">Yükleniyor...</span></div><p class="mt-2">Sonuçlar yükleniyor...</p>';
+            resultsList.appendChild(loadingEl);
+        }
     }
     
     fetch(`/api/analysis/${analysisId}/detailed-results`)
@@ -1372,6 +1451,12 @@ function getAnalysisResults(fileId, analysisId) {
     })
     .then(data => {
         console.log(`Analiz sonuçları alındı (${analysisId}):`, data);
+        
+        // Eğer data string ise (double-encoded JSON), tekrar parse et
+        if (typeof data === 'string') {
+            console.log('JSON string detected, parsing again...');
+            data = JSON.parse(data);
+        }
         
         // Yükleme göstergesini kaldır
         const loadingEl = document.getElementById(`loading-${fileId}`);
@@ -1537,11 +1622,11 @@ function displayAnalysisResults(fileId, results) {
         framePathInput.name = 'frame_path';
         
         // Resimler için orijinal dosya yolu, videolar için en yüksek riskli karenin yolu (eğer varsa)
-        let determinedFramePath = results.file_path || results.processed_image_path || '';
+        let determinedFramePath = results.file_path || '';
         if (results.file_type === 'video' && results.highest_risk_frame_details && results.highest_risk_frame_details.frame_path) {
             determinedFramePath = results.highest_risk_frame_details.frame_path;
-        } else if (results.file_type === 'image' && results.processed_image_path) { 
-            determinedFramePath = results.processed_image_path;
+        } else if (results.file_type === 'image' && results.file_path) { 
+            determinedFramePath = results.file_path;
         }
         
         if (!determinedFramePath || determinedFramePath === 'undefined') {
@@ -4409,41 +4494,93 @@ function handleModalTrainingErrorSSE(data, modelType) {
 
 // Resim büyütme fonksiyonu
 function zoomImage(imageSrc, imageTitle = 'Resim Görüntüleyici') {
-    const zoomedImage = document.getElementById('zoomedImage');
-    const modalTitle = document.getElementById('imageZoomModalLabel');
+    console.log('[DEBUG] zoomImage çağrıldı:', imageSrc, imageTitle);
     
-    if (zoomedImage && modalTitle) {
-        zoomedImage.src = imageSrc;
-        modalTitle.textContent = imageTitle;
-        
-        const imageZoomModal = new bootstrap.Modal(document.getElementById('imageZoomModal'));
-        imageZoomModal.show();
+    // Mevcut modal'ı kapat
+    const existingModal = document.getElementById('imageZoomModal');
+    if (existingModal) {
+        existingModal.remove();
     }
+    
+    // Yeni modal oluştur
+    const modalHTML = `
+        <div class="modal fade show" id="imageZoomModal" tabindex="-1" style="display: block; background: rgba(0,0,0,0.5); position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 1050;">
+            <div class="modal-dialog modal-lg" style="margin: 50px auto; max-width: 90%; width: 800px; position: relative;">
+                <div class="modal-content" style="background: white; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+                    <div class="modal-header" style="padding: 15px; border-bottom: 1px solid #ddd; display: flex; justify-content: space-between; align-items: center;">
+                        <h5 class="modal-title" style="margin: 0;">${imageTitle}</h5>
+                        <button type="button" class="btn-close" onclick="closeZoomModal()" style="background: none; border: none; font-size: 24px; cursor: pointer;">&times;</button>
+                    </div>
+                    <div class="modal-body" style="padding: 20px; text-align: center;">
+                        <img src="${imageSrc}" alt="${imageTitle}" style="max-width: 100%; max-height: 70vh; height: auto; display: block; margin: 0 auto;">
+                    </div>
+                    <div class="modal-footer" style="padding: 15px; border-top: 1px solid #ddd; text-align: right;">
+                        <button type="button" class="btn btn-secondary" onclick="closeZoomModal()" style="padding: 8px 16px; background: #6c757d; color: white; border: none; border-radius: 4px; cursor: pointer;">Kapat</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    // Modal'ı sayfaya ekle
+    document.body.insertAdjacentHTML('beforeend', modalHTML);
+    
+    // Body scroll'unu engelle
+    document.body.style.overflow = 'hidden';
+    
+    console.log('[DEBUG] Manuel modal oluşturuldu ve açıldı');
+}
+
+// Modal kapatma fonksiyonu
+function closeZoomModal() {
+    const modal = document.getElementById('imageZoomModal');
+    if (modal) {
+        modal.remove();
+        console.log('[DEBUG] Manuel modal kapatıldı');
+    }
+    // Body scroll'unu geri getir
+    document.body.style.overflow = '';
 }
 
 // Resim tıklama event listener'ını ekle
 function addImageClickListeners() {
     // Tüm analiz sonuç resimlerine tıklama özelliği ekle
     document.addEventListener('click', function(e) {
+        // Modal backdrop tıklamalarını atla
+        if (e.target.classList.contains('modal-backdrop')) {
+            return;
+        }
+        
+        console.log('[DEBUG] Resim tıklama testi - Element:', e.target);
+        console.log('[DEBUG] Element sınıfları:', e.target.classList);
+        console.log('[DEBUG] Element tag:', e.target.tagName);
+        
         // Yaş tahminleri resimleri
         if (e.target.matches('.age-estimations img, .age-feedback-container img, .face-image, .age-estimation-image')) {
+            console.log('[DEBUG] Yaş tahmini resmi tıklandı!');
             e.preventDefault();
+            e.stopPropagation();
             const imageSrc = e.target.src;
             const imageAlt = e.target.alt || 'Yaş Tahmini Resmi';
+            console.log('[DEBUG] Resim zoom açılıyor:', imageSrc);
             zoomImage(imageSrc, imageAlt);
         }
         
         // İçerik tespiti resimleri
         if (e.target.matches('.content-detections img, .detection-img')) {
+            console.log('[DEBUG] İçerik tespiti resmi tıklandı!');
             e.preventDefault();
+            e.stopPropagation();
             const imageSrc = e.target.src;
             const imageAlt = e.target.alt || 'İçerik Tespiti Resmi';
             zoomImage(imageSrc, imageAlt);
         }
         
         // En yüksek riskli kare resimleri
-        if (e.target.matches('.highest-risk-frame img, .frame-container img')) {
+        if (e.target.matches('.highest-risk-frame img, .risk-frame-img')) {
+            console.log('[DEBUG] En yüksek riskli kare resmi tıklandı!');
             e.preventDefault();
+            e.stopPropagation();
             const imageSrc = e.target.src;
             const imageAlt = e.target.alt || 'En Yüksek Riskli Kare';
             zoomImage(imageSrc, imageAlt);
@@ -5848,6 +5985,20 @@ function refreshEnsembleCorrections() {
             message += `Yaş düzeltmeleri: ${data.age_corrections}\n`;
             message += `İçerik düzeltmeleri: ${data.clip_corrections}`;
             
+            // Model versiyon bilgilerini göster
+            if (data.models_created) {
+                message += `\n\n📦 Oluşturulan Model Versiyonları:\n`;
+                if (data.models_created.age_model_created && data.age_version) {
+                    message += `✅ Yaş Modeli: ${data.age_version}\n`;
+                }
+                if (data.models_created.clip_model_created && data.clip_version) {
+                    message += `✅ İçerik Modeli: ${data.clip_version}\n`;
+                }
+                if (!data.models_created.age_model_created && !data.models_created.clip_model_created) {
+                    message += `ℹ️ Yeni düzeltme bulunmadığı için versiyon oluşturulmadı\n`;
+                }
+            }
+            
             // Otomatik temizlik sonuçlarını göster
             if (data.auto_cleanup && data.auto_cleanup.enabled) {
                 message += `\n\n🧹 Otomatik Temizlik:\n`;
@@ -5867,8 +6018,14 @@ function refreshEnsembleCorrections() {
                 statusElement.className = 'alert alert-success';
             }
             
-            // Toast bildirimi
-            showToast('Başarılı', 'Ensemble corrections yenilendi ve otomatik temizlik tamamlandı!', 'success');
+            // Toast bildirimi - model versiyonu bilgisi ile
+            let toastMessage = 'Ensemble corrections yenilendi';
+            if (data.models_created && (data.models_created.age_model_created || data.models_created.clip_model_created)) {
+                toastMessage += ' ve yeni model versiyonları oluşturuldu';
+            }
+            toastMessage += '!';
+            
+            showToast('Başarılı', toastMessage, 'success');
             
             // Buton durumunu sıfırla
             if (button) {
