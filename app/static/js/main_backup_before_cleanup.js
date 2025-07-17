@@ -1150,8 +1150,8 @@ function startAnalysis(fileId, serverFileId, framesPerSecond, includeAgeAnalysis
             // Hata sayacını sıfırla
             fileErrorCounts.set(fileId, 0);
             
-            // İlerlemeyi kontrol etmeye başla - HEMEN başlat ki gerçek durum gelsin
-            setTimeout(() => checkAnalysisStatus(analysisId, fileId), 1000);
+            // DISABLED: SocketIO ile gerçek zamanlı güncelleme kullanıyoruz, polling gerekli değil
+            // setTimeout(() => checkAnalysisStatus(analysisId, fileId), 1000);
         }
     })
     .catch(error => {
@@ -1237,9 +1237,14 @@ function checkAnalysisStatus(analysisId, fileId) {
             // Analiz devam ediyorsa durumu kontrol etmeye devam et (daha sık kontrol)
             setTimeout(() => checkAnalysisStatus(analysisId, fileId), 1500);
         } else if (status === "completed") {
-            // Analiz tamamlandıysa sonuçları göster
+            // Analiz tamamlandıysa sonuçları göster - backend'in tamamen bitmesi için kısa delay
             updateFileStatus(fileId, status, 100);
-            getAnalysisResults(fileId, analysisId);
+            
+            // Backend'de tüm işlemlerin (CLIP hesaplamaları dahil) tamamen bitmesi için 1 saniye bekle
+            setTimeout(() => {
+                console.log(`Analiz tamamlandı, sonuçlar getiriliyor: ${analysisId}`);
+                getAnalysisResults(fileId, analysisId);
+            }, 1000); // 1000ms = 1 saniye delay
         } else if (status === "failed") {
             // Analiz başarısız olduysa hata mesajı göster
             updateFileStatus(fileId, status, 0);

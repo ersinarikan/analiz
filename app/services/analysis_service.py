@@ -8,7 +8,7 @@ import threading
 import time
 
 from flask import current_app
-from app import db
+from app import db, socketio
 from app.ai.content_analyzer import ContentAnalyzer
 from app.ai.insightface_age_estimator import InsightFaceAgeEstimator
 from app.utils.model_state import get_content_analyzer
@@ -207,6 +207,19 @@ def analyze_file(analysis_id):
             analysis.start_analysis()
             db.session.commit()  # Durum güncellemesini kaydet
             
+            # SocketIO ile analiz başlama bildirimi gönder
+            try:
+                socketio.emit('analysis_started', {
+                    'analysis_id': analysis_id,
+                    'file_id': analysis.file_id,
+                    'status': 'processing',
+                    'progress': 0,
+                    'message': 'Analiz başlatıldı'
+                })
+                logger.info(f"SocketIO: Analysis started event sent for {analysis_id}")
+            except Exception as socket_err:
+                logger.warning(f"SocketIO event gönderme hatası: {str(socket_err)}")
+            
             # Dosyayı al
             file = analysis.file
             
@@ -225,10 +238,38 @@ def analyze_file(analysis_id):
                 calculate_overall_scores(analysis)
                 analysis.complete_analysis()
                 db.session.commit()
+                
+                # SocketIO ile analiz tamamlanma bildirimi gönder
+                try:
+                    socketio.emit('analysis_completed', {
+                        'analysis_id': analysis_id,
+                        'file_id': analysis.file_id,
+                        'status': 'completed',
+                        'progress': 100,
+                        'message': 'Analiz başarıyla tamamlandı'
+                    })
+                    logger.info(f"SocketIO: Analysis completed event sent for {analysis_id}")
+                except Exception as socket_err:
+                    logger.warning(f"SocketIO completion event hatası: {str(socket_err)}")
+                
                 return True, "Analiz başarıyla tamamlandı"
             else:
                 analysis.fail_analysis(message)
                 db.session.commit()
+                
+                # SocketIO ile analiz hatası bildirimi gönder
+                try:
+                    socketio.emit('analysis_failed', {
+                        'analysis_id': analysis_id,
+                        'file_id': analysis.file_id,
+                        'status': 'failed',
+                        'progress': 0,
+                        'message': message or 'Analiz başarısız'
+                    })
+                    logger.info(f"SocketIO: Analysis failed event sent for {analysis_id}")
+                except Exception as socket_err:
+                    logger.warning(f"SocketIO failure event hatası: {str(socket_err)}")
+                
                 return False, message
                 
         except Exception as e:

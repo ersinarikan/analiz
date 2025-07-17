@@ -1237,11 +1237,17 @@
     <!-- Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     
+    <!-- Socket.IO Client -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    
+    <!-- SocketIO Client Functions -->
+    <script src="{{ url_for('static', filename='js/socketio-client.js') }}"></script>
+    
     <!-- Training Stats JS -->
     <script src="{{ url_for('static', filename='js/training-stats.js') }}"></script>
     
-    <!-- Web SSE Functions -->
-    <script src="{{ url_for('static', filename='js/web-sse-functions.js') }}"></script>
+    <!-- DISABLED: SSE replaced with SocketIO -->
+    <!-- <script src="{{ url_for('static', filename='js/web-sse-functions.js') }}"></script> -->
     
     <!-- Main JS -->
     <script src="{{ url_for('static', filename='js/main.js') }}"></script>

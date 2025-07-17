@@ -1150,8 +1150,8 @@ function startAnalysis(fileId, serverFileId, framesPerSecond, includeAgeAnalysis
             // Hata sayacını sıfırla
             fileErrorCounts.set(fileId, 0);
             
-            // İlerlemeyi kontrol etmeye başla - HEMEN başlat ki gerçek durum gelsin
-            setTimeout(() => checkAnalysisStatus(analysisId, fileId), 1000);
+            // DISABLED: SocketIO ile gerçek zamanlı güncelleme kullanıyoruz, polling gerekli değil
+            // setTimeout(() => checkAnalysisStatus(analysisId, fileId), 1000);
         }
     })
     .catch(error => {
@@ -1164,117 +1164,7 @@ function startAnalysis(fileId, serverFileId, framesPerSecond, includeAgeAnalysis
 }
 
 // Analiz durumunu kontrol et
-function checkAnalysisStatus(analysisId, fileId) {
-    // Analiz ID'si yoksa işlemi durdur
-    if (!analysisId) {
-        console.error(`No analysis ID for file ${fileId}, cannot check status`);
-        return;
-    }
-    
-    // İptal edilen analizleri kontrol etme
-    if (cancelledAnalyses.has(analysisId)) {
-        console.log(`Analysis ${analysisId} was cancelled, stopping status checks`);
-        return;
-    }
-
-    // Hata sayacını kontrol et
-    let errorCount = fileErrorCounts.get(fileId) || 0;
-    if (errorCount > MAX_STATUS_CHECK_RETRIES) {
-        console.error(`Max retries (${MAX_STATUS_CHECK_RETRIES}) exceeded for analysis ${analysisId}`);
-        updateFileStatus(fileId, "failed", 0);
-        fileStatuses.set(fileId, "failed");
-        showError(`${fileNameFromId(fileId)} dosyası için durum kontrolü başarısız oldu: Çok sayıda hata oluştu.`);
-        updateGlobalProgress();
-        return;
-    }
-
-    fetch(`/api/analysis/${analysisId}/status`)
-    .then(response => {
-        if (!response.ok) {
-            throw new Error(`HTTP error! Status: ${response.status}`);
-        }
-        return response.json();
-    })
-    .then(response => {
-        console.log(`Analysis status for ${analysisId}:`, response);
-        
-        // Duruma göre işle
-        const status = response.status;
-        const progress = response.progress || 0;
-        
-        // Dosya durumunu güncelle
-        fileStatuses.set(fileId, status);
-        
-        // Dosya nesnesini bul ve güncelle
-        const fileIndex = uploadedFiles.findIndex(f => f.id === fileId);
-        if (fileIndex !== -1) {
-            uploadedFiles[fileIndex].analysisId = analysisId;
-            uploadedFiles[fileIndex].status = status;
-        }
-        
-        // Kuyrukta bekliyor durumu için özel mesaj
-        if (status === "queued") {
-            const queueMessage = "Sırada";
-            updateFileStatus(fileId, queueMessage, 0);
-            
-            // Kuyrukta bekleyen öğeyi kontrol etmeye devam et
-            setTimeout(() => checkAnalysisStatus(analysisId, fileId), 3000);
-        } else if (status === "pending") {
-            // Henüz işleme alınmamış analiz
-            updateFileStatus(fileId, "Sırada", 0);
-            
-            // Pending durumunda daha sık kontrol et
-            setTimeout(() => checkAnalysisStatus(analysisId, fileId), 1500);
-        } else if (status === "processing") {
-            // İşlem yapılıyorsa ilerleyişi göster
-            updateFileStatus(fileId, status, progress);
-            
-            // Processing durumunda da ara sonuçları göster
-            if (progress > 10) { // İlk %10'dan sonra ara sonuçlar olabilir
-                getAnalysisResults(fileId, analysisId, true); // true = partial results
-            }
-            
-            // Analiz devam ediyorsa durumu kontrol etmeye devam et (daha sık kontrol)
-            setTimeout(() => checkAnalysisStatus(analysisId, fileId), 1500);
-        } else if (status === "completed") {
-            // Analiz tamamlandıysa sonuçları göster - backend'in tamamen bitmesi için kısa delay
-            updateFileStatus(fileId, status, 100);
-            
-            // Backend'de tüm işlemlerin (CLIP hesaplamaları dahil) tamamen bitmesi için 1 saniye bekle
-            setTimeout(() => {
-                console.log(`Analiz tamamlandı, sonuçlar getiriliyor: ${analysisId}`);
-                getAnalysisResults(fileId, analysisId);
-            }, 1000); // 1000ms = 1 saniye delay
-        } else if (status === "failed") {
-            // Analiz başarısız olduysa hata mesajı göster
-            updateFileStatus(fileId, status, 0);
-            const errorMessage = response.error || response.message || "Bilinmeyen hata";
-            showError(`${fileNameFromId(fileId)} dosyası için analiz başarısız oldu: ${errorMessage}`);
-        } else {
-            // Diğer durumlar için (cancelled vb)
-            updateFileStatus(fileId, status, progress);
-            
-            // İşlem devam ediyorsa kontrol etmeye devam et
-            if (status !== "completed" && status !== "failed") {
-                setTimeout(() => checkAnalysisStatus(analysisId, fileId), 2000);
-            }
-        }
-        
-        // Genel ilerlemeyi güncelle
-        updateGlobalProgress();
-    })
-    .catch(error => {
-        console.error(`Error checking analysis status for ${analysisId}:`, error);
-        
-        // Hata sayacını arttır
-        fileErrorCounts.set(fileId, errorCount + 1);
-        
-        // Bir süre bekleyip tekrar dene
-        setTimeout(() => checkAnalysisStatus(analysisId, fileId), 5000);
-    });
-}
-
-// Tüm analizlerin tamamlanıp tamamlanmadığını kontrol eden yardımcı fonksiyon
+// REMOVED: checkAnalysisStatus function - replaced with SocketIO real-time events
 function checkAllAnalysesCompleted() {
     // Tüm dosya durumlarını kontrol et
     for (const [fileId, status] of fileStatuses.entries()) {
