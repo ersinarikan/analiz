@@ -371,9 +371,9 @@ def get_detailed_results(analysis_id):
         if not analysis:
             return jsonify({'error': 'Analiz bulunamadı'}), 404
             
-        # Analiz henüz tamamlanmamışsa
-        if analysis.status != 'completed':
-            return jsonify({'error': f'Analiz henüz tamamlanmadı. Mevcut durum: {analysis.status}'}), 400
+        # Analiz henüz tamamlanmamışsa, processing durumundaysa partial sonuçlar dön
+        if analysis.status not in ['completed', 'processing']:
+            return jsonify({'error': f'Analiz henüz başlamadı veya başarısız oldu. Mevcut durum: {analysis.status}'}), 400
             
         # Analiz sonuçlarını getir
         content_detections = [cd.to_dict() for cd in analysis.content_detections]
@@ -399,7 +399,6 @@ def get_detailed_results(analysis_id):
             'file_name': analysis.file.original_filename if analysis.file else None,
             'file_type': analysis.file.file_type if analysis.file else None,
             'file_path': analysis.file.file_path if analysis.file else None,
-            'processed_image_path': analysis.processed_image_path,
             'overall_scores': {
                 'violence': analysis.overall_violence_score,
                 'adult_content': analysis.overall_adult_content_score,

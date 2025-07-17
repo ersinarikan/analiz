@@ -3,6 +3,7 @@ import logging
 from flask import current_app
 from app.services.ensemble_age_service import EnsembleAgeService
 from app.services.ensemble_clip_service import EnsembleClipService
+import numpy as np
 
 logger = logging.getLogger('app.ensemble_integration')
 
@@ -56,14 +57,13 @@ class EnsembleIntegrationService:
                 'error': str(e)
             }
     
-    def predict_age_enhanced(self, base_age_prediction: float, embedding: list, person_id: str | None = None) -> dict:
+    def predict_age_enhanced(self, base_age_prediction: float, face_embedding: np.ndarray | None = None) -> dict:
         """
-        Enhanced age prediction using ensemble
+        Enhanced age prediction using ensemble (embedding-based only)
         
         Args:
             base_age_prediction: Base model prediction
-            embedding: Face embedding
-            person_id: Person ID if known
+            face_embedding: Face embedding (numpy array)
             
         Returns:
             dict: Enhanced prediction with metadata
@@ -79,7 +79,7 @@ class EnsembleIntegrationService:
         
         try:
             final_age, confidence, info = self.age_ensemble.predict_age_ensemble(
-                base_age_prediction, embedding, person_id
+                base_age_prediction, face_embedding
             )
             
             improvement = abs(base_age_prediction - final_age)
@@ -182,10 +182,16 @@ class EnsembleIntegrationService:
             for face in face_data['faces']:
                 base_age = face.get('age', 25)
                 embedding = face.get('embedding')
-                person_id = face.get('person_id')
+                
+                # Convert embedding to numpy array if it's a list
+                if embedding is not None and not isinstance(embedding, np.ndarray):
+                    if isinstance(embedding, list):
+                        embedding = np.array(embedding)
+                    elif isinstance(embedding, str):
+                        embedding = np.array([float(x) for x in embedding.split(',')])
                 
                 enhanced_age = self.predict_age_enhanced(
-                    base_age, embedding, person_id
+                    base_age, embedding
                 )
                 
                 enhanced_face = face.copy()
@@ -270,10 +276,13 @@ class EnsembleIntegrationService:
         }
     
     def refresh_corrections(self) -> dict:
-        """Refresh all ensemble corrections"""
+        """Refresh all ensemble corrections and create model versions"""
         try:
-            age_result = self.age_ensemble.load_age_corrections()
+            # İlk önce feedback'lerden düzeltmeleri yükle
+            age_result = self.age_ensemble.load_feedback_corrections()
             clip_result = self.clip_ensemble.load_content_corrections()
+            
+            logger.info(f"📊 Loaded corrections - Age: {age_result}, CLIP: {clip_result}")
             
             # Ensemble düzeltmelerini model versiyonu olarak kaydet
             age_version = None
@@ -281,29 +290,39 @@ class EnsembleIntegrationService:
             
             try:
                 if age_result > 0:  # Eğer yaş düzeltmeleri varsa
+                    logger.info("💾 Creating age ensemble model version...")
                     age_version = self.age_ensemble.save_ensemble_corrections_as_version()
-                    logger.info(f"Age ensemble version created: {age_version.version_name}")
+                    logger.info(f"✅ Age ensemble version created: {age_version.version_name}")
             except Exception as e:
-                logger.error(f"Error saving age ensemble version: {str(e)}")
+                logger.error(f"❌ Error saving age ensemble version: {str(e)}")
             
             try:
                 if clip_result > 0:  # Eğer içerik düzeltmeleri varsa
+                    logger.info("💾 Creating CLIP ensemble model version...")
                     clip_version = self.clip_ensemble.save_ensemble_corrections_as_version()
-                    logger.info(f"CLIP ensemble version created: {clip_version.version_name}")
+                    logger.info(f"✅ CLIP ensemble version created: {clip_version.version_name}")
             except Exception as e:
-                logger.error(f"Error saving CLIP ensemble version: {str(e)}")
+                logger.error(f"❌ Error saving CLIP ensemble version: {str(e)}")
+            
+            # Statistics
+            age_stats = self.age_ensemble.get_statistics()
+            clip_stats = self.clip_ensemble.get_statistics()
             
             return {
                 'success': True,
                 'age_corrections': age_result,
                 'clip_corrections': clip_result,
-                'age_stats': self.age_ensemble.get_correction_stats(),
-                'clip_stats': self.clip_ensemble.get_correction_stats(),
+                'age_stats': age_stats,
+                'clip_stats': clip_stats,
                 'age_version': age_version.version_name if age_version else None,
-                'clip_version': clip_version.version_name if clip_version else None
+                'clip_version': clip_version.version_name if clip_version else None,
+                'models_created': {
+                    'age_model_created': age_version is not None,
+                    'clip_model_created': clip_version is not None
+                }
             }
         except Exception as e:
-            logger.error(f"Refresh corrections error: {str(e)}")
+            logger.error(f"❌ Refresh corrections error: {str(e)}")
             return {
                 'success': False,
                 'error': str(e)

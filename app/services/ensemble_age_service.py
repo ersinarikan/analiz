@@ -27,12 +27,12 @@ class EnsembleAgeService:
     
     def load_feedback_corrections(self) -> dict:
         """
-        Veritabanından yaş düzeltmelerini yükle
+        Veritabanından yaş düzeltmelerini yükle (Sadece embedding-based)
         """
-        logger.info("Loading age feedback corrections from database...")
+        logger.info("Loading age feedback corrections from database (embedding-based only)...")
         
         try:
-            # Yaş geri bildirimi olan kayıtları al
+            # Yaş geri bildirimi olan kayıtları al (sadece embedding olanları)
             feedbacks = db.session.query(Feedback).filter(
                 Feedback.corrected_age.isnot(None),
                 Feedback.embedding.isnot(None)
@@ -47,25 +47,14 @@ class EnsembleAgeService:
                     if embedding_str:
                         embedding = np.array([float(x) for x in embedding_str.split(',')])
                         
-                        # Person ID düzeltmesi
-                        if feedback.person_id:
-                            self.feedback_corrections[feedback.person_id] = {
-                                'corrected_age': feedback.corrected_age,
-                                'original_age': feedback.pseudo_label_original_age,
-                                'confidence': 0.95,
-                                'source': feedback.feedback_source or 'MANUAL_USER',
-                                'feedback_id': feedback.id,
-                                'created_at': feedback.created_at.isoformat() if feedback.created_at else None
-                            }
-                        
-                        # Embedding düzeltmesi
+                        # Sadece embedding düzeltmesi (person_id artık kullanılmıyor)
                         embedding_hash = self._hash_embedding(embedding)
                         self.embedding_corrections[embedding_hash] = {
                             'corrected_age': feedback.corrected_age,
                             'original_age': feedback.pseudo_label_original_age,
                             'embedding': embedding,
                             'confidence': 0.95,
-                            'person_id': feedback.person_id,
+                            'person_id': feedback.person_id,  # Sadece bilgi amaçlı (lookup'ta kullanılmıyor)
                             'source': feedback.feedback_source or 'MANUAL_USER',
                             'feedback_id': feedback.id,
                             'created_at': feedback.created_at.isoformat() if feedback.created_at else None
@@ -80,120 +69,107 @@ class EnsembleAgeService:
                     logger.warning(f"Feedback parsing error for ID {feedback.id}: {str(e)}")
                     continue
             
+            # Person ID tablosunu temizle (artık kullanılmıyor)
+            self.feedback_corrections = {}
+            
             # Değişiklikleri kaydet
             db.session.commit()
             
-            logger.info(f"✅ {corrections_loaded} age correction loaded from database")
-            return {
-                'corrections_loaded': corrections_loaded,
-                'total_feedback_corrections': len(self.feedback_corrections),
-                'total_embedding_corrections': len(self.embedding_corrections)
-            }
+            logger.info(f"✅ {corrections_loaded} age correction loaded from database (embedding-based)")
+            logger.info(f"📊 Total embedding corrections: {len(self.embedding_corrections)}")
+            
+            return corrections_loaded
             
         except Exception as e:
             db.session.rollback()
             logger.error(f"❌ Error loading age feedback corrections: {str(e)}")
-            return {
-                'corrections_loaded': 0,
-                'error': str(e)
-            }
+            return 0
     
     def _hash_embedding(self, embedding: np.ndarray) -> int:
         """Create hash for embedding (for lookup)"""
         # Simple hash based on first few dimensions
         return hash(tuple(embedding[:10].round(3)))
     
-    def predict_age_ensemble(self, base_age: float, person_id: str | None = None, face_embedding: np.ndarray | None = None) -> tuple[float, float, dict]:
+    def predict_age_ensemble(self, base_age: float, face_embedding: np.ndarray | None = None) -> tuple[float, float, dict]:
         """
-        Yaş tahmini için ensemble yaklaşımı
-        1. Önce person_id ile doğrudan arama
-        2. Sonra embedding benzerliği ile arama
+        Yaş tahmini için ensemble yaklaşımı (Sadece embedding-based)
+        1. Exact embedding match ile arama
+        2. Embedding benzerliği ile arama  
         3. Son olarak base model sonucunu döndür
         """
-        logger.info(f"🔍 Ensemble age prediction - Base: {base_age:.1f}, Person: {person_id}")
+        logger.info(f"🔍 Ensemble age prediction - Base: {base_age:.1f}")
         
-        # 1. Direct person lookup
-        if person_id and person_id in self.feedback_corrections:
-            correction = self.feedback_corrections[person_id]
+        # Embedding yoksa base model kullan
+        if face_embedding is None or len(self.embedding_corrections) == 0:
+            logger.info(f"📊 No embedding or corrections available, using base model: {base_age:.1f}")
+            return base_age, 0.7, {
+                'method': 'base_model',
+                'reason': 'no_embedding_or_corrections'
+            }
+        
+        # 1. Exact embedding match
+        embedding_hash = self._hash_embedding(face_embedding)
+        if embedding_hash in self.embedding_corrections:
+            correction = self.embedding_corrections[embedding_hash]
             corrected_age = correction['corrected_age']
             confidence = correction['confidence']
             
-            logger.info(f"✅ Direct person match: {person_id} -> {corrected_age} years")
+            logger.info(f"✅ Exact embedding match -> {corrected_age} years")
             
             # Kullanım sayısını artır
             if 'feedback_id' in correction:
                 self._increment_usage_count(correction['feedback_id'])
             
             return corrected_age, confidence, {
-                'method': 'direct_person_match',
-                'person_id': person_id,
+                'method': 'exact_embedding_match',
+                'person_id': correction.get('person_id'),
                 'source': correction['source'],
-                'original_age': correction.get('original_age')
+                'feedback_id': correction.get('feedback_id')
             }
         
-        # 2. Embedding similarity search
-        if face_embedding is not None and len(self.embedding_corrections) > 0:
-            embedding_hash = self._hash_embedding(face_embedding)
+        # 2. Similarity-based correction
+        best_similarity = -1
+        best_correction = None
+        
+        # Normalize input embedding
+        embedding_norm = face_embedding / np.linalg.norm(face_embedding)
+        
+        for emb_hash, correction in self.embedding_corrections.items():
+            stored_embedding = correction['embedding']
+            stored_embedding_norm = stored_embedding / np.linalg.norm(stored_embedding)
             
-            # Exact embedding match
-            if embedding_hash in self.embedding_corrections:
-                correction = self.embedding_corrections[embedding_hash]
-                corrected_age = correction['corrected_age']
-                confidence = correction['confidence']
-                
-                logger.info(f"✅ Exact embedding match -> {corrected_age} years")
-                
-                # Kullanım sayısını artır
-                if 'feedback_id' in correction:
-                    self._increment_usage_count(correction['feedback_id'])
-                
-                return corrected_age, confidence, {
-                    'method': 'exact_embedding_match',
-                    'person_id': correction['person_id'],
-                    'source': correction['source']
-                }
+            # Cosine similarity
+            similarity = np.dot(embedding_norm, stored_embedding_norm)
             
-            # Similarity-based correction
-            best_similarity = -1
-            best_correction = None
+            if similarity > best_similarity:
+                best_similarity = similarity
+                best_correction = correction
+        
+        # Yüksek benzerlik varsa düzeltmeyi uygula (threshold lowered to 0.90 for better matching)
+        if best_similarity > 0.90:  # %90 benzerlik eşiği (daha esnek)
+            corrected_age = best_correction['corrected_age']
+            confidence = best_correction['confidence'] * best_similarity  # Benzerlik oranında güven
             
-            # Normalize input embedding
-            embedding_norm = face_embedding / np.linalg.norm(face_embedding)
+            logger.info(f"✅ Similarity match ({best_similarity:.3f}) -> {corrected_age} years")
             
-            for emb_hash, correction in self.embedding_corrections.items():
-                stored_embedding = correction['embedding']
-                stored_embedding_norm = stored_embedding / np.linalg.norm(stored_embedding)
-                
-                # Cosine similarity
-                similarity = np.dot(embedding_norm, stored_embedding_norm)
-                
-                if similarity > best_similarity:
-                    best_similarity = similarity
-                    best_correction = correction
+            # Kullanım sayısını artır
+            if 'feedback_id' in best_correction:
+                self._increment_usage_count(best_correction['feedback_id'])
             
-            # Yüksek benzerlik varsa düzeltmeyi uygula
-            if best_similarity > 0.95:  # %95 benzerlik eşiği
-                corrected_age = best_correction['corrected_age']
-                confidence = best_correction['confidence'] * best_similarity  # Benzerlik oranında güven
-                
-                logger.info(f"✅ Similarity match ({best_similarity:.3f}) -> {corrected_age} years")
-                
-                # Kullanım sayısını artır
-                if 'feedback_id' in best_correction:
-                    self._increment_usage_count(best_correction['feedback_id'])
-                
-                return corrected_age, confidence, {
-                    'method': 'similarity_match',
-                    'similarity': best_similarity,
-                    'person_id': best_correction['person_id'],
-                    'source': best_correction['source']
-                }
+            return corrected_age, confidence, {
+                'method': 'similarity_match',
+                'similarity': best_similarity,
+                'person_id': best_correction.get('person_id'),
+                'source': best_correction['source'],
+                'feedback_id': best_correction.get('feedback_id')
+            }
         
         # 3. Base model sonucunu döndür
-        logger.info(f"📊 Using base model result: {base_age:.1f} years")
+        logger.info(f"📊 No similar embedding found (best: {best_similarity:.3f}), using base model: {base_age:.1f}")
         return base_age, 0.7, {
             'method': 'base_model',
-            'no_correction_found': True
+            'reason': 'no_similar_embedding_found',
+            'best_similarity': best_similarity
         }
     
     def _increment_usage_count(self, feedback_id: int):
@@ -209,23 +185,16 @@ class EnsembleAgeService:
             logger.warning(f"Failed to increment usage count for feedback {feedback_id}: {str(e)}")
             db.session.rollback()
     
-    def get_statistics(self):
-        """Get ensemble statistics"""
-        stats = {
-            'total_people_corrections': len(self.feedback_corrections),
+    def get_statistics(self) -> dict:
+        """Get ensemble statistics (embedding-based only)"""
+        return {
             'total_embedding_corrections': len(self.embedding_corrections),
-            'manual_corrections': sum(1 for c in self.feedback_corrections.values() if c['source'] == 'MANUAL_USER'),
-            'pseudo_corrections': sum(1 for c in self.feedback_corrections.values() if c['source'] != 'MANUAL_USER'),
+            'total_people_corrections': len(self.embedding_corrections),  # Same as embedding corrections now
+            'correction_method': 'embedding_based_only',
+            'embedding_threshold': 0.90,
+            'manual_corrections': len([c for c in self.embedding_corrections.values() if c['source'] == 'MANUAL_USER']),
+            'pseudo_corrections': len([c for c in self.embedding_corrections.values() if 'PSEUDO' in c['source']])
         }
-        
-        if self.feedback_corrections:
-            ages = [c['corrected_age'] for c in self.feedback_corrections.values()]
-            stats.update({
-                'age_range': f"{min(ages):.1f} - {max(ages):.1f}",
-                'age_mean': f"{np.mean(ages):.1f}"
-            })
-        
-        return stats
     
     def test_ensemble_predictions(self, test_cases=None):
         """Test ensemble on known feedback cases"""
@@ -247,7 +216,7 @@ class EnsembleAgeService:
             
             # Test ensemble
             ensemble_pred, confidence, info = self.predict_age_ensemble(
-                simulated_base_pred, person_id
+                simulated_base_pred, embedding
             )
             
             test_results.append({
@@ -291,16 +260,15 @@ class EnsembleAgeService:
             )
             os.makedirs(version_dir, exist_ok=True)
             
-            # Ensemble verilerini .pth formatında kaydet
+            # Ensemble verilerini .pth formatında kaydet (sadece embedding-based)
             ensemble_data = {
                 'model_type': 'ensemble_age',
-                'feedback_corrections': self.feedback_corrections,
-                'embedding_corrections': self.embedding_corrections,
+                'embedding_corrections': self.embedding_corrections,  # Sadece embedding corrections
                 'version': new_version_num,
                 'version_name': version_name,
                 'created_at': datetime.now().isoformat(),
-                'total_corrections': len(self.feedback_corrections),
-                'embedding_count': len(self.embedding_corrections)
+                'total_corrections': len(self.embedding_corrections),  # Person ID artık yok
+                'correction_method': 'embedding_based_only'
             }
             
             # .pth dosyası olarak kaydet
@@ -314,7 +282,7 @@ class EnsembleAgeService:
                 'version_name': version_name,
                 'created_at': datetime.now().isoformat(),
                 'model_type': 'ensemble_age',
-                'total_corrections': len(self.feedback_corrections),
+                'total_corrections': len(self.embedding_corrections),
                 'embedding_corrections': len(self.embedding_corrections),
                 'correction_sources': self._get_correction_sources_stats(),
                 'metrics': self._calculate_ensemble_metrics()
@@ -340,7 +308,7 @@ class EnsembleAgeService:
                 created_at=datetime.now(),
                 metrics=metadata['metrics'],
                 is_active=True,
-                training_samples=len(self.feedback_corrections),
+                training_samples=len(self.embedding_corrections),
                 validation_samples=0,  # Ensemble için N/A
                 epochs=0,  # Ensemble için N/A
                 file_path=version_dir,
@@ -352,7 +320,7 @@ class EnsembleAgeService:
             db.session.commit()
             
             logger.info(f"✅ Ensemble model version created: {version_name}")
-            logger.info(f"   Total corrections: {len(self.feedback_corrections)}")
+            logger.info(f"   Total corrections: {len(self.embedding_corrections)}")
             logger.info(f"   Embedding corrections: {len(self.embedding_corrections)}")
             
             return model_version
@@ -363,14 +331,14 @@ class EnsembleAgeService:
             raise e
     
     def _get_correction_sources_stats(self) -> dict:
-        """Düzeltme kaynaklarının istatistiklerini döndür"""
-        sources = {'MANUAL_USER': 0, 'PSEUDO_LABEL': 0}
-        for correction in self.feedback_corrections.values():
+        """Get statistics about correction sources (embedding-based only)"""
+        sources = {}
+        
+        # Sadece embedding corrections'dan kaynak istatistiklerini topla
+        for correction in self.embedding_corrections.values():
             source = correction.get('source', 'UNKNOWN')
-            if source in sources:
-                sources[source] += 1
-            else:
-                sources['OTHER'] = sources.get('OTHER', 0) + 1
+            sources[source] = sources.get(source, 0) + 1
+        
         return sources
     
     def _calculate_ensemble_metrics(self) -> dict:
@@ -390,14 +358,12 @@ class EnsembleAgeService:
         }
     
     def _get_used_feedback_ids(self) -> list:
-        """Kullanılan feedback ID'lerini döndür"""
-        # Bu ensemble sistemde person_id kullanıyoruz, gerçek feedback ID'leri için
-        # feedback tablosuna sorgu yapmamız gerekebilir
-        feedbacks = Feedback.query.filter(
-            (Feedback.feedback_type == 'age') | 
-            (Feedback.feedback_type == 'age_pseudo')
-        ).filter(
-            Feedback.person_id.in_(list(self.feedback_corrections.keys()))
-        ).all()
+        """Get list of feedback IDs used in ensemble corrections (embedding-based only)"""
+        feedback_ids = []
         
-        return [f.id for f in feedbacks] 
+        # Sadece embedding corrections'dan feedback ID'leri topla
+        for correction in self.embedding_corrections.values():
+            if 'feedback_id' in correction:
+                feedback_ids.append(correction['feedback_id'])
+        
+        return list(set(feedback_ids))  # Duplicate'leri çıkar 

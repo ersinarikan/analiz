@@ -129,14 +129,8 @@ def process_queue():
                         analysis_queue.task_done()
                         continue
                     
-                    # İlk durum güncellemesi
-                    analysis.status = 'processing'
-                    analysis.status_message = 'Analiz işlemi başlatılıyor...'
-                    analysis.progress = 5
-                    session.commit()  # İlk commit
-                    
-                    # Socket bildirim gönder - status update
-                    _emit_analysis_status(analysis_id, analysis.file_id, 'processing', 5, 'Analiz işlemi başlatılıyor...')
+                    # Status kontrolü yap ama start_analysis'i analyze_file'a bırak
+                    logger.info(f"Analiz #{analysis_id} kuyruğa alındı, status: {analysis.status}")
                     
                 # Session bitti, şimdi analizi gerçekleştir (ayrı session'da)
                 start_time = time.time()

@@ -98,6 +98,7 @@ def create_app(config_name='default'):
         ("app.routes.performance_routes", "performance_bp", None),
         ("app.routes.debug_routes", "bp", "debug_bp"),
         ("app.routes.ensemble_routes", "ensemble_bp", None),
+        ("app.routes.clip_training_routes", "clip_training_bp", None),
     ]
     register_blueprints_from_list(app, blueprint_defs)
     

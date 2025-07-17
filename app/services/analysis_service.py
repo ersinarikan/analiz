@@ -5,7 +5,6 @@ from datetime import datetime
 import json
 import cv2
 import threading
-from contextlib import contextmanager
 
 from flask import current_app
 from app import db
@@ -19,6 +18,7 @@ from app.models.file import File
 from app.utils.image_utils import load_image
 from app.routes.settings_routes import FACTORY_DEFAULTS
 from app.json_encoder import NumPyJSONEncoder
+from app.services.db_service import safe_database_session
 from deep_sort_realtime.deepsort_tracker import DeepSort
 from app.utils.person_tracker import PersonTrackerManager
 from app.utils.face_utils import extract_face_features
@@ -28,42 +28,6 @@ logger = logging.getLogger(__name__)
 
 # Thread-safe session management
 _session_lock = threading.Lock()
-
-@contextmanager
-def safe_database_session():
-    """
-    Thread-safe database session context manager
-    Automatic rollback on errors and proper cleanup
-    """
-    session = None
-    try:
-        session = db.session
-        
-        # Başlangıçta mevcut işlemleri temizle
-        session.rollback()
-        
-        yield session
-        
-        # Başarılı işlem sonrası commit
-        session.commit()
-        
-    except Exception as e:
-        # Hata durumunda rollback
-        if session:
-            try:
-                session.rollback()
-                logger.error(f"Database session rollback yapıldı: {str(e)}")
-            except Exception as rollback_err:
-                logger.error(f"Rollback hatası: {str(rollback_err)}")
-        raise
-        
-    finally:
-        # Session'ı temizle
-        if session:
-            try:
-                session.close()
-            except Exception as close_err:
-                logger.error(f"Session close hatası: {close_err}")
 
 # Mock analizör sınıflarını kaldırıyoruz, gerçek analizörleri kullanacağız
 
@@ -87,72 +51,55 @@ class AnalysisService:
             Analysis: Oluşturulan analiz nesnesi veya None
         """
         try:
-            with safe_database_session() as session:
-                # Dosyayı veritabanından al
-                file = File.query.get(file_id)
-                if not file:
-                    logger.error(f"Dosya bulunamadı: {file_id}")
-                    return None
+            # Dosyayı veritabanından al
+            file = File.query.get(file_id)
+            if not file:
+                logger.error(f"Dosya bulunamadı: {file_id}")
+                return None
+            
+            # File bilgilerini önceden çek
+            file_info = {
+                'original_filename': file.original_filename,
+                'file_type': file.file_type,
+                'filename': file.filename,
+                'file_path': file.file_path
+            }
                 
-                # File bilgilerini önceden çek (session kapanmadan önce)
-                file_info = {
-                    'original_filename': file.original_filename,
-                    'file_type': file.file_type,
-                    'filename': file.filename,
-                    'file_path': file.file_path
-                }
-                    
-                # Yeni bir analiz oluştur
-                analysis = Analysis(
-                    file_id=file_id,
-                    frames_per_second=frames_per_second,
-                    include_age_analysis=include_age_analysis
-                )
+            # Yeni bir analiz oluştur
+            analysis = Analysis(
+                file_id=file_id,
+                frames_per_second=frames_per_second,
+                include_age_analysis=include_age_analysis
+            )
+            
+            # Başlangıç durumunu ayarla
+            analysis.status = 'pending'
+            analysis.status_message = 'Analiz başlatılıyor, dosya hazırlanıyor...'
+            analysis.progress = 5
+            
+            db.session.add(analysis)
+            db.session.commit()
+            
+            logger.info(f"Analiz oluşturuldu: #{analysis.id} - Dosya: {file_info['original_filename']}, Durum: pending")
+            
+            # Socket.io üzerinden bildirim gönder
+            try:
+                # SSE sistemi mevcut, socket.io yerine log bilgisi
+                logger.info(f"Analiz başlatıldı - SSE bildirimi: #{analysis.id}")
+            except Exception as socket_err:
+                logger.warning(f"Bildirim hatası: {str(socket_err)}")
+            
+            # Analizi kuyruğa ekle
+            from app.services.queue_service import add_to_queue
+            add_to_queue(analysis.id)
+            
+            logger.info(f"Analiz kuyruğa eklendi: #{analysis.id}")
+            
+            return analysis
                 
-                # Başlangıç durumunu ayarla
-                analysis.status = 'pending'
-                analysis.status_message = 'Analiz başlatılıyor, dosya hazırlanıyor...'
-                analysis.progress = 5
-                
-                session.add(analysis)
-                session.commit()
-                
-                # Analysis nesnesini refresh et ve file relationship'ini eager load et
-                session.refresh(analysis)
-                # File bilgisini önceden yükle (lazy loading sorununu önlemek için)
-                _ = analysis.file  # Bu file relationship'ini session'a yükler
-                
-                # Analysis nesnesini session'dan ayır (detach)
-                session.expunge(analysis)
-                
-                # File bilgilerini manuel olarak ekle (lazy loading olmadan)
-                analysis._cached_file_info = file_info
-                
-                logger.info(f"Analiz oluşturuldu: #{analysis.id} - Dosya: {file_info['original_filename']}, Durum: pending")
-                
-                # Socket.io üzerinden bildirim gönder
-                try:
-                    from app import socketio
-                    socketio.emit('analysis_started', {
-                        'analysis_id': analysis.id,
-                        'file_id': file_id,
-                        'file_name': file_info['original_filename'],
-                        'file_type': file_info['file_type'],
-                        'status': 'pending'
-                    })
-                except Exception as socket_err:
-                    logger.warning(f"Socket.io analiz başlangıç bildirimi hatası: {str(socket_err)}")
-                
-                # Analizi kuyruğa ekle (thread yerine kuyruk kullan)
-                from app.services.queue_service import add_to_queue
-                add_to_queue(analysis.id)
-                
-                logger.info(f"Analiz kuyruğa eklendi: #{analysis.id}")
-                
-                return analysis
-                    
         except Exception as e:
             logger.error(f"Analiz başlatma hatası: {str(e)}", exc_info=True)
+            db.session.rollback()
             return None
     
     def cancel_analysis(self, analysis_id):
@@ -194,32 +141,32 @@ class AnalysisService:
             Analysis: Yeni analiz nesnesi veya None
         """
         try:
-            with safe_database_session() as session:
-                # Önceki analizi al
-                prev_analysis = Analysis.query.get(analysis_id)
-                if not prev_analysis:
-                    return None
-                    
-                # Aynı parametrelerle yeni analiz oluştur
-                new_analysis = Analysis(
-                    file_id=prev_analysis.file_id,
-                    frames_per_second=prev_analysis.frames_per_second,
-                    include_age_analysis=prev_analysis.include_age_analysis
-                )
+            # Önceki analizi al
+            prev_analysis = Analysis.query.get(analysis_id)
+            if not prev_analysis:
+                return None
                 
-                session.add(new_analysis)
-                session.commit()
-                
-                # Analizi kuyruğa ekle (thread yerine)
-                from app.services.queue_service import add_to_queue
-                add_to_queue(new_analysis.id)
-                
-                logger.info(f"Tekrar analiz kuyruğa eklendi: #{new_analysis.id}")
-                
-                return new_analysis
-                
+            # Aynı parametrelerle yeni analiz oluştur
+            new_analysis = Analysis(
+                file_id=prev_analysis.file_id,
+                frames_per_second=prev_analysis.frames_per_second,
+                include_age_analysis=prev_analysis.include_age_analysis
+            )
+            
+            db.session.add(new_analysis)
+            db.session.commit()
+            
+            # Analizi kuyruğa ekle
+            from app.services.queue_service import add_to_queue
+            add_to_queue(new_analysis.id)
+            
+            logger.info(f"Tekrar analiz kuyruğa eklendi: #{new_analysis.id}")
+            
+            return new_analysis
+            
         except Exception as e:
             logger.error(f"Analiz tekrar deneme hatası: {str(e)}", exc_info=True)
+            db.session.rollback()
             return None
 
 def analyze_file(analysis_id):
@@ -327,6 +274,11 @@ def analyze_image(analysis):
     logger.info(f"[SVC_LOG][ANALYZE_IMAGE] Resim analizi BAŞLADI. Analiz ID: {analysis.id}, Dosya: {file.original_filename}") # YENİ LOG
 
     try:
+        # İlk progress güncellemesi
+        analysis.update_progress(10)
+        analysis.status_message = "Resim yükleniyor..."
+        db.session.commit()
+        
         # Resmi yükle
         image = load_image(file.file_path)
         if image is None:
@@ -335,11 +287,21 @@ def analyze_image(analysis):
         
         logger.info(f"[SVC_LOG][ANALYZE_IMAGE] Resim başarıyla yüklendi. Analiz ID: {analysis.id}") # YENİ LOG
         
+        # Resim yüklendi
+        analysis.update_progress(25)
+        analysis.status_message = "İçerik analizi yapılıyor..."
+        db.session.commit()
+        
         # İçerik analizi yap
         content_analyzer = ContentAnalyzer()
         logger.info(f"[SVC_LOG][ANALYZE_IMAGE] ContentAnalyzer çağrılmadan önce. Analiz ID: {analysis.id}") # YENİ LOG
         violence_score, adult_content_score, harassment_score, weapon_score, drug_score, safe_score, detected_objects = content_analyzer.analyze_image(file.file_path)
         logger.info(f"[SVC_LOG][ANALYZE_IMAGE] ContentAnalyzer çağrıldı. Analiz ID: {analysis.id}. Adult Score: {adult_content_score}") # YENİ LOG
+        
+        # İçerik analizi tamamlandı
+        analysis.update_progress(50)
+        analysis.status_message = "İçerik analizi sonuçları kaydediliyor..."
+        db.session.commit()
         
         # Analiz sonuçlarını veritabanına kaydet
         detection = ContentDetection(
@@ -370,10 +332,17 @@ def analyze_image(analysis):
         
         # Eğer yaş analizi isteniyorsa, yüzleri tespit et ve yaşları tahmin et
         if analysis.include_age_analysis:
+            # Yaş analizi başlatılıyor
+            analysis.update_progress(60)
+            analysis.status_message = "Yüz tespiti ve yaş analizi yapılıyor..."
+            db.session.commit()
+            
             from app.utils.model_state import get_age_estimator
             age_estimator = get_age_estimator()
             faces = age_estimator.model.get(image)
             persons = {}
+            
+            total_faces = len(faces)
             for i, face in enumerate(faces):
                 logger.warning(f"Yüz {i} - face objesi: {face.__dict__ if hasattr(face, '__dict__') else face}")
                 if face.age is None:
@@ -548,10 +517,23 @@ def analyze_image(analysis):
                         continue
             
             db.session.commit()
+            
+            # Yaş analizi tamamlandı  
+            analysis.update_progress(85)
+            analysis.status_message = "Yaş analizi tamamlandı, sonuçlar kaydediliyor..."
+            db.session.commit()
+        else:
+            # Yaş analizi yapılmadıysa direkt sona yakın progress
+            analysis.update_progress(75) 
+            analysis.status_message = "Analiz sonuçları kaydediliyor..."
+            db.session.commit()
         
         # Değişiklikleri veritabanına kaydet
         db.session.commit()
-        analysis.update_progress(100)  # İlerleme durumunu %100 olarak güncelle
+        
+        # Final progress güncellemesi
+        analysis.update_progress(100)
+        analysis.status_message = "Analiz tamamlandı"
         logger.info(f"[SVC_LOG][ANALYZE_IMAGE] Resim analizi BAŞARIYLA TAMAMLANDI. Analiz ID: {analysis.id}") # YENİ LOG
         
         return True, "Resim analizi tamamlandı"
@@ -682,10 +664,9 @@ def analyze_video(analysis):
         for i, frame_idx in enumerate(frame_indices):
             try: # ADDED MAIN TRY FOR FRAME PROCESSING
                 progress = min(100, int((i / total_frames_to_process) * 100))
-                analysis.progress = progress
+                analysis.update_progress(progress)  # Bu metot zaten commit yapıyor
                 timestamp = frame_idx / fps
                 status_message = f"Kare #{i+1}/{total_frames_to_process} işleniyor ({timestamp:.1f}s)"
-                db.session.commit()
                 
                 # Kareyi oku
                 cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
@@ -879,8 +860,8 @@ def analyze_video(analysis):
                                             frame_timestamp=timestamp,  # Timestamp eklendi
                                             estimated_age=age,
                                             confidence_score=confidence,
-                                            frame_number=frame_idx,
-                                            _face_location=json.dumps(db_bbox_to_store),
+                                            frame_index=frame_idx,
+                                            face_bbox=json.dumps(db_bbox_to_store),
                                             embedding=embedding_str
                                         )
                                         logger.info(f"[SVC_LOG][VID] Yeni AgeEstimation: {track_id_str}, Kare: {frame_idx}, BBox: {db_bbox_to_store}")
@@ -890,8 +871,8 @@ def analyze_video(analysis):
                                             age_est.frame_timestamp = timestamp  # Timestamp eklendi
                                             age_est.estimated_age = age
                                             age_est.confidence_score = confidence
-                                            age_est.frame_number = frame_idx
-                                            age_est._face_location = json.dumps(db_bbox_to_store)
+                                            age_est.frame_index = frame_idx
+                                            age_est.face_bbox = json.dumps(db_bbox_to_store)
                                             age_est.embedding = embedding_str
                                             logger.info(f"[SVC_LOG][VID] AgeEstimation Güncelleme: {track_id_str}, Yeni Güven: {confidence:.4f}, Kare: {frame_idx}")
                                     db.session.add(age_est)
@@ -940,45 +921,21 @@ def analyze_video(analysis):
                         logger.error(f"Yaş analizi hatası: {str(age_err)}")
                         continue
                 
-                # Belirli aralıklarla işlemleri veritabanına kaydet (her 10 karede bir)
-                if i % 10 == 0:
+                # Progress güncellemesini her 3 karede bir yap (daha responsive)
+                if i % 3 == 0:
                     db.session.commit()
                     
-                    # Socket.io ile anlık ilerleme bilgisi gönder
+                    # Progress bilgisi - her 3 karede bir
                     try:
-                        from app import socketio
-                        # Kategori skorlarını da ekleyelim
-                        scores = {
-                            'violence': violence_score,
-                            'adult_content': adult_content_score,
-                            'harassment': harassment_score,
-                            'weapon': weapon_score, 
-                            'drug': drug_score,
-                            'safe': safe_score
-                        }
-                        
-                        # Skorlar toplamı 1 olacak şekilde normalize et (UI için)
-                        total = sum(scores.values())
-                        if total > 0:
-                            normalized_scores = {k: v/total for k, v in scores.items()}
-                        else:
-                            normalized_scores = scores
-                            
-                        socketio.emit('analysis_progress', {
-                            'analysis_id': analysis.id,
-                            'file_id': analysis.file_id,
-                            'current_frame': i + 1,
-                                'total_frames': len(frame_indices),
-                            'progress': progress,
-                            'timestamp': timestamp,
-                            'detected_faces': detected_faces_count,
-                            'high_risk_frames': high_risk_frames_count,
-                            'status': status_message,
-                            'scores': normalized_scores  # Normalize edilmiş skorları ekle
-                        })
-                    except Exception as socket_err:
-                        logger.warning(f"Socket.io ilerleme bildirimi hatası: {str(socket_err)}")
-                    
+                        # İlerleme durumunu logla
+                        logger.info(f"Analiz #{analysis.id}: Kare {i+1}/{len(frame_indices)} ({progress:.1f}%) - Risk: {high_risk_frames_count} kare")
+                    except Exception as progress_err:
+                        logger.warning(f"İlerleme bildirimi hatası: {str(progress_err)}")
+                
+                # Büyük işlemleri her 10 karede bir kaydet
+                elif i % 10 == 0:
+                    db.session.commit()
+            
             except Exception as frame_err: # ALIGNED WITH THE NEW MAIN TRY BLOCK
                 logger.error(f"Kare #{i} ({frame_path}) analiz hatası: {str(frame_err)}")
                 continue
@@ -1007,7 +964,7 @@ def analyze_video(analysis):
                     best_est = db.session.query(AgeEstimation).filter_by(
                         analysis_id=analysis.id,
                         person_id=person_id_str
-                    ).order_by(AgeEstimation._confidence_score.desc(), AgeEstimation.id.desc()).first()
+                    ).order_by(AgeEstimation.confidence_score.desc(), AgeEstimation.id.desc()).first()
                     
                     logger.info(f"Kişi {person_id_str} için best_est sorgulandı. Sonuç: {{'Bulundu' if best_est else 'Bulunamadı'}}")
 
@@ -1030,7 +987,7 @@ def analyze_video(analysis):
 
                     age_to_display = round(best_est.estimated_age)  # JavaScript Math.round ile aynı davranış
                     logger.info(f"DEBUG - Kişi {person_id_str}: best_est.estimated_age={best_est.estimated_age}, round()={age_to_display}")
-                    bbox_json_str = best_est._face_location
+                    bbox_json_str = best_est.face_bbox
                     if not bbox_json_str:
                         logger.warning(f"Kişi {person_id_str} için BBox yok, overlay atlanıyor (Kayıt ID: {best_est.id}).")
                         continue

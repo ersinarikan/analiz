@@ -1223,8 +1223,8 @@ function checkAnalysisStatus(analysisId, fileId) {
             // Henüz işleme alınmamış analiz
             updateFileStatus(fileId, "Sırada", 0);
             
-            // Pending durumunda da kontrol etmeye devam et
-            setTimeout(() => checkAnalysisStatus(analysisId, fileId), 2000);
+            // Pending durumunda daha sık kontrol et
+            setTimeout(() => checkAnalysisStatus(analysisId, fileId), 1500);
         } else if (status === "processing") {
             // İşlem yapılıyorsa ilerleyişi göster
             updateFileStatus(fileId, status, progress);
@@ -1234,8 +1234,8 @@ function checkAnalysisStatus(analysisId, fileId) {
                 getAnalysisResults(fileId, analysisId, true); // true = partial results
             }
             
-            // Analiz devam ediyorsa durumu kontrol etmeye devam et
-            setTimeout(() => checkAnalysisStatus(analysisId, fileId), 2000);
+            // Analiz devam ediyorsa durumu kontrol etmeye devam et (daha sık kontrol)
+            setTimeout(() => checkAnalysisStatus(analysisId, fileId), 1500);
         } else if (status === "completed") {
             // Analiz tamamlandıysa sonuçları göster
             updateFileStatus(fileId, status, 100);
@@ -1475,15 +1475,16 @@ function getAnalysisResults(fileId, analysisId, isPartial = false) {
             showToast('Hata', `Sonuçlar alındı fakat gösterilirken hata oluştu: ${displayError.message}`, 'danger');
         }
         
-        // Sonuçlar bölümünü görünür yap
-        document.getElementById('resultsSection').style.display = 'block';
-        
         // Genel ilerlemeyi güncelle
         updateGlobalProgress();
         
         // Tüm analizlerin tamamlanıp tamamlanmadığını kontrol et
         if (checkAllAnalysesCompleted()) {
             console.log("Tüm analizler tamamlandı");
+            
+            // Sadece TÜM analizler tamamlandığında sonuçlar bölümünü görünür yap
+            document.getElementById('resultsSection').style.display = 'block';
+            
             // Tamamlandı mesajını göster
             const completedElement = document.getElementById('completedMessage');
             if (completedElement) {
@@ -2601,8 +2602,16 @@ function submitFeedback(event) {
 
 // Model metrikleri yükle
 function loadModelMetrics() {
-    // Önce CLIP ensemble metriklerini yükle
-    fetch('/api/ensemble/stats/content')
+    // Settings save loader'ı gizle (eğer görünürse)
+    const settingsSaveLoader = document.getElementById('settingsSaveLoader');
+    if (settingsSaveLoader && settingsSaveLoader.style.display === 'flex') {
+        settingsSaveLoader.style.display = 'none';
+    }
+    
+    let contentPromise, agePromise;
+    
+    // CLIP ensemble metriklerini yükle
+    contentPromise = fetch('/api/ensemble/stats/content')
     .then(response => {
         if (!response.ok) {
             throw new Error(`HTTP error! Status: ${response.status}`);
@@ -2640,8 +2649,8 @@ function loadModelMetrics() {
         `;
     });
     
-    // Sonra yaş ensemble metriklerini yükle
-    fetch('/api/ensemble/stats/age')
+    // Yaş ensemble metriklerini yükle
+    agePromise = fetch('/api/ensemble/stats/age')
     .then(response => {
         if (!response.ok) {
             throw new Error(`HTTP error! Status: ${response.status}`);
@@ -2677,6 +2686,13 @@ function loadModelMetrics() {
         document.getElementById('ageMetricsTab').innerHTML = `
             <div class="alert alert-danger">Ensemble metrikler yüklenirken hata oluştu: ${error.message}</div>
         `;
+    });
+    
+    // Her iki yükleme de tamamlandığında settings loader'ını kesin olarak gizle
+    Promise.allSettled([contentPromise, agePromise]).finally(() => {
+        if (settingsSaveLoader) {
+            settingsSaveLoader.style.display = 'none';
+        }
     });
 }
 

@@ -223,182 +223,46 @@ def get_ensemble_model_stats(model_type):
         logger.error(f"Ensemble stats error: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
-@ensemble_bp.route('/versions/<string:model_type>', methods=['GET'])
+@ensemble_bp.route('/versions/<model_type>', methods=['GET'])
 def get_ensemble_versions(model_type):
-    """Get ensemble-aware model versions"""
-    if model_type not in ['age', 'content']:
-        return jsonify({"error": "Invalid model type"}), 400
-        
+    """Get ensemble model versions for specified type"""
     try:
-        service = get_ensemble_service()
-        status = service.get_system_status()
+        if model_type not in ['age', 'content']:
+            return jsonify({"error": "Invalid model type"}), 400
         
-        if model_type == 'age':
-            ensemble_stats = status['age_ensemble']
-            
-            # Ensemble-style versions
-            versions = [
-                {
-                    "id": "ensemble_base",
-                    "version": "base",
-                    "version_name": "UTKFace Base Model",
-                    "is_active": False,
-                    "type": "base_model",
-                    "mae": 1.696,
-                    "created_at": "Base Model",
-                    "description": "Original UTKFace-trained model (frozen)"
-                },
-                {
-                    "id": "ensemble_active",
-                    "version": "ensemble_v1",
-                    "version_name": f"Ensemble ({ensemble_stats['people_corrections']} corrections)",
-                    "is_active": True,
-                    "type": "ensemble",
-                    "mae": 0.0 if ensemble_stats['people_corrections'] > 0 else 1.696,
-                    "created_at": "Live",
-                    "description": f"Lookup-based corrections: {ensemble_stats['manual_corrections']} manual, {ensemble_stats['pseudo_corrections']} pseudo"
-                }
-            ]
-            
-        else:  # content
-            ensemble_stats = status['clip_ensemble']
-            
-            versions = [
-                {
-                    "id": "clip_base",
-                    "version": "base",
-                    "version_name": "OpenCLIP Base Model",
-                    "is_active": False,
-                    "type": "base_model",
-                    "accuracy": "Base Performance",
-                    "created_at": "Base Model",
-                    "description": "Original OpenCLIP model (frozen)"
-                },
-                {
-                    "id": "clip_ensemble_active",
-                    "version": "ensemble_v1", 
-                    "version_name": f"CLIP Ensemble ({ensemble_stats['content_corrections']} corrections)",
-                    "is_active": True,
-                    "type": "ensemble",
-                    "accuracy": f"{ensemble_stats['confidence_adjustments']} confidence adjustments",
-                    "created_at": "Live",
-                    "description": f"Content corrections + confidence adjustments"
-                }
-            ]
+        from app.models.content import ModelVersion
+        from app import db
+        
+        # ModelVersion tablosundan ensemble versiyonlarını getir
+        versions = db.session.query(ModelVersion).filter(
+            ModelVersion.model_type == model_type,
+            ModelVersion.version_name.like('ensemble%')
+        ).order_by(ModelVersion.version.desc()).all()
+        
+        version_list = []
+        for version in versions:
+            version_info = {
+                'id': version.id,
+                'version': version.version,
+                'version_name': version.version_name,
+                'created_at': version.created_at.isoformat() if version.created_at else None,
+                'is_active': version.is_active,
+                'training_samples': version.training_samples,
+                'metrics': version.metrics,
+                'file_path': version.file_path,
+                'weights_path': version.weights_path
+            }
+            version_list.append(version_info)
         
         return jsonify({
-            "success": True,
-            "versions": versions,
-            "total": len(versions),
-            "active_version": "ensemble_v1"
+            'success': True,
+            'model_type': model_type,
+            'versions': version_list,
+            'total_versions': len(version_list)
         }), 200
         
     except Exception as e:
-        logger.error(f"Ensemble versions error: {str(e)}")
-        return jsonify({"error": str(e)}), 500
-
-@ensemble_bp.route('/reset/<string:model_type>', methods=['POST'])
-def reset_ensemble_corrections(model_type):
-    """Reset ensemble corrections (not the base model)"""
-    if model_type not in ['age', 'content']:
-        return jsonify({"error": "Invalid model type"}), 400
-        
-    try:
-        service = get_ensemble_service()
-        result = service.reset_ensemble_corrections(model_type)
-        
-        if result['success']:
-            # Otomatik temizlik yap
-            try:
-                from app.services.model_service import ModelService
-                model_service = ModelService()
-                
-                logger.info(f"🧹 {model_type} ensemble sıfırlandı, otomatik temizlik başlatılıyor...")
-                
-                # Reset sonrası daha kapsamlı temizlik
-                cleanup_operations = []
-                
-                # 1. İlgili model tipinin feedback temizliği
-                feedback_result = model_service.cleanup_ensemble_feedback_records(model_type, 20)  # Daha az kayıt sakla
-                cleanup_operations.append({
-                    'operation': f'{model_type}_feedback_cleanup',
-                    'result': feedback_result
-                })
-                
-                # 2. İlgili model tipinin ensemble dosya temizliği
-                ensemble_result = model_service.cleanup_ensemble_model_files(model_type, 1)  # Sadece 1 versiyon sakla
-                cleanup_operations.append({
-                    'operation': f'{model_type}_ensemble_cleanup',
-                    'result': ensemble_result
-                })
-                
-                # 3. Kullanılmayan frame temizliği (reset sonrası)
-                frames_result = model_service.cleanup_unused_analysis_frames(3)  # 3 gün önceki frame'leri temizle
-                cleanup_operations.append({
-                    'operation': 'unused_frames_cleanup',
-                    'result': frames_result
-                })
-                
-                # 4. Veritabanı optimize
-                vacuum_result = model_service.vacuum_database()
-                cleanup_operations.append({
-                    'operation': 'database_vacuum',
-                    'result': {'success': vacuum_result}
-                })
-                
-                # Temizlik sonuçlarını özetle
-                total_cleaned = 0
-                cleanup_summary = []
-                
-                for op in cleanup_operations:
-                    op_result = op['result']
-                    if op_result.get('success'):
-                        cleaned_count = op_result.get('cleaned_count', 0)
-                        if isinstance(cleaned_count, list):
-                            cleaned_count = len(cleaned_count)
-                        total_cleaned += cleaned_count
-                        
-                        cleanup_summary.append(f"✅ {op['operation']}: {cleaned_count} öğe temizlendi")
-                    else:
-                        cleanup_summary.append(f"❌ {op['operation']}: {op_result.get('message', 'Hata')}")
-                
-                logger.info(f"🧹 Reset sonrası otomatik temizlik tamamlandı: {total_cleaned} öğe temizlendi")
-                
-                return jsonify({
-                    "success": True,
-                    "message": result['message'],
-                    "restart_required": False,
-                    "fallback_active": True,
-                    "corrections_cleared": result.get('corrections_cleared', 0),
-                    "auto_cleanup": {
-                        "enabled": True,
-                        "total_cleaned": total_cleaned,
-                        "operations": cleanup_operations,
-                        "summary": cleanup_summary
-                    }
-                }), 200
-                
-            except Exception as cleanup_error:
-                logger.warning(f"⚠️ Reset sonrası otomatik temizlik hatası: {str(cleanup_error)}")
-                
-                # Temizlik hatası olsa da reset başarılı
-                return jsonify({
-                    "success": True,
-                    "message": result['message'],
-                    "restart_required": False,
-                    "fallback_active": True,
-                    "corrections_cleared": result.get('corrections_cleared', 0),
-                    "auto_cleanup": {
-                        "enabled": True,
-                        "error": str(cleanup_error),
-                        "message": "Reset başarılı ancak otomatik temizlik hatası"
-                    }
-                }), 200
-        else:
-            return jsonify({"error": result.get('error', 'Unknown error')}), 500
-        
-    except Exception as e:
-        logger.error(f"Ensemble reset error: {str(e)}")
+        logger.error(f"Get ensemble versions error: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
 @ensemble_bp.route('/performance', methods=['GET'])

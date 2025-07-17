@@ -765,25 +765,51 @@ class ModelService:
                 }
 
             elif model_type == 'content':
-                # İçerik modeli eğitimi - Ensemble sistemi kullan
-                from app.services.ensemble_integration_service import get_ensemble_service
+                # İçerik modeli eğitimi - İki seçenek: Ensemble veya Fine-tuning
+                training_mode = params.get('training_mode', 'ensemble')  # 'ensemble' veya 'fine_tuning'
                 
-                ensemble_service = get_ensemble_service()
-                result = ensemble_service.refresh_corrections()
-                
-                if result['success']:
-                    return {
-                        "success": True,
-                        "message": f"İçerik modeli ensemble düzeltmeleri başarıyla yenilendi",
-                        "ensemble_stats": result['clip_stats'],
-                        "content_corrections": result['clip_corrections'],
-                        "confidence_adjustments": result['clip_stats'].get('confidence_adjustments', 0)
-                    }
+                if training_mode == 'fine_tuning':
+                    # OpenCLIP Fine-tuning
+                    from app.services.content_training_service import ContentTrainingService
+                    
+                    content_service = ContentTrainingService()
+                    result = content_service.execute_training(params)
+                    
+                    if result['success']:
+                        return {
+                            "success": True,
+                            "message": "OpenCLIP modeli başarıyla fine-tune edildi",
+                            "training_session_id": result['training_session_id'],
+                            "performance": result['performance'],
+                            "model_updated": True,
+                            "training_mode": "fine_tuning"
+                        }
+                    else:
+                        return {
+                            "success": False,
+                            "message": f"Fine-tuning hatası: {result.get('error', 'Bilinmeyen hata')}"
+                        }
                 else:
-                    return {
-                        "success": False,
-                        "message": f"İçerik modeli ensemble yenileme hatası: {result.get('error', 'Bilinmeyen hata')}"
-                    }
+                    # Ensemble sistemi (varsayılan)
+                    from app.services.ensemble_integration_service import get_ensemble_service
+                    
+                    ensemble_service = get_ensemble_service()
+                    result = ensemble_service.refresh_corrections()
+                    
+                    if result['success']:
+                        return {
+                            "success": True,
+                            "message": f"İçerik modeli ensemble düzeltmeleri başarıyla yenilendi",
+                            "ensemble_stats": result['clip_stats'],
+                            "content_corrections": result['clip_corrections'],
+                            "confidence_adjustments": result['clip_stats'].get('confidence_adjustments', 0),
+                            "training_mode": "ensemble"
+                        }
+                    else:
+                        return {
+                            "success": False,
+                            "message": f"İçerik modeli ensemble yenileme hatası: {result.get('error', 'Bilinmeyen hata')}"
+                        }
             else:
                 return {
                     "success": False,

@@ -306,26 +306,66 @@ python train_v1_model.py --dry-run
 ```
 
 ##### OpenCLIP İçerik Modeli Eğitimi
+
+**İki Eğitim Modu:**
+1. **Ensemble Mode (Varsayılan):** Hızlı lookup table düzeltmeleri
+2. **Fine-tuning Mode:** Gerçek model ağırlık güncellemesi
+
 ```bash
-# Varsayılan parametrelerle eğitim
+# Ensemble mode (hızlı düzeltmeler)
+curl -X POST http://localhost:5000/api/model/train-web \
+  -H "Content-Type: application/json" \
+  -d '{"model_type": "content", "training_mode": "ensemble"}'
+
+# Fine-tuning mode (gerçek eğitim)
+curl -X POST http://localhost:5000/api/model/train-web \
+  -H "Content-Type: application/json" \
+  -d '{"model_type": "content", "training_mode": "fine_tuning", "epochs": 10, "batch_size": 16}'
+```
+
+**Command Line Fine-tuning:**
+```bash
+# Varsayılan parametrelerle fine-tuning
 python train_content_model.py
 
-# Özel parametrelerle eğitim
+# Özel parametrelerle fine-tuning
 python train_content_model.py --epochs 15 --batch-size 32 --learning-rate 0.0005
 
-# Sadece veri istatistiklerini görmek için
+# Sadece veri analizini görmek için
 python train_content_model.py --dry-run
 
 # Minimum örnek sayısını değiştirme
-python train_content_model.py --min-samples 100
+python train_content_model.py --min-samples 50 --force
+```
+
+**CLIP Fine-tuning API Endpoints:**
+```bash
+# Training durumu ve hazırlık analizi
+curl http://localhost:5000/api/clip-training/status
+
+# Detaylı training analizi
+curl -X POST http://localhost:5000/api/clip-training/analyze
+
+# Training başlat
+curl -X POST http://localhost:5000/api/clip-training/train \
+  -H "Content-Type: application/json" \
+  -d '{"training_params": {"epochs": 10, "batch_size": 16, "learning_rate": 1e-4}}'
+
+# Training geçmişi
+curl http://localhost:5000/api/clip-training/history?limit=10
+
+# Pipeline test (dry run)
+curl -X POST http://localhost:5000/api/clip-training/test-training
 ```
 
 **İçerik Modeli Eğitim Özellikleri:**
-- OpenCLIP base modelini kullanır (ViT-H-14-378-quickgelu)
-- Classification head eklenerek fine-tuning yapılır
+- OpenCLIP base modeli (ViT-H-14-378-quickgelu) üzerine classification head
+- Contrastive learning ile pozitif/negatif caption öğrenme  
 - Kategoriler: şiddet, yetişkin içerik, taciz, silah, uyuşturucu
-- Kullanıcı geri bildirimleri training data olarak kullanılır
-- Eğitim sonrası model versiyonu otomatik olarak kaydedilir
+- Multi-label classification (aynı anda birden fazla kategori)
+- Kullanıcı feedback'lerinden otomatik caption oluşturma
+- Early stopping ve model versiyonlama
+- Eğitim sonrası otomatik aktif model güncelleme
 
 ### Güvenlik Kontrolleri
 

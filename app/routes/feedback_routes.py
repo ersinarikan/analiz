@@ -115,8 +115,8 @@ def submit_age_feedback():
         # Embedding'i AgeEstimation tablosundan bul
         embedding_str = None
         try:
-            # _confidence_score sütunu ile sıralama
-            age_est = AgeEstimation.query.filter_by(analysis_id=analysis_id, person_id=person_id).order_by(AgeEstimation._confidence_score.desc()).first()
+            # confidence_score sütunu ile sıralama
+            age_est = AgeEstimation.query.filter_by(analysis_id=analysis_id, person_id=person_id).order_by(AgeEstimation.confidence_score.desc()).first()
             if age_est and hasattr(age_est, 'embedding') and age_est.embedding:
                 emb = age_est.embedding
                 if isinstance(emb, str):

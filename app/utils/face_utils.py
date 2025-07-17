@@ -108,11 +108,13 @@ def extract_face_landmarks(face_obj: object) -> np.ndarray | None:
         logger.error(f"Landmark çıkarma hatası: {str(e)}")
         return None
 
-def extract_face_features(face_obj: object) -> dict:
+def extract_face_features(image: np.ndarray, face_obj: object, bbox: tuple) -> dict:
     """
     Yüz nesnesinden temel özellikleri çıkarır.
     Args:
+        image: Tam frame görüntüsü
         face_obj: Yüz nesnesi (InsightFace veya dict).
+        bbox: [x, y, w, h] bounding box
     Returns:
         dict: Özellikler (bbox, kps, age, gender, embedding, vs.).
     """
