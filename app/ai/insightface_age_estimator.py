@@ -473,6 +473,8 @@ class InsightFaceAgeEstimator:
         return final_age, final_confidence, pseudo_label_data_to_save
 
     def _calculate_confidence_with_clip(self, face_image, estimated_age):
+        import time
+        start_time = time.time()
         logger.info(f"[AGE_LOG] _calculate_confidence_with_clip başladı. Gelen Yaş: {estimated_age:.1f}, Görüntü Shape: {face_image.shape}")
         if self.clip_model is None or face_image.size == 0:
             logger.warning("[AGE_LOG] CLIP modeli yok veya yüz görüntüsü geçersiz, varsayılan güven (0.5) dönülüyor.")
@@ -537,6 +539,9 @@ class InsightFaceAgeEstimator:
                 confidence_score = 1.0 / (1.0 + np.exp(-score_diff * 2))
                 confidence_score = max(0.1, min(0.9, confidence_score))
             
+            end_time = time.time()
+            elapsed_time = end_time - start_time
+            
             logger.info(f"[AGE_LOG] DİREKT YAŞ SORUSU - Target Yaş: {age}")
             logger.info(f"[AGE_LOG] Target Prompt: '{target_prompt}'")
             logger.info(f"[AGE_LOG] Opposing Prompts: {opposing_prompts}")
@@ -545,11 +550,14 @@ class InsightFaceAgeEstimator:
             logger.info(f"[AGE_LOG] Opposing Ort: {avg_opposing:.4f}, Max: {max_opposing:.4f}")
             logger.info(f"[AGE_LOG] Skor Farkı (Target - Max): {score_diff:.4f}")
             logger.info(f"[AGE_LOG] Final Güven: {confidence_score:.4f}")
+            logger.info(f"[AGE_LOG] CLIP hesaplama süresi: {elapsed_time:.3f} saniye")
             
             return confidence_score
             
         except Exception as e:
-            logger.error(f"[AGE_LOG] CLIP ile güven skoru hesaplanırken hata: {str(e)}")
+            end_time = time.time()
+            elapsed_time = end_time - start_time
+            logger.error(f"[AGE_LOG] CLIP ile güven skoru hesaplanırken hata: {str(e)} (Süre: {elapsed_time:.3f}s)")
             return 0.5 # Hata durumunda varsayılan güven
 
     def compute_face_encoding(self, face_image: np.ndarray):

@@ -105,7 +105,7 @@ class Config:
 
     # Yeni Global Analiz Parametreleri (Kullanıcının resmindeki)
     FACE_DETECTION_CONFIDENCE = 0.5 # (0.1 - 1.0)
-    TRACKING_RELIABILITY_THRESHOLD = 0.4 # (0.1 - 0.9)
+    TRACKING_RELIABILITY_THRESHOLD = 0.5 # (0.1 - 0.9)
     ID_CHANGE_THRESHOLD = 0.45 # (0.1 - 0.8)
     MAX_LOST_FRAMES = 30 # (5 - 300)
     EMBEDDING_DISTANCE_THRESHOLD = 0.4 # (0.1 - 0.8)

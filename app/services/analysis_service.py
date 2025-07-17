@@ -5,6 +5,7 @@ from datetime import datetime
 import json
 import cv2
 import threading
+import time
 
 from flask import current_app
 from app import db
@@ -518,23 +519,42 @@ def analyze_image(analysis):
             
             db.session.commit()
             
-            # Yaş analizi tamamlandı  
-            analysis.update_progress(85)
+            # Yaş analizi tamamlandı - GERÇEK tamamlanma kontrolü
+            logger.info(f"[SVC_LOG] Yaş analizi döngüsü tamamlandı, {total_faces} yüz için işlem yapıldı. Final kontrol başlıyor...")
+            
+            # Son DB commit'ten sonra kısa bir bekleme - tüm CLIP hesaplamalarının tamamlandığından emin olmak için
+            time.sleep(0.5)  # 500ms bekleme
+            
+            # Final veritabanı durumunu kontrol et
+            final_age_estimations = db.session.query(AgeEstimation).filter_by(analysis_id=analysis.id).all()
+            logger.info(f"[SVC_LOG] Final kontrol: {len(final_age_estimations)} AgeEstimation kaydı veritabanında mevcut")
+            
+            analysis.update_progress(90)
             analysis.status_message = "Yaş analizi tamamlandı, sonuçlar kaydediliyor..."
             db.session.commit()
         else:
             # Yaş analizi yapılmadıysa direkt sona yakın progress
-            analysis.update_progress(75) 
+            analysis.update_progress(85) 
             analysis.status_message = "Analiz sonuçları kaydediliyor..."
             db.session.commit()
         
-        # Değişiklikleri veritabanına kaydet
+        # Tüm değişiklikleri veritabanına kaydet
         db.session.commit()
         
-        # Final progress güncellemesi
+        # Final sync bekleme - tüm asenkron işlemlerin tamamlanması için
+        time.sleep(0.2)  # 200ms ek bekleme
+        
+        # Son progress güncellemesi
+        analysis.update_progress(95)
+        analysis.status_message = "Analiz sonuçlandırılıyor..."
+        db.session.commit()
+        
+        # Final bekleme ve kontrol
+        time.sleep(0.3)  # 300ms son bekleme
+        
         analysis.update_progress(100)
         analysis.status_message = "Analiz tamamlandı"
-        logger.info(f"[SVC_LOG][ANALYZE_IMAGE] Resim analizi BAŞARIYLA TAMAMLANDI. Analiz ID: {analysis.id}") # YENİ LOG
+        logger.info(f"[SVC_LOG][ANALYZE_IMAGE] Resim analizi BAŞARIYLA TAMAMLANDI. Analiz ID: {analysis.id}") 
         
         return True, "Resim analizi tamamlandı"
     
