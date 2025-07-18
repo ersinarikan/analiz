@@ -209,14 +209,16 @@ def analyze_file(analysis_id):
             
             # SocketIO ile analiz başlama bildirimi gönder
             try:
-                socketio.emit('analysis_started', {
+                event_data = {
                     'analysis_id': analysis_id,
                     'file_id': analysis.file_id,
                     'status': 'processing',
                     'progress': 0,
                     'message': 'Analiz başlatıldı'
-                })
-                logger.info(f"SocketIO: Analysis started event sent for {analysis_id}")
+                }
+                socketio.emit('analysis_started', event_data)
+                logger.info(f"SocketIO: Analysis started event sent to all clients for {analysis_id}")
+                logger.info(f"SocketIO Start Data: {event_data}")
             except Exception as socket_err:
                 logger.warning(f"SocketIO event gönderme hatası: {str(socket_err)}")
             
@@ -241,14 +243,16 @@ def analyze_file(analysis_id):
                 
                 # SocketIO ile analiz tamamlanma bildirimi gönder
                 try:
-                    socketio.emit('analysis_completed', {
+                    event_data = {
                         'analysis_id': analysis_id,
                         'file_id': analysis.file_id,
                         'status': 'completed',
                         'progress': 100,
                         'message': 'Analiz başarıyla tamamlandı'
-                    })
-                    logger.info(f"SocketIO: Analysis completed event sent for {analysis_id}")
+                    }
+                    socketio.emit('analysis_completed', event_data)
+                    logger.info(f"SocketIO: Analysis completed event sent to all clients for {analysis_id}")
+                    logger.info(f"SocketIO Completion Data: {event_data}")
                 except Exception as socket_err:
                     logger.warning(f"SocketIO completion event hatası: {str(socket_err)}")
                 
@@ -259,14 +263,16 @@ def analyze_file(analysis_id):
                 
                 # SocketIO ile analiz hatası bildirimi gönder
                 try:
-                    socketio.emit('analysis_failed', {
+                    event_data = {
                         'analysis_id': analysis_id,
                         'file_id': analysis.file_id,
                         'status': 'failed',
                         'progress': 0,
                         'message': message or 'Analiz başarısız'
-                    })
-                    logger.info(f"SocketIO: Analysis failed event sent for {analysis_id}")
+                    }
+                    socketio.emit('analysis_failed', event_data)
+                    logger.info(f"SocketIO: Analysis failed event sent to all clients for {analysis_id}")
+                    logger.info(f"SocketIO Failure Data: {event_data}")
                 except Exception as socket_err:
                     logger.warning(f"SocketIO failure event hatası: {str(socket_err)}")
                 

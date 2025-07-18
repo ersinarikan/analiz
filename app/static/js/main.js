@@ -107,7 +107,9 @@ function updateAnalysisParamsButtonStateWithQueue(queueData) {
     // Kuyruk durumu kontrolü
     let hasFilesInQueue = false;
     if (queueData) {
-        hasFilesInQueue = (queueData.queue_size > 0) || (queueData.active_analyses > 0);
+        // Backend response formatına göre düzelt
+        const data = queueData?.data || queueData;
+        hasFilesInQueue = (data?.queue_size > 0) || (data?.is_processing === true);
     }
     
     // Butonlar devre dışı mı?
@@ -482,9 +484,16 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 });
 
-// Socket.io bağlantısını başlat - SocketIO artık kullanılmıyor, sadece SSE
+// Socket.io bağlantısını başlat - SocketIO aktif
 function initializeSocket(settingsSaveLoader) { 
-    console.log('SSE sistemi aktif - SocketIO devre dışı');
+    console.log('SocketIO sistemi başlatılıyor...');
+    
+    // SocketIO'yu başlat
+    if (typeof initializeSocketIO === 'function') {
+        initializeSocketIO();
+    } else {
+        console.error('initializeSocketIO fonksiyonu bulunamadı!');
+    }
     
     // Model değişikliği kontrolü
     if (localStorage.getItem('modelChangedReloadRequired') === 'true') {
@@ -742,13 +751,18 @@ function checkQueueStatus() {
 }
 
 // Kuyruk durumunu güncelle
-function updateQueueStatus(data) {
+function updateQueueStatus(response) {
     const queueStatusElement = document.getElementById('queueStatus');
     if (!queueStatusElement) return;
     
-    if (data && (data.active || data.size > 0)) {
+    // Backend response formatını parse et
+    const data = response?.data || response;
+    const queueSize = data?.queue_size || 0;
+    const isProcessing = data?.is_processing || false;
+    
+    if (data && (isProcessing || queueSize > 0)) {
         // Kuyruk aktif veya bekleyen dosya varsa
-        const waitingCount = data.size || 0;
+        const waitingCount = queueSize;
         const statusText = `Kuyruk: ${waitingCount} dosya bekliyor`;
         
         queueStatusElement.innerHTML = `
@@ -1089,6 +1103,58 @@ function startAnalysisForAllFiles(framesPerSecond, includeAgeAnalysis) {
     });
 }
 
+// Analiz durumunu kontrol et (HTTP fallback)
+function checkAnalysisStatus(analysisId, fileId) {
+    if (!analysisId) {
+        console.error(`No analysis ID for file ${fileId}, cannot check status`);
+        return;
+    }
+    
+    if (cancelledAnalyses.has(analysisId)) {
+        console.log(`Analysis ${analysisId} was cancelled, stopping status checks`);
+        return;
+    }
+
+    let errorCount = fileErrorCounts.get(fileId) || 0;
+    if (errorCount > MAX_STATUS_CHECK_RETRIES) {
+        console.error(`Max retries exceeded for analysis ${analysisId}`);
+        updateFileStatus(fileId, "failed", 0);
+        fileStatuses.set(fileId, "failed");
+        updateGlobalProgress();
+        return;
+    }
+
+    fetch(`/api/analysis/${analysisId}/status`)
+    .then(response => response.ok ? response.json() : Promise.reject(`HTTP ${response.status}`))
+    .then(response => {
+        console.log(`🔄 HTTP Fallback - Analysis status for ${analysisId}:`, response);
+        
+        const status = response.status;
+        const progress = response.progress || 0;
+        
+        fileStatuses.set(fileId, status);
+        updateFileStatus(fileId, status, progress);
+        
+        if (status === "processing") {
+            setTimeout(() => checkAnalysisStatus(analysisId, fileId), 3000);
+        } else if (status === "completed") {
+            console.log(`✅ HTTP Fallback - Analysis completed: ${analysisId}`);
+            setTimeout(() => getAnalysisResults(fileId, analysisId), 1000);
+        } else if (status === "failed") {
+            showError(`${fileNameFromId(fileId)} dosyası için analiz başarısız oldu.`);
+        } else if (status !== "completed" && status !== "failed") {
+            setTimeout(() => checkAnalysisStatus(analysisId, fileId), 2000);
+        }
+        
+        updateGlobalProgress();
+    })
+    .catch(error => {
+        console.error(`HTTP Fallback error for ${analysisId}:`, error);
+        fileErrorCounts.set(fileId, errorCount + 1);
+        setTimeout(() => checkAnalysisStatus(analysisId, fileId), 5000);
+    });
+}
+
 // Analiz işlemini başlat
 function startAnalysis(fileId, serverFileId, framesPerSecond, includeAgeAnalysis) {
     // Dosya durumunu "kuyruğa eklendi" olarak ayarla - backend'den gerçek durum gelecek
@@ -1150,8 +1216,20 @@ function startAnalysis(fileId, serverFileId, framesPerSecond, includeAgeAnalysis
             // Hata sayacını sıfırla
             fileErrorCounts.set(fileId, 0);
             
-            // DISABLED: SocketIO ile gerçek zamanlı güncelleme kullanıyoruz, polling gerekli değil
-            // setTimeout(() => checkAnalysisStatus(analysisId, fileId), 1000);
+            // FALLBACK: SocketIO event'leri gelmezse 30 saniye sonra HTTP polling başlat
+            const fallbackTimeout = setTimeout(() => {
+                console.warn('⚠️  SocketIO event alınmadı, HTTP polling başlatılıyor...');
+                checkAnalysisStatus(analysisId, fileId);
+            }, 30000);
+            
+            // Event gelirse timeout'u iptal et
+            if (typeof socketioClient !== 'undefined' && socketioClient) {
+                const eventReceived = () => clearTimeout(fallbackTimeout);
+                socketioClient.once('analysis_started', eventReceived);
+                socketioClient.once('analysis_progress', eventReceived);
+                socketioClient.once('analysis_completed', eventReceived);
+                socketioClient.once('analysis_failed', eventReceived);
+            }
         }
     })
     .catch(error => {
@@ -3781,7 +3859,10 @@ function checkModalQueueStatus() {
     // Sadece kuyruk durumunu al, dosya sayısını frontend'den kullan
     fetch('/api/queue/status')
     .then(response => response.json())
-    .then(queueData => {
+    .then(response => {
+        // Backend response formatını parse et
+        const queueData = response?.data || response;
+        
         // Frontend'deki dosya sayısını kullan
         const frontendUploadedFiles = uploadedFiles.length;
         const uploadedFilesData = {
@@ -3793,7 +3874,7 @@ function checkModalQueueStatus() {
     .catch(error => {
         console.error('Modal kuyruk durumu kontrol hatası:', error);
         // Hata durumunda butonları aktif et
-        updateModalButtonsState({queue_size: 0, active_analyses: 0}, {uploaded_files_count: 0});
+        updateModalButtonsState({queue_size: 0, is_processing: false}, {uploaded_files_count: 0});
     });
 }
 
@@ -3804,7 +3885,7 @@ function updateModalButtonsState(queueData, uploadedFilesData) {
     
     // Ana sayfadaki mantık: Yüklü dosya varsa veya kuyrukta dosya varsa veya aktif analiz varsa devre dışı bırak
     const hasUploadedFiles = uploadedFilesData.uploaded_files_count > 0;
-    const hasFilesInQueue = queueData.queue_size > 0 || queueData.active_analyses > 0;
+    const hasFilesInQueue = queueData.queue_size > 0 || queueData.is_processing === true;
     const shouldDisableButtons = hasUploadedFiles || hasFilesInQueue;
     
     console.log('Modal - Ana sayfada yüklü dosya var mı?', hasUploadedFiles);

@@ -211,19 +211,50 @@ def process_queue():
                 start_processor()
 
 def _emit_analysis_status(analysis_id, file_id, status, progress, message):
-    """Analiz durumu - HTTP API üzerinden erişilebilir"""
+    """Analiz durumu - SocketIO ve HTTP API üzerinden erişilebilir"""
     try:
+        from app import socketio
+        
+        # SocketIO event gönder - broadcast to all clients
+        event_data = {
+            'analysis_id': analysis_id,
+            'file_id': file_id,
+            'status': status,
+            'progress': progress,
+            'message': message or f'Analiz devam ediyor... ({progress}%)'
+        }
+        
+        socketio.emit('analysis_progress', event_data)
+        logger.info(f"SocketIO: analysis_progress event sent to all clients for analysis {analysis_id}")
+        logger.info(f"SocketIO Progress Data: {event_data}")
         logger.info(f"Analiz durumu güncellendi: {analysis_id} - {status} ({progress}%)")
-        # HTTP endpoint /api/analysis/{analysis_id}/status üzerinden erişilebilir
+        
     except Exception as e:
         logger.warning(f"Analiz durumu güncelleme hatası: {str(e)}")
 
 def _emit_analysis_completion(analysis_id, file_id, success, elapsed_time, message):
-    """Analiz tamamlanma - HTTP API üzerinden erişilebilir"""
+    """Analiz tamamlanma - SocketIO ve HTTP API üzerinden erişilebilir"""
     try:
+        from app import socketio
+        
         status_text = "completed" if success else "failed"
+        event_name = "analysis_completed" if success else "analysis_failed"
+        
+        # SocketIO event gönder - broadcast to all clients
+        event_data = {
+            'analysis_id': analysis_id,
+            'file_id': file_id,
+            'status': status_text,
+            'progress': 100 if success else 0,
+            'message': message or ('Analiz başarıyla tamamlandı' if success else 'Analiz başarısız'),
+            'elapsed_time': elapsed_time
+        }
+        
+        socketio.emit(event_name, event_data)
+        logger.info(f"SocketIO: {event_name} event sent to all clients for analysis {analysis_id}")
+        logger.info(f"SocketIO Event Data: {event_data}")
         logger.info(f"Analiz tamamlandı: {analysis_id} - {status_text} ({elapsed_time:.2f}s)")
-        # HTTP endpoint /api/analysis/{analysis_id}/result üzerinden erişilebilir
+        
     except Exception as e:
         logger.warning(f"Analiz tamamlanma bildirimi hatası: {str(e)}")
 

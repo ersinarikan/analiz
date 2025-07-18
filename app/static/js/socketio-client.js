@@ -3,14 +3,42 @@ let socketioClient = null;
 
 function initializeSocketIO() {
     console.log("SocketIO bağlantısı başlatılıyor...");
-    socketioClient = io();
-    
-    socketioClient.on('connect', function() {
-        console.log('SocketIO bağlantısı başarılı');
+    socketioClient = io({
+        autoConnect: true,
+        reconnection: true,
+        reconnectionDelay: 1000,
+        reconnectionAttempts: 10,
+        timeout: 60000,
+        pingInterval: 25000,
+        pingTimeout: 60000
     });
     
-    socketioClient.on('disconnect', function() {
-        console.log('SocketIO bağlantısı kesildi');
+    socketioClient.on('connect', function() {
+        console.log('SocketIO bağlantısı başarılı - ID:', socketioClient.id);
+    });
+    
+    socketioClient.on('disconnect', function(reason) {
+        console.log('SocketIO bağlantısı kesildi - Sebep:', reason);
+    });
+    
+    // DEBUG: Tüm event'leri yakala
+    socketioClient.onAny((eventName, ...args) => {
+        console.log('🔵 [SocketIO] Event received:', eventName, args);
+        console.log('🔵 [SocketIO] Connection ID at event time:', socketioClient.id);
+        console.log('🔵 [SocketIO] Connected status:', socketioClient.connected);
+    });
+    
+    // Connection error handling
+    socketioClient.on('connect_error', function(error) {
+        console.error('❌ SocketIO connection error:', error);
+    });
+    
+    socketioClient.on('reconnect', function(attemptNumber) {
+        console.log('🔄 SocketIO reconnected after', attemptNumber, 'attempts');
+    });
+    
+    socketioClient.on('reconnect_error', function(error) {
+        console.error('❌ SocketIO reconnection error:', error);
     });
     
     // Analiz başlama event'i

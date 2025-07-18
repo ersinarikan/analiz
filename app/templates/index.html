@@ -1238,7 +1238,7 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     
     <!-- Socket.IO Client -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <script src="{{ url_for('static', filename='js/socket.io.min.js') }}"></script>
     
     <!-- SocketIO Client Functions -->
     <script src="{{ url_for('static', filename='js/socketio-client.js') }}"></script>
@@ -1246,7 +1246,7 @@
     <!-- Training Stats JS -->
     <script src="{{ url_for('static', filename='js/training-stats.js') }}"></script>
     
-    <!-- DISABLED: SSE replaced with SocketIO -->
+    <!-- SSE disabled, using SocketIO for real-time communication -->
     <!-- <script src="{{ url_for('static', filename='js/web-sse-functions.js') }}"></script> -->
     
     <!-- Main JS -->

@@ -69,7 +69,12 @@ def create_app(config_name='default'):
     
     # Initialize extensions
     db.init_app(app)
-    socketio.init_app(app, cors_allowed_origins="*", logger=False, engineio_logger=False)
+    socketio.init_app(app, 
+                      cors_allowed_origins="*", 
+                      logger=False, 
+                      engineio_logger=False,
+                      ping_timeout=60,
+                      ping_interval=25)
     
     # JSON encoder'ı ayarla
     app.json_encoder = CustomJSONEncoder
