@@ -15,12 +15,7 @@ import uuid
 
 logger = logging.getLogger(__name__)
 
-# SocketIO import'u try-catch ile yap çünkü circular import olabilir
-socketio = None
-try:
-    from app import socketio
-except ImportError:
-    socketio = None
+# SocketIO kaldırıldı - SSE sistemi kullanılıyor
 
 class Analysis(db.Model):
     """
@@ -91,18 +86,7 @@ class Analysis(db.Model):
         self.progress = min(progress, 100)  # 100'den büyük değerler kabul edilmez
         db.session.commit()
         
-        # SocketIO ile progress bildirimi gönder
-        if socketio:
-            try:
-                socketio.emit('analysis_progress', {
-                    'analysis_id': self.id,
-                    'file_id': self.file_id,
-                    'status': self.status,
-                    'progress': self.progress,
-                    'message': self.status_message or f'İlerleme: %{self.progress}'
-                })
-            except Exception as socket_err:
-                logger.warning(f"SocketIO progress event hatası: {str(socket_err)}")
+        # SocketIO kaldırıldı - SSE sistemi kullanılıyor
     
     def complete_analysis(self):
         """Analizi başarıyla tamamlandı olarak işaretler."""

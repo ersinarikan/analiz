@@ -29,11 +29,10 @@ except ImportError:
 
 # Flask uygulamasını import et
 try:
-    from app import create_app, initialize_app, socketio
+    from app import create_app, initialize_app
 except ImportError as import_err:
     create_app = None
     initialize_app = None
-    socketio = None
     logger.error(f"Flask uygulaması import edilemedi: {import_err}")
     logger.error("Virtual environment'ı aktifleştirip tekrar deneyin:")
     logger.error("   venv\\Scripts\\activate  (Windows)")
@@ -116,13 +115,9 @@ if __name__ == "__main__":
             logger.info("CLIP Monitoring: http://localhost:5000/clip-monitoring")
             logger.info("Durdurmak için: Ctrl+C")
             
-            # SocketIO server kullan - gerçek zamanlı analiz progress için
-            if socketio:
-                logger.info("SocketIO server başlatılıyor...")
-                socketio.run(app, debug=is_debug, host="0.0.0.0", port=5000)
-            else:
-                logger.warning("SocketIO bulunamadı, normal Flask server kullanılıyor")
-                app.run(debug=is_debug, host="0.0.0.0", port=5000)
+            # Normal Flask server - SocketIO kaldırıldı, SSE kullanılıyor
+            logger.info("Flask server başlatılıyor (SSE destekli)...")
+            app.run(debug=is_debug, host="0.0.0.0", port=5000)
             
         except KeyboardInterrupt:
             logger.info("Keyboard interrupt alındı...")

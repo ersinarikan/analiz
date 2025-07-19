@@ -484,16 +484,11 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 });
 
-// Socket.io bağlantısını başlat - SocketIO aktif
+// SSE sistemi başlatılıyor - SocketIO kaldırıldı
 function initializeSocket(settingsSaveLoader) { 
-    console.log('SocketIO sistemi başlatılıyor...');
+    console.log('SSE sistemi aktif - SocketIO kaldırıldı');
     
-    // SocketIO'yu başlat
-    if (typeof initializeSocketIO === 'function') {
-        initializeSocketIO();
-    } else {
-        console.error('initializeSocketIO fonksiyonu bulunamadı!');
-    }
+    // SocketIO kodları kaldırıldı - artık sadece SSE kullanılıyor
     
     // Model değişikliği kontrolü
     if (localStorage.getItem('modelChangedReloadRequired') === 'true') {

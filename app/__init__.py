@@ -5,7 +5,7 @@ from flask import Flask, send_from_directory, current_app
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
 from flask_cors import CORS
-from flask_socketio import SocketIO
+# SocketIO kaldırıldı - SSE kullanılıyor
 from config import config
 import logging
 import threading
@@ -22,7 +22,7 @@ except ImportError:
 # Global extensions
 db = SQLAlchemy()
 migrate = Migrate()
-socketio = SocketIO(cors_allowed_origins="*")
+# socketio kaldırıldı - SSE kullanılıyor
 
 # Thread-safe logging lock
 _log_lock = threading.Lock()
@@ -69,12 +69,7 @@ def create_app(config_name='default'):
     
     # Initialize extensions
     db.init_app(app)
-    socketio.init_app(app, 
-                      cors_allowed_origins="*", 
-                      logger=False, 
-                      engineio_logger=False,
-                      ping_timeout=60,
-                      ping_interval=25)
+    # socketio.init_app kaldırıldı - SSE kullanılıyor
     
     # JSON encoder'ı ayarla
     app.json_encoder = CustomJSONEncoder
