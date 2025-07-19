@@ -69,6 +69,19 @@ def emit_analysis_completed(analysis_id, message='Analiz tamamlandı'):
     socketio.emit('analysis_completed', data, room=room)
     logger.info(f"Analysis completed emitted to {room}")
 
+def emit_training_started(session_id, model_type, total_samples):
+    """Eğitim başlatıldı bildirimi"""
+    room = f"training_{session_id}"
+    data = {
+        'session_id': session_id,
+        'model_type': model_type,
+        'status': 'started',
+        'total_samples': total_samples,
+        'message': f'{model_type.upper()} model eğitimi başlatıldı'
+    }
+    socketio.emit('training_started', data, room=room)
+    logger.info(f"Training started emitted to {room}: {model_type} model")
+
 def emit_training_progress(session_id, epoch, total_epochs, metrics=None):
     """Eğitim progress'i gönder"""
     room = f"training_{session_id}"

@@ -100,14 +100,35 @@ def start_training():
         
         content_service = ContentTrainingService()
         
+        # WebSocket session ID oluştur ve training başlama bildirimi
+        import uuid
+        session_id = str(uuid.uuid4())
+        
+        try:
+            from app.routes.websocket_routes import emit_training_started
+            emit_training_started(session_id, 'CLIP', 100)  # Yaklaşık sample sayısı
+        except Exception as ws_err:
+            logger.warning(f"WebSocket training started event hatası: {str(ws_err)}")
+        
         # Training'i başlat
         result = content_service.execute_training(training_params)
         
         if result['success']:
+            # WebSocket ile training tamamlanma bildirimi
+            try:
+                from app.routes.websocket_routes import emit_training_completed
+                emit_training_completed(
+                    session_id,  # Bizim oluşturduğumuz session_id'yi kullan
+                    'CLIP Model', 
+                    result['performance']
+                )
+            except Exception as ws_err:
+                logger.warning(f"WebSocket training completed event hatası: {str(ws_err)}")
+            
             return jsonify({
                 'success': True,
                 'message': 'CLIP model training başarıyla tamamlandı',
-                'training_session_id': result['training_session_id'],
+                'training_session_id': session_id,  # Bizim session_id'yi döndür
                 'performance': result['performance'],
                 'model_updated': True
             })

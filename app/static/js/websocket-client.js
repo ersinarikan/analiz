@@ -75,6 +75,11 @@ class WebSocketClient {
         });
 
         // Eğitim olayları
+        this.socket.on('training_started', (data) => {
+            console.log('[WebSocket] Training started:', data);
+            this.onTrainingStarted(data);
+        });
+
         this.socket.on('training_progress', (data) => {
             console.log('[WebSocket] Training progress:', data);
             this.onTrainingProgress(data);
@@ -205,6 +210,22 @@ class WebSocketClient {
         setTimeout(() => {
             window.location.reload();
         }, 2000);
+    }
+
+    onTrainingStarted(data) {
+        // Training başlatıldı UI güncellemeleri
+        const { session_id, model_type, total_samples, message } = data;
+        
+        // Modal training status güncelle
+        this.showModalTrainingStatus(message, 'info');
+        
+        // Progress div'i görünür yap
+        const modalProgressDiv = document.getElementById('modal-training-progress');
+        if (modalProgressDiv) {
+            modalProgressDiv.style.display = 'block';
+        }
+
+        console.log(`[WebSocket] Training started: ${model_type} model with ${total_samples} samples`);
     }
 
     onTrainingProgress(data) {

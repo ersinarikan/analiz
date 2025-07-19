@@ -4907,7 +4907,7 @@ let currentTrainingSession = null;
 let trainingStartTime = null;
 
 async function startWebTraining() {
-    console.log('[SSE] startWebTraining called');
+    console.log('[WebSocket] startWebTraining called');
     
     try {
         const response = await fetch('/api/model/train-web', {
@@ -4924,15 +4924,21 @@ async function startWebTraining() {
         });
         
         const data = await response.json();
-        console.log('[SSE] Backend response:', data);
+        console.log('[WebSocket] Backend response:', data);
         
         if (data.success) {
             // Global session tracking için session ID'yi kaydet
             window.currentTrainingSessionId = data.session_id;
             window.isModalTraining = false; // Bu web training, modal training değil
             
-            console.log('[SSE] Setting up SSE connection for web training with session_id:', data.session_id);
-            setupWebSSEConnection(data.session_id);
+            console.log('[WebSocket] Setting up WebSocket connection for web training with session_id:', data.session_id);
+            
+            // WebSocket training room'a katıl
+            if (window.wsClient && window.wsClient.connected) {
+                window.wsClient.joinTraining(data.session_id);
+            } else {
+                console.log('WebSocket henüz bağlı değil, room join atlandı');
+            }
             
             showToast('Bilgi', `Eğitim başlatıldı. Tahmini süre: ${data.estimated_duration}`, 'info');
         } else {

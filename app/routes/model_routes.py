@@ -427,6 +427,16 @@ def train_model_web():
             # Content model training - Ensemble sistemi kullan
             from app.services.ensemble_integration_service import get_ensemble_service
             
+            # WebSocket session ID oluştur ve training başlama bildirimi
+            import uuid
+            content_session_id = str(uuid.uuid4())
+            
+            try:
+                from app.routes.websocket_routes import emit_training_started
+                emit_training_started(content_session_id, 'content', 100)  # Yaklaşık sample sayısı
+            except Exception as ws_err:
+                logger.warning(f"WebSocket content training started event hatası: {str(ws_err)}")
+            
             ensemble_service = get_ensemble_service()
             result = ensemble_service.refresh_corrections()
             
@@ -436,9 +446,17 @@ def train_model_web():
                     'error': f'Ensemble yenileme hatası: {result.get("error", "Bilinmeyen hata")}'
                 }), 400
             
+            # WebSocket ile content training tamamlanma bildirimi
+            try:
+                from app.routes.websocket_routes import emit_training_completed
+                emit_training_completed(content_session_id, 'Content Model', result.get('clip_stats', {}))
+            except Exception as ws_err:
+                logger.warning(f"WebSocket content training completed event hatası: {str(ws_err)}")
+            
             return jsonify({
                 'success': True,
                 'message': 'İçerik modeli ensemble düzeltmeleri başarıyla yenilendi',
+                'session_id': content_session_id,  # Session ID'yi de döndür
                 'ensemble_stats': result['clip_stats'],
                 'content_corrections': result['clip_corrections']
             })
@@ -460,6 +478,13 @@ def train_model_web():
             
             # WebSocket ile progress tracking için session ID oluştur
             training_session_id = str(uuid.uuid4())
+            
+            # WebSocket ile training başlatma bildirimi
+            try:
+                from app.routes.websocket_routes import emit_training_started
+                emit_training_started(training_session_id, 'age', len(training_data['embeddings']))
+            except Exception as ws_err:
+                logger.warning(f"WebSocket training started event hatası: {str(ws_err)}")
             
             # Background task olarak eğitimi başlat
             from threading import Thread
