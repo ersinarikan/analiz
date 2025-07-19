@@ -228,7 +228,12 @@ def analyze_file(analysis_id):
                 analysis.complete_analysis()
                 db.session.commit()
                 
-                # SocketIO kaldırıldı - SSE sistemi kullanılıyor
+                # WebSocket ile analiz tamamlanma bildirimi gönder
+                try:
+                    from app.routes.websocket_routes import emit_analysis_completed
+                    emit_analysis_completed(analysis.id, "Analiz başarıyla tamamlandı")
+                except Exception as ws_err:
+                    logger.warning(f"WebSocket completion event hatası: {str(ws_err)}")
                 
                 return True, "Analiz başarıyla tamamlandı"
             else:

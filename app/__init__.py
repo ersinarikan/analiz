@@ -5,7 +5,7 @@ from flask import Flask, send_from_directory, current_app
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
 from flask_cors import CORS
-# SocketIO kaldırıldı - SSE kullanılıyor
+from flask_socketio import SocketIO
 from config import config
 import logging
 import threading
@@ -22,7 +22,7 @@ except ImportError:
 # Global extensions
 db = SQLAlchemy()
 migrate = Migrate()
-# socketio kaldırıldı - SSE kullanılıyor
+socketio = SocketIO()
 
 # Thread-safe logging lock
 _log_lock = threading.Lock()
@@ -69,7 +69,10 @@ def create_app(config_name='default'):
     
     # Initialize extensions
     db.init_app(app)
-    # socketio.init_app kaldırıldı - SSE kullanılıyor
+    socketio.init_app(app, 
+                      cors_allowed_origins="*",
+                      logger=False,
+                      engineio_logger=False)
     
     # JSON encoder'ı ayarla
     app.json_encoder = CustomJSONEncoder
@@ -104,6 +107,13 @@ def create_app(config_name='default'):
         ("app.routes.clip_training_routes", "clip_training_bp", None),
     ]
     register_blueprints_from_list(app, blueprint_defs)
+    
+    # WebSocket event handlers import
+    try:
+        import app.routes.websocket_routes
+        logger.info("WebSocket event handlers loaded")
+    except Exception as e:
+        logger.error(f"WebSocket handlers import failed: {e}")
     
     # Error handlers
     register_error_handlers(app)

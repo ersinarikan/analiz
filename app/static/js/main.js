@@ -484,11 +484,11 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 });
 
-// SSE sistemi başlatılıyor - SocketIO kaldırıldı
+// WebSocket sistemi başlatılıyor 
 function initializeSocket(settingsSaveLoader) { 
-    console.log('SSE sistemi aktif - SocketIO kaldırıldı');
+    console.log('WebSocket sistemi aktif');
     
-    // SocketIO kodları kaldırıldı - artık sadece SSE kullanılıyor
+    // WebSocket client otomatik olarak başlatılıyor (websocket-client.js'te)
     
     // Model değişikliği kontrolü
     if (localStorage.getItem('modelChangedReloadRequired') === 'true') {
@@ -4246,8 +4246,12 @@ function trainModelFromModal(modelType) {
             
             showModalTrainingStatus(`Eğitim başlatıldı! Session ID: ${data.session_id.substring(0, 8)}...`, 'info');
             
-            // SSE bağlantısını başlat
-            setupModalSSEConnection(data.session_id, modelType);
+            // WebSocket training room'a katıl
+            if (window.wsClient && window.wsClient.connected) {
+                window.wsClient.joinTraining(data.session_id);
+            } else {
+                console.log('WebSocket henüz bağlı değil, room join atlandı');
+            }
             
         } else {
             throw new Error(data.error || 'Eğitim başlatılamadı');
@@ -4267,91 +4271,7 @@ function trainModelFromModal(modelType) {
     });
 }
 
-// Modal için SSE bağlantısını kur
-function setupModalSSEConnection(sessionId, modelType) {
-    console.log(`[SSE] Setting up SSE connection for session: ${sessionId}`);
-    
-    // Mevcut SSE bağlantısını kapat
-    if (window.modalEventSource) {
-        window.modalEventSource.close();
-        console.log('[SSE] Closed existing modal SSE connection');
-    }
-    
-    // Yeni SSE bağlantısı oluştur
-    const eventSource = new EventSource(`/api/model/training-events/${sessionId}`);
-    window.modalEventSource = eventSource;
-    
-    eventSource.onopen = function() {
-        console.log('[SSE] Modal training SSE connection opened');
-        showModalTrainingStatus('SSE bağlantısı kuruldu, eğitim takibi başlatıldı...', 'info');
-    };
-    
-    eventSource.onmessage = function(event) {
-        try {
-            const data = JSON.parse(event.data);
-            console.log('[SSE] Modal training event received:', data);
-            
-            if (data.type === 'connected') {
-                console.log('[SSE] Connection confirmed for session:', data.session_id);
-                showModalTrainingStatus('Eğitim verisi işleniyor...', 'info');
-                
-            } else if (data.type === 'training_started') {
-                console.log('[SSE] Training started:', data);
-                showModalTrainingStatus(`Eğitim başladı! ${modelType.toUpperCase()} modeli eğitiliyor...`, 'info');
-                
-            } else if (data.type === 'training_progress') {
-                console.log('[SSE] Training progress:', data);
-                updateModalTrainingProgressSSE(data);
-                
-            } else if (data.type === 'training_completed') {
-                console.log('[SSE] Training completed:', data);
-                handleModalTrainingCompletedSSE(data, modelType);
-                eventSource.close();
-                
-            } else if (data.type === 'training_error') {
-                console.log('[SSE] Training error:', data);
-                handleModalTrainingErrorSSE(data, modelType);
-                eventSource.close();
-                
-            } else if (data.type === 'session_ended') {
-                console.log('[SSE] Session ended:', data);
-                showModalTrainingStatus('Eğitim oturumu sona erdi', 'warning');
-                eventSource.close();
-            }
-            
-        } catch (error) {
-            console.error('[SSE] Error parsing modal training event data:', error);
-        }
-    };
-    
-    eventSource.onerror = function(error) {
-        console.error('[SSE] Modal training SSE connection error:', error);
-        showModalTrainingStatus('SSE bağlantısında hata oluştu', 'danger');
-        
-        // UI sıfırla
-        const button = document.querySelector(`.btn-train-${modelType}`);
-        if (button) {
-            button.disabled = false;
-            button.innerHTML = `<i class="fas fa-play me-2"></i>Eğitimi Başlat`;
-        }
-        
-        const progressDiv = document.getElementById('modal-training-progress');
-        if (progressDiv) {
-            progressDiv.style.display = 'none';
-        }
-        
-        window.isModalTraining = false;
-        eventSource.close();
-    };
-    
-    // Otomatik kapatma (60 saniye)
-    setTimeout(() => {
-        if (eventSource.readyState !== EventSource.CLOSED) {
-            console.log('[SSE] Auto-closing modal SSE connection after timeout');
-            eventSource.close();
-        }
-    }, 60000);
-}
+// WebSocket sistemi kurulacak - SSE kaldırıldı
 
 // SSE progress güncellemesi
 function updateModalTrainingProgressSSE(data) {

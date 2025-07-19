@@ -495,16 +495,9 @@ def _run_content_training(trainer, training_data, params, session_id, app):
     """
     Background thread'de content model eğitimi çalıştırır
     """
-    from app.utils.sse_state import sse_training_state, emit_training_started, emit_training_completed, emit_training_error
-    
     # Flask app context'ini background thread'e taşı
     with app.app_context():
         try:
-            # SSE state oluştur ve başlangıç eventi gönder
-            sse_training_state.create_session(session_id, 'content')
-            emit_training_started(session_id, 'content', total_samples=training_data['total_samples'])
-            logger.info(f"[SSE] training_started emitted for session: {session_id}")
-            
             # Session ID'yi params'a ekle
             params['session_id'] = session_id
             
@@ -520,22 +513,23 @@ def _run_content_training(trainer, training_data, params, session_id, app):
             # SQLAlchemy objesinin attribute'larını serialize et
             version_name = model_version.version_name
             
-            # Başarı mesajı gönder
-            emit_training_completed(
-                session_id, 
-                version_name,
-                metrics=training_result['metrics'],
-                training_samples=training_result['training_samples'],
-                validation_samples=training_result['validation_samples'],
-                conflicts_resolved=training_result['conflicts_detected']
-            )
-            logger.info(f"[SSE] training_completed emitted for session: {session_id}")
+            # WebSocket ile training tamamlanma bildirimi
+            try:
+                from app.routes.websocket_routes import emit_training_completed
+                emit_training_completed(session_id, version_name, training_result.get('metrics', {}))
+            except Exception as ws_err:
+                logger.warning(f"WebSocket training completion event hatası: {str(ws_err)}")
+            
+            logger.info(f"Content training completed for session: {session_id}")
             
         except Exception as e:
-            # Hata mesajı gönder
-            emit_training_error(session_id, str(e))
+            # WebSocket ile training error bildirimi
+            try:
+                from app.routes.websocket_routes import emit_training_error
+                emit_training_error(session_id, str(e))
+            except Exception as ws_err:
+                logger.warning(f"WebSocket training error event hatası: {str(ws_err)}")
             logger.error(f"Training thread error: {str(e)}")
-            logger.info(f"[SSE] training_error emitted for session: {session_id}")
 
 def _run_age_training(trainer, training_data, params, session_id, app):
     """
@@ -548,17 +542,10 @@ def _run_age_training(trainer, training_data, params, session_id, app):
         session_id: WebSocket session ID
         app: Flask app instance
     """
-    from app.utils.sse_state import sse_training_state, emit_training_started, emit_training_progress, emit_training_completed, emit_training_error
-    
     # Flask app context'ini background thread'e taşı
     with app.app_context():
         try:
             logger.info(f"Yaş modeli eğitimi başlatıldı: session_id={session_id}")
-            
-            # SSE state oluştur ve başlangıç eventi gönder
-            sse_training_state.create_session(session_id, 'age')
-            emit_training_started(session_id, 'age', total_samples=len(training_data['embeddings']))
-            logger.info(f"[SSE] training_started emitted for session: {session_id}")
             
             # Eğitim parametrelerini hazırla
             training_params = {
@@ -574,20 +561,15 @@ def _run_age_training(trainer, training_data, params, session_id, app):
             
             # İlerleme callback fonksiyonu
             def progress_callback(epoch, total_epochs, metrics=None):
-                # SSE progress eventi gönder
                 current_loss = metrics.get('loss', 0.0) if metrics else 0.0
-                current_mae = metrics.get('mae', 0.0) if metrics else 0.0
-                current_r2 = metrics.get('r2', 0.0) if metrics else 0.0
-                
-                emit_training_progress(
-                    session_id, 
-                    current_epoch=epoch, 
-                    total_epochs=total_epochs,
-                    current_loss=current_loss,
-                    current_mae=current_mae,
-                    current_r2=current_r2
-                )
                 logger.info(f"Eğitim ilerlemesi: Epoch {epoch}/{total_epochs} (Loss: {current_loss:.4f})")
+                
+                # WebSocket ile progress bildirimi
+                try:
+                    from app.routes.websocket_routes import emit_training_progress
+                    emit_training_progress(session_id, epoch, total_epochs, metrics)
+                except Exception as ws_err:
+                    logger.warning(f"WebSocket training progress event hatası: {str(ws_err)}")
             
             # Parametrelere callback ekle
             training_params['progress_callback'] = progress_callback
@@ -603,25 +585,31 @@ def _run_age_training(trainer, training_data, params, session_id, app):
             # SQLAlchemy objesinin attribute'larını serialize et
             version_name = model_version.version_name
             
-            # Başarı durumunda SSE event gönder
-            final_metrics = {
-                'mae': result['metrics']['mae'],
-                'rmse': result['metrics']['rmse'], 
-                'within_3_years': result['metrics']['within_3_years'],
-                'within_5_years': result['metrics']['within_5_years'],
-                'training_samples': result['training_samples'],
-                'validation_samples': result['validation_samples']
-            }
+            # WebSocket ile training tamamlanma bildirimi
+            try:
+                from app.routes.websocket_routes import emit_training_completed
+                final_metrics = {
+                    'mae': result['metrics']['mae'],
+                    'rmse': result['metrics']['rmse'], 
+                    'within_3_years': result['metrics']['within_3_years'],
+                    'within_5_years': result['metrics']['within_5_years'],
+                    'training_samples': result['training_samples'],
+                    'validation_samples': result['validation_samples']
+                }
+                emit_training_completed(session_id, version_name, final_metrics)
+            except Exception as ws_err:
+                logger.warning(f"WebSocket training completion event hatası: {str(ws_err)}")
             
-            emit_training_completed(session_id, version_name, metrics=final_metrics, model_type='age')
             logger.info(f"Yaş modeli eğitimi tamamlandı: {version_name}")
             
         except Exception as e:
+            # WebSocket ile training error bildirimi
+            try:
+                from app.routes.websocket_routes import emit_training_error
+                emit_training_error(session_id, str(e))
+            except Exception as ws_err:
+                logger.warning(f"WebSocket training error event hatası: {str(ws_err)}")
             logger.error(f"Yaş modeli eğitimi hatası: {str(e)}", exc_info=True)
-            
-            # Hata durumunda SSE event gönder
-            emit_training_error(session_id, str(e), model_type='age')
-            
             # Re-raise the exception for logging
             raise
 
@@ -922,87 +910,6 @@ def test_websocket_manual():
             'error': str(e)
         }), 500 
 
-@bp.route('/training-events/<session_id>')
-def training_events(session_id):
-    """Server-Sent Events endpoint for training progress"""
-    from flask import Response
-    import json
-    import time
-    from app.utils.sse_state import sse_training_state
-    
-    def event_stream():
-        # Send initial connection confirmation
-        yield f"data: {json.dumps({'type': 'connected', 'session_id': session_id})}\n\n"
-        
-        # Check if session exists
-        if not sse_training_state.session_exists(session_id):
-            # Create session if it doesn't exist (for backward compatibility)
-            sse_training_state.create_session(session_id, 'content')
-            
-            # If no session exists, send simulation for testing
-            logger.info(f"[SSE] No training session found for {session_id}, sending simulation")
-            for i in range(1, 21):
-                progress_data = {
-                    'type': 'training_progress',
-                    'session_id': session_id,
-                    'current_epoch': i,
-                    'total_epochs': 20,
-                    'current_loss': 0.5 - (i * 0.02),
-                    'current_mae': 0.8 - (i * 0.03),
-                    'current_r2': 0.0
-                }
-                yield f"data: {json.dumps(progress_data)}\n\n"
-                time.sleep(0.1)
-            
-            completion_data = {
-                'type': 'training_completed',
-                'session_id': session_id,
-                'model_version': f'v_test_{session_id[:8]}'
-            }
-            yield f"data: {json.dumps(completion_data)}\n\n"
-            return
-        
-        # Real training: stream events from state manager
-        logger.info(f"[SSE] Streaming real training events for session {session_id}")
-        event_index = 0
-        last_activity_check = time.time()
-        
-        while True:
-            # Get new events
-            events = sse_training_state.get_events(session_id, event_index)
-            
-            for event in events:
-                yield f"data: {json.dumps(event)}\n\n"
-                event_index += 1
-                
-                # Check if training is completed or errored
-                if event.get('type') in ['training_completed', 'training_error']:
-                    logger.info(f"[SSE] Training finished for session {session_id}")
-                    return
-            
-            # Check if session is still active (every 5 seconds)
-            current_time = time.time()
-            if current_time - last_activity_check > 5:
-                session_info = sse_training_state.get_session_info(session_id)
-                if not session_info:
-                    logger.info(f"[SSE] Session {session_id} no longer exists")
-                    break
-                last_activity_check = current_time
-            
-            # Small delay to avoid busy waiting
-            time.sleep(0.1)
-        
-        # Send final message if session ended without completion
-        yield f"data: {json.dumps({'type': 'session_ended', 'session_id': session_id})}\n\n"
-    
-    return Response(
-        event_stream(),
-        mimetype='text/event-stream',
-        headers={
-            'Cache-Control': 'no-cache',
-            'Connection': 'keep-alive',
-            'Access-Control-Allow-Origin': '*'
-        }
-    )
+# SSE endpoint kaldırıldı - WebSocket sistemi kullanılacak
 
  

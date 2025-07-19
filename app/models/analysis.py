@@ -86,7 +86,17 @@ class Analysis(db.Model):
         self.progress = min(progress, 100)  # 100'den büyük değerler kabul edilmez
         db.session.commit()
         
-        # SocketIO kaldırıldı - SSE sistemi kullanılıyor
+        # WebSocket ile progress bildirimi gönder
+        try:
+            from app.routes.websocket_routes import emit_analysis_progress
+            emit_analysis_progress(
+                analysis_id=self.id,
+                progress=self.progress,
+                message=self.status_message or f'İlerleme: %{self.progress}',
+                status=self.status
+            )
+        except Exception as ws_err:
+            logger.warning(f"WebSocket progress event hatası: {str(ws_err)}")
     
     def complete_analysis(self):
         """Analizi başarıyla tamamlandı olarak işaretler."""
