@@ -88,6 +88,20 @@ yolov8x.pt
 # Virtual environment
 venv/
 
-# Logs
+# Logs ve runtime dosyalar
 logs/
-*.log 
+*.log
+output.log
+last_test_output.log
+last_coverage_report.log
+*.pid
+wsanaliz.pid
+
+# Geçici ve cache dosyalar
+temp_model/
+.pytest_cache/
+
+# Test coverage
+.coverage
+coverage.txt
+htmlcov/ 
