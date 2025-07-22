@@ -116,7 +116,7 @@ def register_websocket_handlers_in_context(socketio_instance):
     return True
 
 # EMIT FONKSİYONLARI - Harici kullanım için
-def emit_analysis_progress(analysis_id, progress, message="İşleniyor..."):
+def emit_analysis_progress(analysis_id, progress, message="İşleniyor...", file_id=None):
     """Analysis progress event'ini emit eder"""
     try:
         if not analysis_id:
@@ -126,6 +126,7 @@ def emit_analysis_progress(analysis_id, progress, message="İşleniyor..."):
         room = f"analysis_{analysis_id}"
         data = {
             'analysis_id': analysis_id,
+            'file_id': file_id,
             'progress': progress,
             'message': message,
             'status': 'processing'
@@ -168,11 +169,37 @@ def emit_analysis_progress(analysis_id, progress, message="İşleniyor..."):
         logger.error(f"emit_analysis_progress OUTER EXCEPTION: {e}")
         return False
 
-def emit_analysis_completed(analysis_id, message="Analiz tamamlandı"):
+def emit_analysis_started(analysis_id, message="Analiz başlatıldı", file_id=None):
+    """Analysis started event'ini emit eder"""
+    try:
+        data = {
+            'analysis_id': analysis_id,
+            'file_id': file_id,
+            'status': 'started',
+            'message': message,
+            'timestamp': datetime.now().isoformat()
+        }
+        
+        running_socketio = get_socketio()
+        
+        # Broadcast emit
+        running_socketio.emit('analysis_started', data)
+        
+        # Room-specific emit
+        running_socketio.emit('analysis_started', data, room=f"analysis_{analysis_id}")
+        
+        logger.info(f"Analysis started emit successful: {data}")
+        return True
+    except Exception as e:
+        logger.error(f"emit_analysis_started error: {e}")
+        return False
+
+def emit_analysis_completed(analysis_id, message="Analiz tamamlandı", file_id=None):
     """Analysis completed event'ini emit eder"""
     try:
         data = {
             'analysis_id': analysis_id,
+            'file_id': file_id,
             'status': 'completed',
             'message': message,
             'timestamp': datetime.now().isoformat()

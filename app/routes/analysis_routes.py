@@ -341,10 +341,9 @@ def get_analysis_status(analysis_id):
         status_info = {
             'analysis_id': analysis.id,
             'status': analysis.status,
-            'progress': analysis.progress,
-            'message': analysis.status_message,
             'start_time': analysis.start_time.isoformat() if analysis.start_time else None,
-            'end_time': analysis.end_time.isoformat() if analysis.end_time else None
+            'end_time': analysis.end_time.isoformat() if analysis.end_time else None,
+            'note': 'Progress ve durum bilgileri WebSocket üzerinden gerçek zamanlı gönderilir'
         }
         
         return jsonify(status_info), 200

@@ -71,13 +71,23 @@ def add_to_queue(analysis_id):
 
 def emit_queue_status():
     """
-    HTTP API üzerinden kuyruk durum bilgilerini sağlar
-    SocketIO yerine HTTP polling kullanılıyor
+    WebSocket ile kuyruk durum bilgilerini istemcilere gönderir
     """
     try:
         status = get_queue_status()
+        
+        # WebSocket ile kuyruk durumu bildirimi gönder
+        try:
+            from app.socketio_instance import get_socketio
+            running_socketio = get_socketio()
+            if running_socketio:
+                running_socketio.emit('queue_status', status)
+                logger.debug(f"Kuyruk durumu WebSocket ile gönderildi: {status}")
+        except Exception as ws_err:
+            logger.warning(f"WebSocket kuyruk durumu bildirimi hatası: {str(ws_err)}")
+            
         logger.debug(f"Kuyruk durumu mevcut: {status}")
-        # HTTP endpoint /api/queue/status üzerinden erişilebilir
+        # HTTP endpoint /api/queue/status hala mevcut
     except Exception as e:
         logger.warning(f"Kuyruk durumu güncellemesi hatası: {str(e)}")
 
@@ -140,10 +150,9 @@ def process_queue():
                             analysis_file_id = analysis.file_id  # file_id'yi önceden al
                             if success:
                                 # analyze_file zaten status'u 'completed' yapmış olmalı
-                                analysis.status_message = message or 'Analiz başarıyla tamamlandı'
+                                pass  # WebSocket ile bildirim gönderilecek
                             else:
                                 analysis.status = 'failed'
-                                analysis.status_message = message or 'Analiz başarısız'
                             session.commit()
                     
                     # Socket bildirim gönder - completed/failed
@@ -161,7 +170,6 @@ def process_queue():
                             if analysis:
                                 error_analysis_file_id = analysis.file_id  # file_id'yi önceden al
                                 analysis.status = 'failed'
-                                analysis.status_message = f"İşlem sırasında hata: {str(e)}"[:250]
                                 session.commit()
                                 
                             # Hata bildirimi
@@ -201,23 +209,26 @@ def process_queue():
                 start_processor()
 
 def _emit_analysis_status(analysis_id, file_id, status, progress, message):
-    """Analiz durumu - SocketIO kaldırıldı, SSE sistemi kullanılıyor"""
+    """Analiz durumu WebSocket bildirimi (eski fonksiyon - artık kullanılmıyor)"""
     try:
-        # SocketIO kaldırıldı - SSE sistemi kullanılıyor
+        # Bu fonksiyon artık kullanılmıyor - yeni WebSocket sistem aktif
         logger.info(f"Analiz durumu güncellendi: {analysis_id} - {status} ({progress}%)")
         
     except Exception as e:
         logger.warning(f"Analiz durumu güncelleme hatası: {str(e)}")
 
 def _emit_analysis_completion(analysis_id, file_id, success, elapsed_time, message):
-    """Analiz tamamlanma - SocketIO kaldırıldı, SSE sistemi kullanılıyor"""
+    """Analiz tamamlanma WebSocket bildirimi"""
     try:
-        # SocketIO kaldırıldı - SSE sistemi kullanılıyor
+        from app.routes.websocket_routes import emit_analysis_completed
         status_text = "completed" if success else "failed"
-        logger.info(f"Analiz tamamlandı: {analysis_id} - {status_text} ({elapsed_time:.2f}s)")
+        final_message = f"Analiz {status_text} ({elapsed_time:.2f}s): {message}"
+        
+        emit_analysis_completed(analysis_id, final_message, file_id)
+        logger.info(f"Analiz tamamlandı - WebSocket bildirimi: {analysis_id} - {status_text} ({elapsed_time:.2f}s)")
         
     except Exception as e:
-        logger.warning(f"Analiz tamamlanma bildirimi hatası: {str(e)}")
+        logger.warning(f"Analiz tamamlanma WebSocket bildirimi hatası: {str(e)}")
 
 def get_queue_status():
     """
@@ -272,3 +283,25 @@ def cleanup_queue_service():
         
     except Exception as e:
         logger.error(f"⚠️ Queue service cleanup hatası: {e}") 
+
+def clear_queue():
+    """Kuyruktaki tüm analizleri temizle"""
+    global analysis_queue, is_processing
+    
+    cleared_count = 0
+    
+    # Önce işleme durduralım
+    with processing_lock:
+        is_processing = False
+        
+        # Kuyrukta bekleyen tüm analizleri temizle
+        try:
+            while True:
+                analysis_queue.get_nowait()
+                analysis_queue.task_done()
+                cleared_count += 1
+        except queue.Empty:
+            pass
+    
+    logger.info(f"Kuyruk temizlendi: {cleared_count} analiz silindi")
+    return cleared_count

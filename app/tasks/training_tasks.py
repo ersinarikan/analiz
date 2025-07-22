@@ -5,18 +5,24 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-def start_training_task(model_type, training_params):
+def start_training_task(training_data, model_type='content'):
     """
-    Eğitim görevini başlatır - SSE sistemi kullanır
+    Eğitim görevini başlatır - WebSocket sistemi kullanır
     """
-    logger.info(f"Eğitim görevi başlatıldı: {model_type}")
-    # SSE sistemi tarafından işlenir
-    return {"status": "started", "message": "Eğitim SSE sistemi tarafından yönetiliyor"}
+    try:
+        # WebSocket sistemi tarafından işlenir
+        return {"status": "started", "message": "Eğitim WebSocket sistemi tarafından yönetiliyor"}
+        
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
 
-def start_evaluation_task(model_version):
+def start_evaluation_task(model_id):
     """
     Model değerlendirme görevini başlatır
     """
-    logger.info(f"Model değerlendirme başlatıldı: {model_version}")
-    # SSE sistemi tarafından işlenir
-    return {"status": "started", "message": "Değerlendirme SSE sistemi tarafından yönetiliyor"} 
+    try:
+        # WebSocket sistemi tarafından işlenir
+        return {"status": "started", "message": "Değerlendirme WebSocket sistemi tarafından yönetiliyor"}
+        
+    except Exception as e:
+        return {"status": "error", "error": str(e)} 

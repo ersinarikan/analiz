@@ -165,15 +165,13 @@ def train_model():
         # Benzersiz model ID oluştur
         model_id = str(uuid.uuid4())
         
-        # Artık task system yerine HTTP response döndürüyoruz
-        # SSE sistemi üzerinden real-time training yapılır
+        # WebSocket sistemi üzerinden real-time training yapılır
         return jsonify({
-            'message': f'Eğitim sistemi hazır. {len(training_data)} örnek mevcut. SSE sistemi kullanın.',
-            'model_id': model_id,
             'status': 'ready',
+            'message': f'Eğitim sistemi hazır. {len(training_data)} örnek mevcut. WebSocket sistemi kullanın.',
             'training_samples': len(training_data),
-            'note': 'Eğitimi başlatmak için /api/model/train-web endpoint\'ini kullanın'
-        }), 200
+            'categories': list(training_data.keys())
+        })
             
     except Exception as e:
         logger.error(f"Model eğitim hatası: {str(e)}")
@@ -200,8 +198,8 @@ def training_status(training_id):
         return jsonify({
             'training_id': training_id,
             'status': 'in_progress',
-            'progress': progress,
-            'status_message': f'Eğitim devam ediyor... (Epoch 3/4)'
+            'message': f'Eğitim devam ediyor... (Epoch 3/4) - WebSocket üzerinden gerçek zamanlı takip edin',
+            'note': 'Gerçek zamanlı progress WebSocket ile gönderilir'
         }), 200
             
     except Exception as e:
@@ -932,7 +930,5 @@ def test_websocket_manual():
             'success': False,
             'error': str(e)
         }), 500 
-
-# SSE endpoint kaldırıldı - WebSocket sistemi kullanılacak
 
  

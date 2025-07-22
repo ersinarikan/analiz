@@ -15,8 +15,6 @@ import uuid
 
 logger = logging.getLogger(__name__)
 
-# SocketIO kaldırıldı - SSE sistemi kullanılıyor
-
 class Analysis(db.Model):
     """
     Analiz ana modeli.
@@ -38,10 +36,6 @@ class Analysis(db.Model):
     error_message = db.Column(db.Text, nullable=True)
     
     include_age_analysis = db.Column(db.Boolean, default=False)  # Yaş tahmini yapılsın mı?
-    
-    # Eksik alanları ekle
-    progress = db.Column(db.Float, default=0)  # İlerleme yüzdesi (0-100)
-    status_message = db.Column(db.String(255), nullable=True)  # Durum mesajı
     
     # Genel kategorik skorlar (0-1 arası)
     overall_violence_score = db.Column(db.Float, default=0)
@@ -72,37 +66,33 @@ class Analysis(db.Model):
     def start_analysis(self):
         """Analiz sürecini başlatır ve durumu 'processing' olarak günceller."""
         self.status = 'processing'
-        self.progress = 0
-        self.status_message = 'Analiz başlatıldı'
         db.session.commit()
     
-    def update_progress(self, progress: int):
+    def update_progress(self, progress: int, message: str = None):
         """
-        Analiz ilerleme durumunu günceller.
+        Analiz ilerleme durumunu WebSocket ile bildirir.
         
         Args:
             progress: 0-100 arası ilerleme yüzdesi
+            message: Opsiyonel durum mesajı
         """
-        self.progress = min(progress, 100)
-        db.session.commit()
-        
         # WebSocket ile progress bildirimi gönder
+        logger.info(f"[DEBUG_PROGRESS] update_progress çağrıldı - Analysis: {self.id}, Progress: {progress}, Message: {message}")
         try:
             from app.routes.websocket_routes import emit_analysis_progress
-            emit_analysis_progress(
+            result = emit_analysis_progress(
                 analysis_id=self.id,
-                progress=self.progress,
-                message=self.status_message or f'İlerleme: %{self.progress}',
-                status=self.status
+                progress=min(progress, 100),
+                message=message or f'İlerleme: %{min(progress, 100)}',
+                file_id=self.file_id
             )
+            logger.info(f"[DEBUG_PROGRESS] emit_analysis_progress sonucu: {result}")
         except Exception as ws_err:
             logger.warning(f"WebSocket progress event hatası: {str(ws_err)}")
     
     def complete_analysis(self):
         """Analizi başarıyla tamamlandı olarak işaretler."""
         self.status = 'completed'
-        self.progress = 100
-        self.status_message = 'Analiz tamamlandı'
         db.session.commit()
     
     def fail_analysis(self, message: str):
@@ -114,7 +104,6 @@ class Analysis(db.Model):
         """
         self.status = 'failed'
         self.error_message = message
-        self.status_message = f'Analiz başarısız: {message}'
         db.session.commit()
     
     def to_dict(self) -> dict:
@@ -141,8 +130,6 @@ class Analysis(db.Model):
             'file_id': self.file_id,
             'file_info': file_info,
             'status': self.status,
-            'progress': self.progress,
-            'status_message': self.status_message,
             'frames_per_second': self.frames_per_second,
             'include_age_analysis': self.include_age_analysis,
             'overall_violence_score': self.overall_violence_score,

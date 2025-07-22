@@ -116,12 +116,21 @@ function updateAnalysisParamsButtonStateWithQueue(queueData) {
         hasFilesInQueue = (data?.queue_size > 0) || (data?.is_processing === true);
     }
     
-    // Butonlar devre dışı mı?
-    const shouldDisableButtons = hasUploadedFiles || hasFilesInQueue;
+    // Butonlar sadece analiz devam ederken devre dışı olmalı
+    // Dosya yüklendiyse VE analiz devam ediyorsa → devre dışı
+    // Sadece dosya yüklendiyse → aktif (kullanıcı analiz başlatabilir)
+    const shouldDisableButtons = hasFilesInQueue; // Sadece kuyruk durumuna göre
 
-    console.log('Ana sayfada yüklü dosya var mı?', hasUploadedFiles); // Debug için
-    console.log('Kuyrukta dosya var mı?', hasFilesInQueue); // Debug için
-    console.log('Butonlar devre dışı mı?', shouldDisableButtons); // Debug için
+    // Debug logları (sadece durumda değişiklik varsa)
+    const currentState = `files:${hasUploadedFiles}_queue:${hasFilesInQueue}_disabled:${shouldDisableButtons}`;
+    if (window.lastButtonState !== currentState) {
+        console.log('🔄 Buton durumu değişti:', {
+            'Yüklü dosya': hasUploadedFiles,
+            'Kuyrukta dosya': hasFilesInQueue, 
+            'Butonlar devre dışı': shouldDisableButtons
+        });
+        window.lastButtonState = currentState;
+    }
 
     if (shouldDisableButtons) {
         // Analiz Parametreleri butonu
@@ -613,6 +622,52 @@ function initializeEventListeners() {
                     refreshTrainingStats();
                 });
             }
+            
+            // Eğitim Verisi Sayaçları tab'ı event listener
+            const trainingDataTab = document.getElementById('training-data-tab');
+            if (trainingDataTab) {
+                trainingDataTab.addEventListener('shown.bs.tab', () => {
+                    console.log('Egitim Verisi Sayaclari tabi acildi, API cagrilari yapiliyor...');
+                    
+                    // İçerik modeli verilerini çek
+                    Promise.all([
+                        fetch('/api/ensemble/stats/content').then(r => r.json()),
+                        fetch('/api/model/metrics/content').then(r => r.json())
+                    ])
+                    .then(([ensembleData, modelData]) => {
+                        const contentModelData = modelData.content || {};
+                        const mergedData = {
+                            ...ensembleData,
+                            feedback_sources: contentModelData.feedback_sources || { manual: 0, pseudo: 0 },
+                            feedback_count: contentModelData.feedback_count || 0
+                        };
+                        displayContentModelMetrics(mergedData);
+                    })
+                    .catch(error => {
+                        console.error('Icerik model verisi cekilirken hata:', error);
+                        displayContentModelMetrics({}); // Bos veri ile cagir
+                    });
+                    
+                    // Yaş modeli verilerini çek
+                    Promise.all([
+                        fetch('/api/ensemble/stats/age').then(r => r.json()),
+                        fetch('/api/model/metrics/age').then(r => r.json())
+                    ])
+                    .then(([ensembleData, modelData]) => {
+                        const ageModelData = modelData.age || {};
+                        const mergedData = {
+                            ...ensembleData,
+                            feedback_sources: ageModelData.feedback_sources || { manual: 0, pseudo: 0 },
+                            feedback_count: ageModelData.feedback_count || 0
+                        };
+                        displayAgeModelMetrics(mergedData);
+                    })
+                    .catch(error => {
+                        console.error('Yas model verisi cekilirken hata:', error);
+                        displayAgeModelMetrics({}); // Bos veri ile cagir
+                    });
+                });
+            }
         });
     }
     
@@ -638,8 +693,7 @@ function initializeEventListeners() {
         });
     }
     
-
-    
+   
     // Model Yönetimi Butonu
     const modelManagementBtn = document.getElementById('modelManagementBtn');
     if (modelManagementBtn) {
@@ -700,11 +754,9 @@ function initializeEventListeners() {
     }
     
     // Eğitim Başlatma Butonu
-    
-    
+        
     // Model Sıfırlama Butonları - Kaldırıldı, Model Yönetimi modalında mevcut
-    
-    // Dosya kaldırma butonu için olay dinleyicisi
+        // Dosya kaldırma butonu için olay dinleyicisi
     document.getElementById('fileList').addEventListener('click', function(e) {
         if (e.target.closest('.remove-file-btn')) {
             const fileCard = e.target.closest('.file-card');
@@ -728,8 +780,9 @@ function startQueueStatusChecker() {
     // İlk kontrol
     checkQueueStatus();
     
-    // 10 saniyede bir kontrol et (5000'den 10000'e çıkarıldı)
-    mainQueueStatusInterval = setInterval(checkQueueStatus, 10000);
+    // 30 saniyede bir kontrol et (daha az spam için)
+            // WebSocket üzerinden gerçek zamanlı bilgi alınıyor
+    mainQueueStatusInterval = setInterval(checkQueueStatus, 30000);
 }
 
 function stopQueueStatusChecker() {
@@ -794,8 +847,20 @@ function updateQueueStatus(response) {
         queueStatusElement.style.display = 'none';
     }
     
-    // Buton durumlarını güncelle (hem yüklü dosya hem kuyruk durumuna göre)
-    updateAnalysisParamsButtonStateWithQueue(data);
+    // Buton durumlarını güncelle (sadece gerçekten gerekli olduğunda)
+    // WebSocket queue_status sürekli geldiği için, sadece kuyruk durumu değiştiğinde güncelle
+    const currentQueueSize = data?.queue_size || 0;
+    const currentProcessing = data?.is_processing || false;
+    
+    // Önceki durumla karşılaştır
+    const prevQueueSize = window.lastQueueSize || 0;
+    const prevProcessing = window.lastProcessing || false;
+    
+    if (currentQueueSize !== prevQueueSize || currentProcessing !== prevProcessing) {
+        updateAnalysisParamsButtonStateWithQueue(data);
+        window.lastQueueSize = currentQueueSize;
+        window.lastProcessing = currentProcessing;
+    }
 }
 
 // Dosya seçimini işle
@@ -873,7 +938,7 @@ function uploadFilesSequentially(index) {
         file.fileId = data.file_id;
         
         // Dosya durumunu güncelle
-        updateFileStatus(file.id, 'Sırada', 100);
+        updateFileStatus(file.id, 'Sırada', 100, null, null);
         
         // Bir sonraki dosyayı yükle
         uploadFilesSequentially(index + 1);
@@ -1099,6 +1164,17 @@ function showToast(title, message, type = 'info') {
 
 // Tüm dosyalar için analiz başlat
 function startAnalysisForAllFiles(framesPerSecond, includeAgeAnalysis) {
+    // Analiz başlatılırken loading overlay'i göster
+    const settingsSaveLoader = document.getElementById('settingsSaveLoader');
+    console.log('[DEBUG] startAnalysisForAllFiles: settingsSaveLoader element:', settingsSaveLoader);
+    if (settingsSaveLoader) {
+        settingsSaveLoader.style.display = 'flex';
+        settingsSaveLoader.innerHTML = '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;"><div class="spinner-border text-primary" role="status" style="width:4rem;height:4rem;"></div><div style="margin-top:20px;font-size:1.2rem;">Modeller yükleniyor, lütfen bekleyin...</div></div>';
+        console.log('[DEBUG] startAnalysisForAllFiles: Loading spinner GÖSTERILDI');
+    } else {
+        console.error('[DEBUG] startAnalysisForAllFiles: settingsSaveLoader element BULUNAMADI!');
+    }
+    
     // Analiz edilecek dosya sayısını belirle
     const filesToAnalyze = uploadedFiles.filter(file => file.fileId && !file.analysisId);
     totalAnalysisCount = filesToAnalyze.length;
@@ -1112,68 +1188,36 @@ function startAnalysisForAllFiles(framesPerSecond, includeAgeAnalysis) {
     updateGlobalProgress(0, totalAnalysisCount);
     document.getElementById('globalProgressSection').style.display = 'block';
     
+    // "Analiz Et" butonunu "Analizi Durdur" olarak değiştir
+    const analyzeBtn = document.getElementById('analyzeBtn');
+    if (analyzeBtn) {
+        analyzeBtn.innerHTML = '<i class="fas fa-stop me-1"></i> Analizi Durdur';
+        analyzeBtn.className = 'btn btn-danger';
+        analyzeBtn.onclick = stopAnalysis;
+        console.log('[DEBUG] Analiz Et butonu -> Analizi Durdur olarak değiştirildi');
+    }
+    
+    // Ana sayfadaki "Analiz Başlat" butonunu da değiştir
+    const startAnalysisMainBtn = document.getElementById('startAnalysisMainBtn');
+    if (startAnalysisMainBtn) {
+        startAnalysisMainBtn.innerHTML = '<i class="fas fa-stop me-2"></i>Analizi Durdur';
+        startAnalysisMainBtn.className = 'btn btn-danger btn-lg me-3';
+        startAnalysisMainBtn.onclick = stopAnalysis;
+        console.log('[DEBUG] Analiz Başlat butonu -> Analizi Durdur olarak değiştirildi');
+    }
+    
     // Her bir dosya için analiz başlat
     filesToAnalyze.forEach(file => {
         startAnalysis(file.id, file.fileId, framesPerSecond, includeAgeAnalysis);
     });
 }
 
-// Analiz durumunu kontrol et (HTTP fallback)
-function checkAnalysisStatus(analysisId, fileId) {
-    if (!analysisId) {
-        console.error(`No analysis ID for file ${fileId}, cannot check status`);
-        return;
-    }
-    
-    if (cancelledAnalyses.has(analysisId)) {
-        console.log(`Analysis ${analysisId} was cancelled, stopping status checks`);
-        return;
-    }
-
-    let errorCount = fileErrorCounts.get(fileId) || 0;
-    if (errorCount > MAX_STATUS_CHECK_RETRIES) {
-        console.error(`Max retries exceeded for analysis ${analysisId}`);
-        updateFileStatus(fileId, "failed", 0);
-        fileStatuses.set(fileId, "failed");
-        updateGlobalProgress();
-        return;
-    }
-
-    fetch(`/api/analysis/${analysisId}/status`)
-    .then(response => response.ok ? response.json() : Promise.reject(`HTTP ${response.status}`))
-    .then(response => {
-        console.log(`🔄 HTTP Fallback - Analysis status for ${analysisId}:`, response);
-        
-        const status = response.status;
-        const progress = response.progress || 0;
-        
-        fileStatuses.set(fileId, status);
-        updateFileStatus(fileId, status, progress);
-        
-        if (status === "processing") {
-            setTimeout(() => checkAnalysisStatus(analysisId, fileId), 3000);
-        } else if (status === "completed") {
-            console.log(`✅ HTTP Fallback - Analysis completed: ${analysisId}`);
-            setTimeout(() => getAnalysisResults(fileId, analysisId), 1000);
-        } else if (status === "failed") {
-            showError(`${fileNameFromId(fileId)} dosyası için analiz başarısız oldu.`);
-        } else if (status !== "completed" && status !== "failed") {
-            setTimeout(() => checkAnalysisStatus(analysisId, fileId), 2000);
-        }
-        
-        updateGlobalProgress();
-    })
-    .catch(error => {
-        console.error(`HTTP Fallback error for ${analysisId}:`, error);
-        fileErrorCounts.set(fileId, errorCount + 1);
-        setTimeout(() => checkAnalysisStatus(analysisId, fileId), 5000);
-    });
-}
+// REMOVED: HTTP fallback function - all communication is via WebSocket now
 
 // Analiz işlemini başlat
 function startAnalysis(fileId, serverFileId, framesPerSecond, includeAgeAnalysis) {
     // Dosya durumunu "kuyruğa eklendi" olarak ayarla - backend'den gerçek durum gelecek
-    updateFileStatus(fileId, "Sırada", 0);
+    updateFileStatus(fileId, "Sırada", 0, null, null);
     fileStatuses.set(fileId, "queued");
     
     // Analiz parametrelerini hazırla
@@ -1307,7 +1351,7 @@ function startAnalysis(fileId, serverFileId, framesPerSecond, includeAgeAnalysis
         // 🔥 FIX: WebSocket timeout timer'ını global olarak saklayalım
         const timeoutId = setTimeout(() => {
             alert('WebSocket üzerinden analiz ilerleme bilgisi alınamadı! Sunucu ile gerçek zamanlı bağlantı kurulamıyor. Lütfen sayfayı yenileyin veya sistem yöneticisine başvurun.');
-        }, 150000);
+        }, 600000); // 10 dakika
         
         // Timer'ı dosya objesi üzerinde saklayalım ki completed olduğunda temizleyebilelim
         const file = uploadedFiles.find(f => f.id === fileId);
@@ -1318,7 +1362,7 @@ function startAnalysis(fileId, serverFileId, framesPerSecond, includeAgeAnalysis
     })
     .catch(error => {
         console.error("Error starting analysis:", error);
-        updateFileStatus(fileId, "failed", 0);
+        updateFileStatus(fileId, "failed", 0, null, null);
         fileStatuses.set(fileId, "failed");
         showToast('Hata', `${fileNameFromId(fileId)} dosyası için analiz başlatılamadı: ${error.message}`, 'danger');
         updateGlobalProgress();
@@ -1358,7 +1402,17 @@ function getCompletedAnalysesCount() {
 }
 
 // Dosya durumunu güncelle
-function updateFileStatus(fileId, status, progress, error = null) {
+function updateFileStatus(fileId, status, progress, message = null, error = null) {
+    // Spinner'ı analiz başlar başlamaz gizle (progress > 0 koşulunu kaldırdık)
+    if (status === 'processing') {
+        const settingsSaveLoader = document.getElementById('settingsSaveLoader');
+        console.log('[DEBUG] updateFileStatus - Processing status tespit edildi, progress:', progress, ', mesaj:', message);
+        if (settingsSaveLoader && settingsSaveLoader.style.display !== 'none') {
+            settingsSaveLoader.style.display = 'none';
+            settingsSaveLoader.innerHTML = '';
+            console.log('[DEBUG] updateFileStatus: Processing status ile Loading spinner GİZLENDI');
+        }
+    }
     // DEBUG LOG EKLE
     console.log('[DEBUG] updateFileStatus çağrıldı:', fileId, status, progress);
     const fileCard = document.getElementById(fileId);
@@ -1375,6 +1429,8 @@ function updateFileStatus(fileId, status, progress, error = null) {
         displayStatus = 'Hata';
     } else if (status === 'queued') {
         displayStatus = 'Sırada';
+    } else if (status === 'cancelled') {
+        displayStatus = 'İptal Edildi';
     }
     
     // Durum metni
@@ -1629,6 +1685,9 @@ window.getAnalysisResults = function getAnalysisResults(fileId, analysisId, isPa
             if (completedElement) {
                 completedElement.style.display = 'block';
             }
+            
+            // Butonu tekrar "Analiz Et" olarak değiştir
+            resetAnalyzeButton();
         }
     })
     .catch(error => {
@@ -2750,15 +2809,21 @@ function loadModelMetrics() {
     let contentPromise, agePromise;
     
     // CLIP ensemble metriklerini yükle
-    contentPromise = fetch('/api/ensemble/stats/content')
-    .then(response => {
-        if (!response.ok) {
-            throw new Error(`HTTP error! Status: ${response.status}`);
-        }
-        return response.json();
-    })
-    .then(data => {
-        console.log('CLIP ensemble metrikleri:', data);
+    contentPromise = Promise.all([
+        fetch('/api/ensemble/stats/content').then(r => r.json()),
+        fetch('/api/model/metrics/content').then(r => r.json())
+    ])
+    .then(([ensembleData, modelData]) => {
+        console.log('CLIP ensemble metrikleri:', ensembleData);
+        console.log('İçerik model metrikleri:', modelData);
+        
+        // Model service verilerinden feedback_sources'ı al
+        const contentModelData = modelData.content || {};
+        const mergedData = {
+            ...ensembleData,
+            feedback_sources: contentModelData.feedback_sources || { manual: 0, pseudo: 0 },
+            feedback_count: contentModelData.feedback_count || 0
+        };
         
         // Ensemble versiyonlarını al
         return fetch('/api/ensemble/versions/content')
@@ -2770,12 +2835,12 @@ function loadModelMetrics() {
             })
             .then(versionData => {
                 // Versiyon bilgilerini ekle
-                data.versions = versionData.versions;
-                return data;
+                mergedData.versions = versionData.versions;
+                return mergedData;
             })
             .catch(error => {
                 console.error('CLIP ensemble versiyonları alınamadı:', error);
-                return data;
+                return mergedData;
             });
     })
     .then(data => {
@@ -2788,16 +2853,22 @@ function loadModelMetrics() {
         `;
     });
     
-    // Yaş ensemble metriklerini yükle
-    agePromise = fetch('/api/ensemble/stats/age')
-    .then(response => {
-        if (!response.ok) {
-            throw new Error(`HTTP error! Status: ${response.status}`);
-        }
-        return response.json();
-    })
-    .then(data => {
-        console.log('Yaş ensemble metrikleri:', data);
+    // Yaş model metriklerini yükle (hem ensemble hem model service verilerini birleştir)
+    agePromise = Promise.all([
+        fetch('/api/ensemble/stats/age').then(r => r.json()),
+        fetch('/api/model/metrics/age').then(r => r.json())
+    ])
+    .then(([ensembleData, modelData]) => {
+        console.log('Yaş ensemble metrikleri:', ensembleData);
+        console.log('Yaş model metrikleri:', modelData);
+        
+        // Model service verilerinden feedback_sources'ı al
+        const ageModelData = modelData.age || {};
+        const mergedData = {
+            ...ensembleData,
+            feedback_sources: ageModelData.feedback_sources || { manual: 0, pseudo: 0 },
+            feedback_count: ageModelData.feedback_count || 0
+        };
         
         // Ensemble versiyonlarını al
         return fetch('/api/ensemble/versions/age')
@@ -2809,12 +2880,12 @@ function loadModelMetrics() {
             })
             .then(versionData => {
                 // Versiyon bilgilerini ekle
-                data.versions = versionData.versions;
-                return data;
+                mergedData.versions = versionData.versions;
+                return mergedData;
             })
             .catch(error => {
                 console.error('Yaş ensemble versiyonları alınamadı:', error);
-                return data;
+                return mergedData;
             });
     })
     .then(data => {
@@ -2837,6 +2908,26 @@ function loadModelMetrics() {
 
 // İçerik analiz modeli metriklerini göster
 function displayContentModelMetrics(data) {
+    console.log('displayContentModelMetrics called with data:', data);
+    
+    // Veri kontrolü
+    if (!data) {
+        console.warn('displayContentModelMetrics: No data provided');
+        data = {};
+    }
+    
+    // Eğitim verisi sayaçlarını güncelle
+    const feedbackSources = data.feedback_sources || {};
+    const manualCount = feedbackSources.manual || 0;
+    const pseudoCount = feedbackSources.pseudo || 0;
+    const totalCount = (manualCount + pseudoCount) || (data.feedback_count || 0);
+    const manualEl = document.getElementById('content-manual-count');
+    const pseudoEl = document.getElementById('content-pseudo-count');
+    const totalEl = document.getElementById('content-total-count');
+    if (manualEl) manualEl.textContent = `Manuel: ${manualCount}`;
+    if (pseudoEl) pseudoEl.textContent = `Pseudo: ${pseudoCount}`;
+    if (totalEl) totalEl.textContent = `Toplam: ${totalCount}`;
+    
     // Loading spinner'ı kaldır
     const contentTab = document.getElementById('contentMetricsTab');
     if (contentTab) {
@@ -2955,6 +3046,26 @@ function displayContentModelMetrics(data) {
 
 // Yaş analiz modeli metriklerini göster
 function displayAgeModelMetrics(data) {
+    console.log('displayAgeModelMetrics called with data:', data);
+    
+    // Veri kontrolü
+    if (!data) {
+        console.warn('displayAgeModelMetrics: No data provided');
+        data = {};
+    }
+    
+    // Eğitim verisi sayaçlarını güncelle
+    const feedbackSources = data.feedback_sources || {};
+    const manualCount = feedbackSources.manual || 0;
+    const pseudoCount = feedbackSources.pseudo || 0;
+    const totalCount = (manualCount + pseudoCount) || (data.feedback_count || 0);
+    const manualEl = document.getElementById('age-manual-count');
+    const pseudoEl = document.getElementById('age-pseudo-count');
+    const totalEl = document.getElementById('age-total-count');
+    if (manualEl) manualEl.textContent = `Manuel: ${manualCount}`;
+    if (pseudoEl) pseudoEl.textContent = `Pseudo: ${pseudoCount}`;
+    if (totalEl) totalEl.textContent = `Toplam: ${totalCount}`;
+    
     // Loading spinner'ı kaldır
     const ageTab = document.getElementById('ageMetricsTab');
     if (ageTab) {
@@ -3394,7 +3505,7 @@ function setupTrainingButton() {
 
 // Socket.io eğitim ilerleme güncellemesi
 function updateTrainingProgress(data) {
-    const { progress, status_message } = data;
+    const { progress, message } = data;
     
     // İlerleme çubuğunu güncelle
     const progressBar = document.getElementById('trainingProgressBar');
@@ -3403,7 +3514,7 @@ function updateTrainingProgress(data) {
     progressBar.setAttribute('aria-valuenow', progress);
     
     // Durum metnini güncelle
-    document.getElementById('trainingStatusText').textContent = status_message;
+    document.getElementById('trainingStatusText').textContent = message || `${progress}% tamamlandı`;
 }
 
 // Socket.io eğitim tamamlandı
@@ -4350,7 +4461,7 @@ function updateModalModelStats(modelType, stats) {
 
 // Modal'dan model eğitimi başlat
 function trainModelFromModal(modelType) {
-    console.log(`[SSE] trainModelFromModal called with modelType: ${modelType}`);
+    console.log(`trainModelFromModal called with modelType: ${modelType}`);
     
     // Global flag set et
     window.isModalTraining = true;
@@ -4359,7 +4470,7 @@ function trainModelFromModal(modelType) {
     const progressDiv = document.getElementById('modal-training-progress');
     
     if (!button || !progressDiv) {
-        console.error('[SSE] Required elements not found for modal training');
+        console.error('Required elements not found for modal training');
         return;
     }
     
@@ -4391,7 +4502,7 @@ function trainModelFromModal(modelType) {
         progressBar.setAttribute('aria-valuenow', '0');
     }
     
-    console.log('[SSE] Modal UI elements configured, making API call');
+    console.log('Modal UI elements configured, making API call');
     
     // API çağrısı (sadece content modeli için)
     fetch(`/api/model/train-web`, {
@@ -4408,12 +4519,12 @@ function trainModelFromModal(modelType) {
     })
     .then(response => response.json())
     .then(data => {
-        console.log('[SSE] Modal training API response:', data);
+        console.log('Modal training API response:', data);
         
         if (data.success) {
             // Global session tracking
             window.currentTrainingSessionId = data.session_id;
-            console.log('[SSE] Set global session ID for modal:', data.session_id);
+            console.log('Set global session ID for modal:', data.session_id);
             
             showModalTrainingStatus(`Eğitim başlatıldı! Session ID: ${data.session_id.substring(0, 8)}...`, 'info');
             
@@ -4429,7 +4540,7 @@ function trainModelFromModal(modelType) {
         }
     })
     .catch(error => {
-        console.error('[SSE] Modal training error:', error);
+        console.error('Modal training error:', error);
         
         // UI sıfırla
         button.disabled = false;
@@ -4442,54 +4553,11 @@ function trainModelFromModal(modelType) {
     });
 }
 
-// WebSocket sistemi kurulacak - SSE kaldırıldı
+// WebSocket sistemi kuruldu
 
-// SSE progress güncellemesi
-function updateModalTrainingProgressSSE(data) {
-    console.log('[SSE] Updating modal training progress:', data);
-    
-    const progressBar = document.getElementById('modal-progress-bar');
-    const currentEpoch = document.getElementById('modal-current-epoch');
-    const currentLoss = document.getElementById('modal-current-loss');
-    const currentMAE = document.getElementById('modal-current-mae');
-    const trainingDuration = document.getElementById('modal-training-duration');
-    
-    // Progress bar güncelleme
-    const progressPercent = (data.current_epoch / data.total_epochs) * 100;
-    if (progressBar) {
-        progressBar.style.width = progressPercent + '%';
-        progressBar.setAttribute('aria-valuenow', Math.round(progressPercent));
-    }
-    
-    // Epoch bilgisi
-    if (currentEpoch) {
-        currentEpoch.textContent = `${data.current_epoch}/${data.total_epochs}`;
-    }
-    
-    // Metrics güncelleme
-    if (currentLoss && data.current_loss !== undefined) {
-        currentLoss.textContent = data.current_loss.toFixed(4);
-    }
-    if (currentMAE && data.current_mae !== undefined) {
-        currentMAE.textContent = data.current_mae.toFixed(4);
-    }
-    
-    // Süre hesaplaması
-    if (trainingStartTime && trainingDuration) {
-        const elapsed = (Date.now() - trainingStartTime) / 1000;
-        trainingDuration.textContent = formatDuration(elapsed);
-    }
-    
-    // Durum mesajını güncelle
-    showModalTrainingStatus(
-        `Eğitim devam ediyor... Epoch ${data.current_epoch}/${data.total_epochs} (${Math.round(progressPercent)}%) - Loss: ${data.current_loss?.toFixed(4) || '-'}`,
-        'info'
-    );
-}
-
-// SSE training tamamlandı
-function handleModalTrainingCompletedSSE(data, modelType) {
-    console.log('[SSE] Modal training completed:', data);
+// Modal training tamamlandı
+function handleModalTrainingCompleted(data, modelType) {
+    console.log('Modal training completed:', data);
     
     const progressDiv = document.getElementById('modal-training-progress');
     
@@ -4534,17 +4602,11 @@ function handleModalTrainingCompletedSSE(data, modelType) {
     
     // Toast notification
     showToast('Başarılı', `${modelType.toUpperCase()} modeli eğitimi tamamlandı!`, 'success');
-    
-    // SSE connection temizle
-    if (window.modalEventSource) {
-        window.modalEventSource.close();
-        window.modalEventSource = null;
-    }
 }
 
-// SSE training error
-function handleModalTrainingErrorSSE(data, modelType) {
-    console.error('[SSE] Modal training error:', data);
+// Modal training error
+function handleModalTrainingError(data, modelType) {
+    console.error('Modal training error:', data);
     
     // UI sıfırla
     const button = document.querySelector(`.btn-train-${modelType}`);
@@ -4562,12 +4624,6 @@ function handleModalTrainingErrorSSE(data, modelType) {
     
     showModalTrainingStatus(`Eğitim hatası: ${data.error_message || 'Bilinmeyen hata'}`, 'danger');
     showToast('Hata', `${modelType.toUpperCase()} eğitimi başarısız oldu`, 'error');
-    
-    // SSE connection temizle
-    if (window.modalEventSource) {
-        window.modalEventSource.close();
-        window.modalEventSource = null;
-    }
 }
 
 // Resim büyütme fonksiyonu
@@ -4608,7 +4664,6 @@ function zoomImage(imageSrc, imageTitle = 'Resim Görüntüleyici') {
     
     console.log('[DEBUG] Manuel modal oluşturuldu ve açıldı');
 }
-
 // Modal kapatma fonksiyonu
 function closeZoomModal() {
     const modal = document.getElementById('imageZoomModal');
@@ -5048,12 +5103,7 @@ function stopWebTraining() {
     currentTrainingSession = null;
     trainingStartTime = null;
     
-    // SSE connection kapat
-    if (window.webEventSource) {
-        window.webEventSource.close();
-        window.webEventSource = null;
-        console.log('[SSE] Web training SSE connection closed by user');
-    }
+    console.log('Web training connection closed by user');
 }
 
 // WebSocket event listeners
@@ -5719,10 +5769,6 @@ function handleModalTrainingCompleted(data) {
     showToast('Başarılı', 'Model eğitimi başarıyla tamamlandı!', 'success');
 }
 
-
-
-
-
 // Modal'dan model sıfırla
 function resetModelFromModal(modelType) {
     const isAgeModel = modelType === 'age';
@@ -5948,4 +5994,93 @@ if (modal) {
         if (btn) btn.blur();
     });
 }
+// ... existing code ...
+
+// ... existing code ...
+// Analizi durdur fonksiyonu
+function stopAnalysis() {
+    console.log('[DEBUG] stopAnalysis çağrıldı');
+    
+    // Kullanıcıdan onay al
+    if (!confirm('Tüm analizler durdurulacak ve kuyruk temizlenecek. Emin misiniz?')) {
+        return;
+    }
+    
+    // Loading spinner'ı gizle
+    const settingsSaveLoader = document.getElementById('settingsSaveLoader');
+    if (settingsSaveLoader) {
+        settingsSaveLoader.style.display = 'none';
+        settingsSaveLoader.innerHTML = '';
+        console.log('[DEBUG] stopAnalysis: Loading spinner gizlendi');
+    }
+    
+    // API'ye durdurma isteği gönder
+    fetch('/api/queue/stop', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        console.log('[DEBUG] stopAnalysis API response:', data);
+        showToast('Başarılı', 'Analizler durduruldu ve kuyruk temizlendi.', 'success');
+        
+        // Tüm dosya durumlarını iptal edildi olarak işaretle
+        for (const [fileId, status] of fileStatuses.entries()) {
+            if (status !== "completed" && status !== "failed") {
+                updateFileStatus(fileId, "cancelled", 0, null, null);
+                fileStatuses.set(fileId, "cancelled");
+            }
+        }
+        
+        // Global progress'i gizle
+        document.getElementById('globalProgressSection').style.display = 'none';
+        
+        // Butonu tekrar "Analiz Et" olarak değiştir
+        resetAnalyzeButton();
+        
+        // Toast mesajından sonra sayfayı yenile
+        setTimeout(() => {
+            console.log('[DEBUG] stopAnalysis: Sayfa yenileniyor...');
+            window.location.reload();
+        }, 1500); // 1.5 saniye bekle ki toast mesajı görünsün
+        
+    })
+    .catch(error => {
+        console.error('Analiz durdurma hatası:', error);
+        showToast('Hata', 'Analizler durdurulurken hata oluştu: ' + error.message, 'danger');
+    });
+}
+
+// Analiz Et butonunu sıfırla
+function resetAnalyzeButton() {
+    const analyzeBtn = document.getElementById('analyzeBtn');
+    if (analyzeBtn) {
+        analyzeBtn.innerHTML = '<i class="fas fa-play me-1"></i> Analiz Et';
+        analyzeBtn.className = 'btn btn-success';
+        analyzeBtn.onclick = null; // Event listener'ı sıfırla
+        analyzeBtn.disabled = false;
+        console.log('[DEBUG] Analizi Durdur butonu -> Analiz Et olarak değiştirildi');
+    }
+    
+    // Ana sayfadaki "Analiz Başlat" butonunu da sıfırla
+    const startAnalysisMainBtn = document.getElementById('startAnalysisMainBtn');
+    if (startAnalysisMainBtn) {
+        startAnalysisMainBtn.innerHTML = '<i class="fas fa-shield-alt me-2"></i>Analiz Başlat';
+        startAnalysisMainBtn.className = 'btn btn-primary btn-lg me-3';
+        startAnalysisMainBtn.onclick = function() { document.getElementById('uploadFileBtn').click(); };
+        console.log('[DEBUG] Analizi Durdur butonu -> Analiz Başlat olarak değiştirildi');
+    }
+}
+
+// Modal kapatıldığında odak ana butona taşınsın
+document.addEventListener('DOMContentLoaded', function() {
+    const modelMetricsModal = document.getElementById('modelMetricsModal');
+    if (modelMetricsModal) {
+        modelMetricsModal.addEventListener('hidden.bs.modal', function () {
+            document.getElementById('openAnalysisParamsModalBtn')?.focus();
+        });
+    }
+});
 // ... existing code ...

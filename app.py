@@ -15,7 +15,7 @@ import atexit
 _log_lock = threading.Lock()
 
 logger = logging.getLogger("wsanaliz.app")
-logging.basicConfig(level=logging.INFO)
+# Logging seviyesi environment'a göre ayarlanacak
 
 # TensorFlow uyarılarını bastır
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # INFO ve WARNING loglarını gizle
@@ -97,13 +97,19 @@ if __name__ == "__main__":
             app, socketio_direct = create_app()  # Hem app hem socketio döndürülüyor
             initialize_app(app)  # Sadece ana süreçte çalıştırılacak
             
-            # Werkzeug HTTP request loglarını kapat
+            # Werkzeug HTTP request loglarını aç (debug için)
             log = logging.getLogger('werkzeug')
-            log.setLevel(logging.ERROR)
+            log.setLevel(logging.INFO)  # HTTP requestleri göster
             
             # Environment'a göre debug mode belirle
             environment = os.environ.get('FLASK_ENV', 'development')
             is_debug = environment == 'development'
+            
+            # Logging seviyesini ayarla
+            if is_debug:
+                logging.basicConfig(level=logging.DEBUG)
+            else:
+                logging.basicConfig(level=logging.INFO)
             
             if is_debug:
                 logger.info("Development mode: Debug ve auto-reload aktif")
@@ -121,7 +127,7 @@ if __name__ == "__main__":
             socketio_direct.run(app, 
                                host='0.0.0.0', 
                                port=5000, 
-                               debug=False,  # DEBUG MODE KAPATILDI!
+                               debug=is_debug,  # Environment'a göre debug mode
                                allow_unsafe_werkzeug=True)
             
         except KeyboardInterrupt:

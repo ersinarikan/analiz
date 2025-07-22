@@ -125,16 +125,10 @@ class TestAnalysisService:
         assert 'frame_number' in result
         assert result['frame_number'] == 1
 
-    @pytest.mark.skip(reason="AnalysisService içinde _update_progress fonksiyonu yok.")
+    @pytest.mark.skip(reason="Progress alanı kaldırıldı - WebSocket sistemi kullanılıyor")
     def test_update_analysis_progress(self, analysis_service, app, sample_analysis):
-        """Test analysis progress update"""
-        with app.app_context():
-            with patch('app.services.analysis_service.db') as mock_db:
-                analysis_service._update_progress(sample_analysis, 50, "Test message")
-                assert sample_analysis.progress == 50
-                
-                # Check database commit called
-                mock_db.session.commit.assert_called()
+        """Test analysis progress update - artık WebSocket ile çalışıyor"""
+        pass
 
     @pytest.mark.skip(reason="AnalysisService içinde _handle_error fonksiyonu yok.")
     def test_handle_analysis_error(self, analysis_service, app, sample_analysis):

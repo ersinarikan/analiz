@@ -40,8 +40,7 @@ def log_active_analyses():
                 if elapsed_minutes > 5:  # 5 dakikadan uzun süre aynı durumda kalan analizler
                     logger.warning(
                         f"Analiz #{analysis.id} {elapsed_minutes:.1f} dakikadır '{analysis.status}' durumunda. "
-                        f"İlerleme: %{analysis.progress:.1f}, "
-                        f"Dosya: #{analysis.file_id}"
+                        f"Dosya: #{analysis.file_id} - WebSocket üzerinden takip edilebilir"
                     )
                     
                     # Eğer analiz 30 dakikadan uzun süredir aynı durumda kaldıysa otomatik olarak başarısız olarak işaretle
@@ -51,8 +50,7 @@ def log_active_analyses():
                         db.session.commit()
                 else:
                     logger.debug(
-                        f"Analiz #{analysis.id} {elapsed_minutes:.1f} dakikadır '{analysis.status}' durumunda. "
-                        f"İlerleme: %{analysis.progress:.1f}"
+                        f"Analiz #{analysis.id} {elapsed_minutes:.1f} dakikadır '{analysis.status}' durumunda."
                     )
         else:
             logger.debug("Aktif analiz işlemi yok")
@@ -83,8 +81,7 @@ def repair_stuck_analyses():
                 
                 logger.warning(
                     f"Takılmış analiz #{analysis.id} tespit edildi. "
-                    f"Son güncelleme: {elapsed_minutes:.1f} dakika önce, "
-                    f"İlerleme: %{analysis.progress:.1f}"
+                    f"Son güncelleme: {elapsed_minutes:.1f} dakika önce"
                 )
                 
                 # Analizi başarısız olarak işaretle

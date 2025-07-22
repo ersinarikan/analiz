@@ -131,7 +131,7 @@
                             Çocukların korunması ve aile güvenliği kapsamında içerik denetimi yapılmaktadır.
                         </p>
                         <div class="hero-actions">
-                            <button class="btn btn-primary btn-lg me-3" onclick="document.getElementById('uploadFileBtn').click()">
+                            <button id="startAnalysisMainBtn" class="btn btn-primary btn-lg me-3" onclick="document.getElementById('uploadFileBtn').click()">
                                 <i class="fas fa-shield-alt me-2"></i>Analiz Başlat
                             </button>
                             <button class="btn btn-outline-primary btn-lg" data-bs-toggle="modal" data-bs-target="#helpModal">
@@ -939,6 +939,9 @@
                         <li class="nav-item" role="presentation">
                             <button class="nav-link" id="age-metrics-tab" data-bs-toggle="tab" data-bs-target="#ageMetricsTab" type="button" role="tab" aria-controls="ageMetricsTab" aria-selected="false">Yaş Tahmin Modeli</button>
                         </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link" id="training-data-tab" data-bs-toggle="tab" data-bs-target="#trainingDataTab" type="button" role="tab" aria-controls="trainingDataTab" aria-selected="false">Eğitim Verisi Sayaçları</button>
+                        </li>
                     </ul>
                     <div class="tab-content mt-3" id="modelMetricsTabContent">
                         <div class="tab-pane fade show active" id="contentMetricsTab" role="tabpanel" aria-labelledby="content-metrics-tab">
@@ -1105,8 +1108,78 @@
                                 </div>
                             </div>
                             
-
-    </div>
+                        </div>
+                        
+                        <div class="tab-pane fade" id="trainingDataTab" role="tabpanel" aria-labelledby="training-data-tab">
+                            <div class="row">
+                                <!-- İçerik Analiz Modeli Eğitim Verileri -->
+                                <div class="col-md-6">
+                                    <div class="card">
+                                        <div class="card-header bg-info text-white">
+                                            <h5 class="mb-0">
+                                                <i class="fas fa-shield-alt me-2"></i>İçerik Analiz Modeli Eğitim Verileri
+                                            </h5>
+                                        </div>
+                                        <div class="card-body">
+                                            <div class="row mb-3">
+                                                <div class="col-md-4">
+                                                    <span class="badge bg-primary w-100 p-3" id="content-manual-count" style="font-size: 1.1em;">Manuel: -</span>
+                                                </div>
+                                                <div class="col-md-4">
+                                                    <span class="badge bg-info w-100 p-3" id="content-pseudo-count" style="font-size: 1.1em;">Pseudo: -</span>
+                                                </div>
+                                                <div class="col-md-4">
+                                                    <span class="badge bg-secondary w-100 p-3" id="content-total-count" style="font-size: 1.1em;">Toplam: -</span>
+                                                </div>
+                                            </div>
+                                            
+                                            <div class="mt-3">
+                                                <h6>Eğitim Verisi Türleri:</h6>
+                                                <ul class="list-unstyled">
+                                                    <li><i class="fas fa-circle text-primary me-2"></i><strong>Manuel:</strong> Kullanıcıların manuel olarak verdiği geri bildirimler</li>
+                                                    <li><i class="fas fa-circle text-info me-2"></i><strong>Pseudo:</strong> Sistem tarafından otomatik oluşturulan etiketler</li>
+                                                    <li><i class="fas fa-circle text-secondary me-2"></i><strong>Toplam:</strong> Tüm eğitim verilerinin toplamı</li>
+                                                </ul>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <!-- Yaş Tahmin Modeli Eğitim Verileri -->
+                                <div class="col-md-6">
+                                    <div class="card">
+                                        <div class="card-header bg-primary text-white">
+                                            <h5 class="mb-0">
+                                                <i class="fas fa-user-clock me-2"></i>Yaş Tahmin Modeli Eğitim Verileri
+                                            </h5>
+                                        </div>
+                                        <div class="card-body">
+                                            <div class="row mb-3">
+                                                <div class="col-md-4">
+                                                    <span class="badge bg-primary w-100 p-3" id="age-manual-count" style="font-size: 1.1em;">Manuel: -</span>
+                                                </div>
+                                                <div class="col-md-4">
+                                                    <span class="badge bg-info w-100 p-3" id="age-pseudo-count" style="font-size: 1.1em;">Pseudo: -</span>
+                                                </div>
+                                                <div class="col-md-4">
+                                                    <span class="badge bg-secondary w-100 p-3" id="age-total-count" style="font-size: 1.1em;">Toplam: -</span>
+                                                </div>
+                                            </div>
+                                            
+                                            <div class="mt-3">
+                                                <h6>Eğitim Verisi Türleri:</h6>
+                                                <ul class="list-unstyled">
+                                                    <li><i class="fas fa-circle text-primary me-2"></i><strong>Manuel:</strong> Kullanıcıların manuel olarak düzelttiği yaş tahminleri</li>
+                                                    <li><i class="fas fa-circle text-info me-2"></i><strong>Pseudo:</strong> Sistem tarafından otomatik oluşturulan yaş etiketleri</li>
+                                                    <li><i class="fas fa-circle text-secondary me-2"></i><strong>Toplam:</strong> Tüm yaş eğitim verilerinin toplamı</li>
+                                                </ul>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Kapat</button>

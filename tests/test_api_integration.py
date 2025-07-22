@@ -196,8 +196,6 @@ class TestAnalysisAPIRoutes:
         """Test successful status retrieval"""
         mock_analysis = MagicMock()
         mock_analysis.status = 'processing'
-        mock_analysis.progress = 50
-        mock_analysis.status_message = 'Analyzing frame 5'
         mock_analysis.start_time = None
         mock_analysis.end_time = None
         mock_analysis.id = 1

@@ -86,7 +86,7 @@ def create_app(config_name='default'):
     minimal_socketio = SocketIO(
         flask_app,
         cors_allowed_origins="*",
-        ping_timeout=60,  # Stability için
+        ping_timeout=720,  # Uzun analizler için 12 dakikaya çıkarıldı
         ping_interval=20,  # Daha sık ping ile stabilite
         logger=False,     # Verbose logging kapat
         engineio_logger=False

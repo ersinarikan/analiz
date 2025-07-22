@@ -75,20 +75,19 @@ class AnalysisService:
             
             # Başlangıç durumunu ayarla
             analysis.status = 'pending'
-            analysis.status_message = 'Analiz başlatılıyor, dosya hazırlanıyor...'
-            analysis.progress = 5
             
             db.session.add(analysis)
             db.session.commit()
             
             logger.info(f"Analiz oluşturuldu: #{analysis.id} - Dosya: {file_info['original_filename']}, Durum: pending")
             
-            # Socket.io üzerinden bildirim gönder
+            # WebSocket üzerinden analiz başlangıç bildirimi gönder
             try:
-                # SSE sistemi mevcut, socket.io yerine log bilgisi
-                logger.info(f"Analiz başlatıldı - SSE bildirimi: #{analysis.id}")
+                from app.routes.websocket_routes import emit_analysis_started
+                emit_analysis_started(analysis.id, f"Analiz başlatıldı: {file_info['original_filename']}", file_id)
+                logger.info(f"Analiz başlatıldı - WebSocket bildirimi gönderildi: #{analysis.id}, File: {file_id}")
             except Exception as socket_err:
-                logger.warning(f"Bildirim hatası: {str(socket_err)}")
+                logger.warning(f"WebSocket bildirim hatası: {str(socket_err)}")
             
             # Analizi kuyruğa ekle
             from app.services.queue_service import add_to_queue
@@ -121,7 +120,6 @@ class AnalysisService:
                     
                 # Analiz durumunu iptal edildi olarak işaretle
                 analysis.status = 'cancelled'
-                analysis.status_message = 'Analiz kullanıcı tarafından iptal edildi'
                 analysis.updated_at = datetime.now()
                 session.commit()
                 
@@ -203,11 +201,18 @@ def analyze_file(analysis_id):
                 logger.error(f"Analiz bulunamadı: {analysis_id}")
                 return False, "Analiz bulunamadı"
             
-            # Analizi başlat
+            # Analiz başlıyor
             analysis.start_analysis()
-            db.session.commit()  # Durum güncellemesini kaydet
+            db.session.commit()
             
-            # SocketIO kaldırıldı - SSE sistemi kullanılıyor
+            logger.info(f"[SVC_LOG][START_ANALYSIS] Analiz BAŞLATILDI. Analiz ID: {analysis.id}, Dosya ID: {analysis.file_id}")  # YENİ LOG
+            
+            # WebSocket ile analiz başlatma bildirimi gönder
+            try:
+                from app.routes.websocket_routes import emit_analysis_progress
+                emit_analysis_progress(analysis.id, 0, "Analiz başlatıldı, dosya hazırlanıyor...", analysis.file_id)
+            except Exception as ws_err:
+                logger.warning(f"WebSocket started progress event hatası: {str(ws_err)}")
             
             # Dosyayı al
             file = analysis.file
@@ -231,7 +236,7 @@ def analyze_file(analysis_id):
                 # WebSocket ile analiz tamamlanma bildirimi gönder
                 try:
                     from app.routes.websocket_routes import emit_analysis_completed
-                    emit_analysis_completed(analysis.id, "Analiz başarıyla tamamlandı")
+                    emit_analysis_completed(analysis.id, "Analiz başarıyla tamamlandı", analysis.file_id)
                 except Exception as ws_err:
                     logger.warning(f"WebSocket completion event hatası: {str(ws_err)}")
                 
@@ -240,7 +245,12 @@ def analyze_file(analysis_id):
                 analysis.fail_analysis(message)
                 db.session.commit()
                 
-                # SocketIO kaldırıldı - SSE sistemi kullanılıyor
+                # WebSocket ile analiz başarısızlık bildirimi gönder
+                try:
+                    from app.routes.websocket_routes import emit_analysis_completed
+                    emit_analysis_completed(analysis.id, f"Analiz başarısız: {message}", analysis.file_id)
+                except Exception as ws_err:
+                    logger.warning(f"WebSocket failed event hatası: {str(ws_err)}")
                 
                 return False, message
                 
@@ -285,12 +295,12 @@ def analyze_image(analysis):
         tuple: (başarı durumu, mesaj)
     """
     file = analysis.file
+    logger.info(f"[DEBUG_ANALYZE] analyze_image ÇAĞRILDI. Analiz ID: {analysis.id}, Dosya: {file.original_filename}")
     logger.info(f"[SVC_LOG][ANALYZE_IMAGE] Resim analizi BAŞLADI. Analiz ID: {analysis.id}, Dosya: {file.original_filename}") # YENİ LOG
 
     try:
         # İlk progress güncellemesi
-        analysis.update_progress(10)
-        analysis.status_message = "Resim yükleniyor..."
+        analysis.update_progress(10, "Resim yükleniyor...")
         db.session.commit()
         
         # Resmi yükle
@@ -301,20 +311,17 @@ def analyze_image(analysis):
         
         logger.info(f"[SVC_LOG][ANALYZE_IMAGE] Resim başarıyla yüklendi. Analiz ID: {analysis.id}") # YENİ LOG
         
-        # Resim yüklendi
-        analysis.update_progress(25)
-        analysis.status_message = "İçerik analizi yapılıyor..."
-        db.session.commit()
+        # İçerik analizi
+        analysis.update_progress(25, "İçerik analizi yapılıyor...")
         
-        # İçerik analizi yap
+        # Görüntüyü ContentAnalyzer ile analiz et
         content_analyzer = ContentAnalyzer()
         logger.info(f"[SVC_LOG][ANALYZE_IMAGE] ContentAnalyzer çağrılmadan önce. Analiz ID: {analysis.id}") # YENİ LOG
         violence_score, adult_content_score, harassment_score, weapon_score, drug_score, safe_score, detected_objects = content_analyzer.analyze_image(file.file_path)
         logger.info(f"[SVC_LOG][ANALYZE_IMAGE] ContentAnalyzer çağrıldı. Analiz ID: {analysis.id}. Adult Score: {adult_content_score}") # YENİ LOG
         
         # İçerik analizi tamamlandı
-        analysis.update_progress(50)
-        analysis.status_message = "İçerik analizi sonuçları kaydediliyor..."
+        analysis.update_progress(50, "İçerik analizi sonuçları kaydediliyor...")
         db.session.commit()
         
         # Analiz sonuçlarını veritabanına kaydet
@@ -347,8 +354,7 @@ def analyze_image(analysis):
         # Eğer yaş analizi isteniyorsa, yüzleri tespit et ve yaşları tahmin et
         if analysis.include_age_analysis:
             # Yaş analizi başlatılıyor
-            analysis.update_progress(60)
-            analysis.status_message = "Yüz tespiti ve yaş analizi yapılıyor..."
+            analysis.update_progress(60, "Yüz tespiti ve yaş analizi yapılıyor...")
             db.session.commit()
             
             from app.utils.model_state import get_age_estimator
@@ -542,13 +548,11 @@ def analyze_image(analysis):
             final_age_estimations = db.session.query(AgeEstimation).filter_by(analysis_id=analysis.id).all()
             logger.info(f"[SVC_LOG] Final kontrol: {len(final_age_estimations)} AgeEstimation kaydı veritabanında mevcut")
             
-            analysis.update_progress(90)
-            analysis.status_message = "Yaş analizi tamamlandı, sonuçlar kaydediliyor..."
+            analysis.update_progress(90, "Yaş analizi tamamlandı, sonuçlar kaydediliyor...")
             db.session.commit()
         else:
             # Yaş analizi yapılmadıysa direkt sona yakın progress
-            analysis.update_progress(85) 
-            analysis.status_message = "Analiz sonuçları kaydediliyor..."
+            analysis.update_progress(85, "Analiz sonuçları kaydediliyor...")
             db.session.commit()
         
         # Tüm değişiklikleri veritabanına kaydet
@@ -558,16 +562,14 @@ def analyze_image(analysis):
         time.sleep(0.2)  # 200ms ek bekleme
         
         # Son progress güncellemesi
-        analysis.update_progress(95)
-        analysis.status_message = "Analiz sonuçlandırılıyor..."
+        analysis.update_progress(95, "Analiz sonuçlandırılıyor...")
         db.session.commit()
         
         # Final bekleme ve kontrol
         time.sleep(0.3)  # 300ms son bekleme
         
-        analysis.update_progress(100)
-        analysis.status_message = "Analiz tamamlandı"
-        logger.info(f"[SVC_LOG][ANALYZE_IMAGE] Resim analizi BAŞARIYLA TAMAMLANDI. Analiz ID: {analysis.id}") 
+        analysis.update_progress(100, "Analiz tamamlandı")
+        logger.info(f"[SVC_LOG][ANALYZE_IMAGE] Resim analizi BAŞARIYLA TAMAMLANDI. Analiz ID: {analysis.id}")
         
         return True, "Resim analizi tamamlandı"
     
@@ -1116,7 +1118,6 @@ def analyze_video(analysis):
             
             if not detections:
                 logger.warning(f"ContentDetection kaydı bulunamadı: Analiz #{analysis.id}")
-                analysis.status_message = "Analiz tamamlandı ancak içerik skoru hesaplanacak kare bulunamadı."
                 db.session.commit()
                 return
             
@@ -1259,7 +1260,6 @@ def calculate_overall_scores(analysis):
         
         if not detections:
             logger.warning(f"ContentDetection kaydı bulunamadı: Analiz #{analysis.id}")
-            analysis.status_message = "Analiz tamamlandı ancak içerik skoru hesaplanacak kare bulunamadı."
             db.session.commit()
             return
         
@@ -1396,8 +1396,7 @@ def get_analysis_results(analysis_id):
     if analysis.status != 'completed':
         return {
             'status': analysis.status,
-            'progress': analysis.progress,
-            'message': 'Analiz henüz tamamlanmadı'
+            'message': 'Analiz henüz tamamlanmadı - WebSocket üzerinden progress takip edin'
         }
     
     result = analysis.to_dict()

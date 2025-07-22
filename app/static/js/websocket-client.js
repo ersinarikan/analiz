@@ -98,65 +98,55 @@ class WebSocketClient {
         console.log('🔥🔥🔥 PONG LISTENER REGISTERED');
 
         // Analiz olayları
+        this.socket.on('analysis_started', (data) => {
+            const analysisId = data.analysis_id;
+            let fileId = data.file_id;
+            let cardId = fileId;
+            // Önce fileIdToCardId mapping'ini dene
+            if (window.fileIdToCardId && window.fileIdToCardId[String(fileId)]) {
+                cardId = window.fileIdToCardId[String(fileId)];
+            }
+            // Sonra eski mapping'leri dene
+            if (!document.getElementById(cardId) && window.fileAnalysisMap && window.fileAnalysisMap.has(analysisId)) {
+                cardId = window.fileAnalysisMap.get(analysisId);
+            }
+            if (cardId) {
+                window.fileAnalysisMap.set(analysisId, cardId);
+                updateFileStatus(cardId, 'processing', 0, data.message || 'Analiz başlatıldı');
+                console.log('🚀 [WebSocket] Analysis started güncellendi (cardId):', cardId);
+            } else {
+                console.warn('[WebSocket] analysis_started: fileId bulunamadı!', data);
+            }
+        });
+        console.log('🔥🔥🔥 ANALYSIS_STARTED LISTENER REGISTERED');
+
         this.socket.on('analysis_progress', (data) => {
             const analysisId = data.analysis_id;
-            let fileId = window.fileAnalysisMap.get(analysisId);
-            
-            // Eğer fileId bulunamazsa, uploadedFiles dizisinden ara
-            if (!fileId && window.uploadedFiles) {
-                // Hem analysisId hem de analysis_id alanlarını kontrol et
-                const file = window.uploadedFiles.find(f => 
-                    f.analysisId === analysisId || 
-                    f.analysis_id === analysisId
-                );
+            let fileId = data.file_id || window.fileAnalysisMap.get(analysisId);
+            let cardId = fileId;
+            if (window.fileIdToCardId && window.fileIdToCardId[String(fileId)]) {
+                cardId = window.fileIdToCardId[String(fileId)];
+            }
+            if (!document.getElementById(cardId) && window.fileAnalysisMap && window.fileAnalysisMap.has(analysisId)) {
+                cardId = window.fileAnalysisMap.get(analysisId);
+            }
+            if (!cardId && window.uploadedFiles) {
+                const file = window.uploadedFiles.find(f => f.analysisId === analysisId || f.analysis_id === analysisId);
                 if (file) {
-                    fileId = file.id;
-                    // Eksikse map'e ekle
-                    window.fileAnalysisMap.set(analysisId, fileId);
-                    console.warn('[WebSocket] fileId fallback ile bulundu ve map eklendi! analysisId:', analysisId, 'fileId:', fileId);
+                    cardId = file.id;
+                    window.fileAnalysisMap.set(analysisId, cardId);
                 }
             }
-
-            
-            // Hâlâ bulunamazsa, DOM'dan ara (race condition için son çare)
-            if (!fileId) {
-                const fileCards = document.querySelectorAll('.file-card');
-                for (const card of fileCards) {
-                    if (card.dataset.analysisId === analysisId) {
-                        fileId = card.id;
-                        window.fileAnalysisMap.set(analysisId, fileId);
-                        console.warn('[WebSocket] fileId DOM fallback ile bulundu! analysisId:', analysisId, 'fileId:', fileId);
-                        break;
-                    }
-                }
-            }
-            
-            // Son çare: temp_ mapping'leri kontrol et (immediate mapping için)
-            if (!fileId) {
-                for (const [key, value] of window.fileAnalysisMap.entries()) {
-                    if (key.startsWith('temp_')) {
-                        // Bu dosya için analiz başlatılmış, gerçek analysis ID ile update et
-                        window.fileAnalysisMap.delete(key);
-                        window.fileAnalysisMap.set(analysisId, value);
-                        fileId = value;
-                        console.log('[WebSocket] Immediate mapping kullanıldı:', key, '→', analysisId, '→', fileId);
-                        break;
-                    }
-                }
-            }
-            
-            if (!fileId) {
-                console.info('[WebSocket] analysis_progress: fileId henüz mapping\'e eklenmemiş, progress queue\'ya alınıyor. analysisId:', analysisId);
+            if (!cardId) {
                 // Progress'i queue'ya al, daha sonra mapping geldiğinde uygula
                 if (!window.pendingProgress) window.pendingProgress = new Map();
                 if (!window.pendingProgress.has(analysisId)) {
                     window.pendingProgress.set(analysisId, []);
                 }
                 window.pendingProgress.get(analysisId).push(data);
-                console.info('[WebSocket] Progress queue\'ya eklendi. Toplam bekleyen:', window.pendingProgress.get(analysisId).length);
                 return;
             }
-            updateFileStatus(fileId, 'processing', data.progress, data.message);
+            updateFileStatus(cardId, 'processing', data.progress, data.message, null);
         });
         console.log('🔥🔥🔥 ANALYSIS_PROGRESS LISTENER REGISTERED');
         
@@ -175,45 +165,52 @@ class WebSocketClient {
 
         this.socket.on('analysis_completed', (data) => {
             const analysisId = data.analysis_id;
-            console.log('🎉 [WebSocket] ANALYSIS_COMPLETED received:', data);
-            
-            // Doğru mapping: analysisId → fileId
-            let fileId = null;
-            if (window.fileAnalysisMap && window.fileAnalysisMap.has(analysisId)) {
-                fileId = window.fileAnalysisMap.get(analysisId);
-                console.log('🎉 [WebSocket] FileId bulundu mapping\'te:', analysisId, '→', fileId);
+            let fileId = data.file_id;
+            let cardId = fileId;
+            if (window.fileIdToCardId && window.fileIdToCardId[String(fileId)]) {
+                cardId = window.fileIdToCardId[String(fileId)];
             }
-            
-            // Fallback: uploadedFiles'dan ara
-            if (!fileId && window.uploadedFiles) {
+            if (!document.getElementById(cardId) && window.fileAnalysisMap && window.fileAnalysisMap.has(analysisId)) {
+                cardId = window.fileAnalysisMap.get(analysisId);
+            }
+            if (!cardId && window.uploadedFiles) {
                 const file = window.uploadedFiles.find(f => f.analysisId === analysisId);
                 if (file) {
-                    fileId = file.id;
-                    console.log('🎉 [WebSocket] FileId bulundu uploadedFiles\'ta:', file.id);
+                    cardId = file.id;
                 }
             }
-            
-                            if (fileId) {
-                    console.log('🎉 [WebSocket] Analysis completed - updateFileStatus çağrılıyor:', fileId);
-                    updateFileStatus(fileId, 'completed', 100, data.message || 'Analiz tamamlandı');
-                    
-                    // 🔥 CRITICAL: Analiz sonuçlarını çek ve göster!
-                    console.log('🎉 [WebSocket] Analysis completed - getAnalysisResults çağrılıyor:', fileId, analysisId);
-                    setTimeout(() => {
-                        if (typeof getAnalysisResults === 'function') {
-                            getAnalysisResults(fileId, analysisId);
-                        } else {
-                            console.error('🔥 getAnalysisResults function bulunamadı!');
-                        }
-                    }, 500); // Backend'de tüm işlemlerin bitmesi için kısa gecikme
-                } else {
-                    console.warn('⚠️ [WebSocket] analysis_completed: fileId bulunamadı!', {
-                        analysisId,
-                        fileAnalysisMap: window.fileAnalysisMap,
-                        uploadedFiles: window.uploadedFiles
-                    });
-                }
+            if (cardId) {
+                updateFileStatus(cardId, 'completed', 100, data.message || 'Analiz tamamlandı', null);
+                setTimeout(() => {
+                    if (typeof getAnalysisResults === 'function') {
+                        getAnalysisResults(cardId, analysisId);
+                    }
+                }, 500);
+            } else {
+                console.warn('⚠️ [WebSocket] analysis_completed: fileId bulunamadı!', {
+                    analysisId,
+                    fileAnalysisMap: window.fileAnalysisMap,
+                    uploadedFiles: window.uploadedFiles
+                });
+            }
         });
+
+        // Kuyruk durumu olayları
+                this.socket.on('queue_status', (data) => {
+            console.log('📊 [WebSocket] QUEUE_STATUS received:', data);
+
+            // Kuyruk bilgilerini güncelle (eğer UI'da gösteriliyorsa)
+            if (data) {
+                window.queueStatus = data;
+                
+                // updateQueueStatus fonksiyonunu çağır (main.js'te)
+                if (typeof updateQueueStatus === 'function') {
+                    updateQueueStatus(data);
+                    console.log('📊 [WebSocket] Queue status UI güncellendi');
+                }
+            }
+        });
+        console.log('🔥🔥🔥 QUEUE_STATUS LISTENER REGISTERED');
 
         // Tüm event'leri yakala (debug amaçlı)
         this.socket.onAny((eventName, ...args) => {
@@ -294,7 +291,7 @@ class WebSocketClient {
                 this.socket.emit('ping', 'auto');
                 console.log('[WebSocket] Otomatik ping gönderildi');
             }
-        }, 30000); // 30 saniyede bir ping
+        }, 20000); // 20 saniyede bir ping
     }
 
     // Otomatik ping'i durdur

@@ -165,7 +165,7 @@ class ModelService:
         # İçerik kategorileri için geri bildirim sayısını hesapla
         content_feedbacks = Feedback.query.filter(
             Feedback.feedback_type.in_([
-                'violence', 'adult', 'harassment', 'weapon', 'drug'
+                'violence', 'adult', 'harassment', 'weapon', 'drug', 'content_pseudo', 'manual'
             ])
         ).all()
 
@@ -181,6 +181,14 @@ class ModelService:
                 category_counts[category] += 1
 
             stats['feedback_distribution'] = category_counts
+
+            # Manuel vs pseudo feedback dağılımı
+            manual_count = len([f for f in content_feedbacks if f.feedback_source == 'MANUAL_USER'])
+            pseudo_count = len([f for f in content_feedbacks if f.feedback_source != 'MANUAL_USER'])
+            stats['feedback_sources'] = {
+                'manual': manual_count,
+                'pseudo': pseudo_count
+            }
 
         return stats
 
@@ -215,10 +223,11 @@ class ModelService:
             except Exception as e:
                 current_app.logger.error(f"Model konfigürasyonu okuma hatası: {str(e)}")
 
-        # Yaş geri bildirimi olan kayıtları al
+        # Yaş geri bildirimi olan kayıtları al (manuel düzeltme veya pseudo etiket)
         feedbacks = Feedback.query.filter(
-            (Feedback.feedback_type == 'age') | (Feedback.feedback_type == 'age_pseudo'),
-            Feedback.corrected_age.isnot(None)
+            (Feedback.feedback_type == 'age') | (Feedback.feedback_type == 'age_pseudo')
+        ).filter(
+            (Feedback.corrected_age.isnot(None)) | (Feedback.pseudo_label_original_age.isnot(None))
         ).all()
 
         if feedbacks:
