@@ -1211,7 +1211,11 @@ function startAnalysisForAllFiles(framesPerSecond, includeAgeAnalysis) {
     if (startAnalysisMainBtn) {
         startAnalysisMainBtn.innerHTML = '<i class="fas fa-stop me-2"></i>Analizi Durdur';
         startAnalysisMainBtn.className = 'btn btn-danger btn-lg me-3';
-        startAnalysisMainBtn.onclick = stopAnalysis;
+        // Önceki tüm event listener'ları temizle
+        startAnalysisMainBtn.replaceWith(startAnalysisMainBtn.cloneNode(true));
+        // Yeni referansı al
+        const newStartAnalysisMainBtn = document.getElementById('startAnalysisMainBtn');
+        newStartAnalysisMainBtn.addEventListener('click', stopAnalysis);
         console.log('[DEBUG] Analiz Başlat butonu -> Analizi Durdur olarak değiştirildi');
     }
     
@@ -6088,7 +6092,13 @@ function resetAnalyzeButton() {
     if (startAnalysisMainBtn) {
         startAnalysisMainBtn.innerHTML = '<i class="fas fa-shield-alt me-2"></i>Analiz Başlat';
         startAnalysisMainBtn.className = 'btn btn-primary btn-lg me-3';
-        startAnalysisMainBtn.onclick = function() { document.getElementById('uploadFileBtn').click(); };
+        // Önceki tüm event listener'ları temizle
+        startAnalysisMainBtn.replaceWith(startAnalysisMainBtn.cloneNode(true));
+        // Yeni referansı al ve orijinal event listener'ı ekle
+        const newStartAnalysisMainBtn = document.getElementById('startAnalysisMainBtn');
+        newStartAnalysisMainBtn.addEventListener('click', function() { 
+            document.getElementById('uploadFileBtn').click(); 
+        });
         console.log('[DEBUG] Analizi Durdur butonu -> Analiz Başlat olarak değiştirildi');
     }
 }
