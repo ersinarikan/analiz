@@ -96,17 +96,13 @@ def create_app(config_name='default'):
     import app.socketio_instance
     app.socketio_instance.set_socketio(minimal_socketio)  # TEK NOKTA SET!
     
-    print(f"🔥🔥🔥 GLOBAL SOCKETIO SET EDİLDİ: ID {id(minimal_socketio)}")
-    
     # ✅ MİNİMAL PATTERN: Direct event handler registration
-    print(f"🔥🔥🔥 REGISTERING MINIMAL HANDLERS ON: {minimal_socketio} (ID: {id(minimal_socketio)})")
     
     @minimal_socketio.on('connect')
     def handle_connect():
         from flask import request
         from flask_socketio import emit
         print(f"🎉🎉🎉 MİNİMAL CONNECT! Session: {request.sid}")
-        print(f"🔥 MINIMAL CONNECT HANDLER CALLED - SOCKET ID: {id(minimal_socketio)}")
         emit('connected', {'message': 'Minimal pattern bağlantısı başarılı!'})
         
     @minimal_socketio.on('disconnect')  
@@ -120,19 +116,12 @@ def create_app(config_name='default'):
         from flask_socketio import emit
         print(f"🏓🏓🏓 MİNİMAL PING! Session: {request.sid}, Data: {data}")
         emit('pong', {'message': 'Minimal PONG!', 'data': data})
-        print(f"🔥 MİNİMAL PONG GÖNDERİLDİ!")
 
     @minimal_socketio.on('join_analysis')
     def handle_join_analysis(data):
         from flask import request
         from flask_socketio import emit, join_room
-        print("=" * 80)
-        print("🔥🔥🔥 MİNİMAL JOIN_ANALYSIS HANDLER ÇAĞRILDI!")
         print(f"🔍🔍🔍 MİNİMAL JOIN_ANALYSIS! Session: {request.sid}, Data: {data}")
-        print(f"🔍 MİNİMAL SOCKETIO INSTANCE ID: {id(minimal_socketio)}")
-        print("=" * 80)
-        import sys
-        sys.stdout.flush()  # Force flush console output
         
         if data and 'analysis_id' in data:
             analysis_id = data['analysis_id']
@@ -156,12 +145,9 @@ def create_app(config_name='default'):
                 'message': f'Analysis {analysis_id} room\'una katıldınız (minimal)',
                 'source': 'minimal-handler'
             })
-            print(f"🔥🔥🔥 MİNİMAL JOINED_ANALYSIS GÖNDERİLDİ for room {room}")
         else:
             print(f"❌ MİNİMAL JOIN_ANALYSIS: No analysis_id in data")
             
-    print(f"🔥🔥🔥 MINIMAL HANDLERS REGISTERED SUCCESSFULLY ON: {minimal_socketio} (ID: {id(minimal_socketio)})")
-    
     logger.info("✅ Minimal pattern SocketIO handlers registered!")
     print("✅ Minimal pattern SocketIO handlers registered!")
     
