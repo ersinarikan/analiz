@@ -937,6 +937,11 @@ function uploadFilesSequentially(index) {
         // Dosyaya sunucu tarafı ID ata
         file.fileId = data.file_id;
         
+        // CRITICAL FIX: Server file ID ile frontend card ID mapping'ini oluştur
+        if (!window.fileIdToCardId) window.fileIdToCardId = {};
+        window.fileIdToCardId[String(data.file_id)] = file.id;
+        console.log(`[DEBUG] fileIdToCardId mapping oluşturuldu: ${data.file_id} → ${file.id}`);
+        
         // Dosya durumunu güncelle
         updateFileStatus(file.id, 'Sırada', 100, null, null);
         
@@ -1193,7 +1198,11 @@ function startAnalysisForAllFiles(framesPerSecond, includeAgeAnalysis) {
     if (analyzeBtn) {
         analyzeBtn.innerHTML = '<i class="fas fa-stop me-1"></i> Analizi Durdur';
         analyzeBtn.className = 'btn btn-danger';
-        analyzeBtn.onclick = stopAnalysis;
+        // Önceki tüm event listener'ları temizle
+        analyzeBtn.replaceWith(analyzeBtn.cloneNode(true));
+        // Yeni referansı al
+        const newAnalyzeBtn = document.getElementById('analyzeBtn');
+        newAnalyzeBtn.addEventListener('click', stopAnalysis);
         console.log('[DEBUG] Analiz Et butonu -> Analizi Durdur olarak değiştirildi');
     }
     
@@ -1403,7 +1412,7 @@ function getCompletedAnalysesCount() {
 
 // Dosya durumunu güncelle
 function updateFileStatus(fileId, status, progress, message = null, error = null) {
-    // Spinner'ı analiz başlar başlamaz gizle (progress > 0 koşulunu kaldırdık)
+    // Spinner'ı herhangi bir dosya analiz ediliyora geçtiğinde gizle
     if (status === 'processing') {
         const settingsSaveLoader = document.getElementById('settingsSaveLoader');
         console.log('[DEBUG] updateFileStatus - Processing status tespit edildi, progress:', progress, ', mesaj:', message);
@@ -6059,8 +6068,18 @@ function resetAnalyzeButton() {
     if (analyzeBtn) {
         analyzeBtn.innerHTML = '<i class="fas fa-play me-1"></i> Analiz Et';
         analyzeBtn.className = 'btn btn-success';
-        analyzeBtn.onclick = null; // Event listener'ı sıfırla
         analyzeBtn.disabled = false;
+        // Önceki tüm event listener'ları temizle
+        analyzeBtn.replaceWith(analyzeBtn.cloneNode(true));
+        // Yeni referansı al ve orijinal event listener'ı ekle
+        const newAnalyzeBtn = document.getElementById('analyzeBtn');
+        newAnalyzeBtn.addEventListener('click', () => {
+            if (uploadedFiles.length > 0) {
+                // Analiz parametreleri modalını aç (ANLIK AYARLAR İÇİN YENİ MODAL)
+                const modal = new bootstrap.Modal(document.getElementById('runAnalysisSettingsModal'));
+                modal.show();
+            }
+        });
         console.log('[DEBUG] Analizi Durdur butonu -> Analiz Et olarak değiştirildi');
     }
     
