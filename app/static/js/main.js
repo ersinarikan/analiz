@@ -1021,9 +1021,27 @@ function createFileCard(file) {
     // Dosya silme butonuna olay dinleyicisi ekle
     fileCard.querySelector('.remove-file-btn').addEventListener('click', () => removeFile(file.id));
     
-    // Status message elementine .status-message class'ı ekle
+    // Status message elementine .status-message class'ı ekle ve temiz duruma sıfırla
     const statusElem = fileCard.querySelector('.file-status-text');
-    if (statusElem) statusElem.classList.add('status-message');
+    if (statusElem) {
+        statusElem.classList.add('status-message');
+        statusElem.textContent = 'Sırada'; // Temiz duruma sıfırla
+    }
+    
+    // Status badge'i de temiz duruma sıfırla
+    const statusBadge = fileCard.querySelector('.file-status');
+    if (statusBadge) {
+        statusBadge.textContent = 'Sırada';
+        statusBadge.className = 'file-status bg-secondary'; // Temiz CSS sınıfları
+    }
+    
+    // Progress bar'ı da temiz duruma sıfırla
+    const progressBar = fileCard.querySelector('.progress-bar');
+    if (progressBar) {
+        progressBar.style.width = '0%';
+        progressBar.setAttribute('aria-valuenow', '0');
+        progressBar.className = 'progress-bar'; // Animasyon sınıflarını temizle
+    }
     
     return cardElem;
 }
