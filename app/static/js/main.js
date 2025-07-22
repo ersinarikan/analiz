@@ -4974,104 +4974,7 @@ async function refreshTrainingStats() {
     }
 }
 
-// Çelişki analizi yap
-async function analyzeConflicts() {
-    const container = document.getElementById('conflictAnalysisContainer');
-    const modelType = document.getElementById('trainingModelType')?.value || 'content';
-    
-    if (!container) return;
-    
-    try {
-        container.innerHTML = `
-            <div class="text-center">
-                <div class="spinner-border text-warning" role="status">
-                    <span class="visually-hidden">Analiz ediliyor...</span>
-                </div>
-                <p class="mt-2">Çelişkiler analiz ediliyor...</p>
-            </div>
-        `;
-        
-        const response = await fetch(`/api/model/analyze-conflicts/${modelType}`);
-        const data = await response.json();
-        
-        if (data.success) {
-            if (data.conflicts.length === 0) {
-                container.innerHTML = `
-                    <div class="alert alert-success">
-                        <i class="fas fa-check-circle me-2"></i>
-                        Herhangi bir çelişki tespit edilmedi!
-                    </div>
-                `;
-                return;
-            }
-            
-            const summary = data.summary;
-            container.innerHTML = `
-                <div class="alert alert-warning">
-                    <h6><i class="fas fa-exclamation-triangle me-2"></i>Çelişki Özeti</h6>
-                    <ul class="mb-0">
-                        <li>Toplam çelişki: <strong>${data.total_conflicts}</strong></li>
-                        <li>Yüksek şiddetli: <strong>${data.high_severity}</strong></li>
-                        <li>Etkilenen kategoriler: <strong>${summary.categories_affected}</strong></li>
-                        <li>Ortalama skor farkı: <strong>${summary.avg_score_diff.toFixed(2)}</strong></li>
-                    </ul>
-                </div>
-                
-                <div class="mt-3">
-                    <h6>Detaylı Çelişkiler (İlk 10):</h6>
-                    <div class="table-responsive">
-                        <table class="table table-sm table-bordered">
-                            <thead class="table-light">
-                                <tr>
-                                    <th>Kategori</th>
-                                    <th>Skor Farkı</th>
-                                    <th>Min-Max Skorlar</th>
-                                    <th>Şiddet</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                ${data.conflicts.slice(0, 10).map(conflict => `
-                                    <tr>
-                                        <td>${getCategoryDisplayName(conflict.category)}</td>
-                                        <td>
-                                            <span class="badge ${conflict.severity === 'high' ? 'bg-danger' : 'bg-warning'}">
-                                                ${conflict.score_diff.toFixed(2)}
-                                            </span>
-                                        </td>
-                                        <td>
-                                            ${Math.min(...conflict.scores).toFixed(2)} - 
-                                            ${Math.max(...conflict.scores).toFixed(2)}
-                                        </td>
-                                        <td>
-                                            <span class="badge ${conflict.severity === 'high' ? 'bg-danger' : 'bg-warning'}">
-                                                ${conflict.severity.toUpperCase()}
-                                            </span>
-                                        </td>
-                                    </tr>
-                                `).join('')}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            `;
-        } else {
-            container.innerHTML = `
-                <div class="alert alert-danger">
-                    <i class="fas fa-exclamation-triangle me-2"></i>
-                    ${data.error || 'Çelişki analizi yapılamadı'}
-                </div>
-            `;
-        }
-    } catch (error) {
-        console.error('Conflict analysis error:', error);
-        container.innerHTML = `
-            <div class="alert alert-danger">
-                <i class="fas fa-exclamation-triangle me-2"></i>
-                Bağlantı hatası: ${error.message}
-            </div>
-        `;
-    }
-}
+
 
 // Web eğitimi başlat
 let currentTrainingSession = null;
@@ -5816,113 +5719,9 @@ function handleModalTrainingCompleted(data) {
     showToast('Başarılı', 'Model eğitimi başarıyla tamamlandı!', 'success');
 }
 
-// WebSocket test fonksiyonu
-async function testWebSocket() {
-    try {
-        console.log('[DEBUG] Testing WebSocket connection...');
-        const response = await fetch('/api/model/test_websocket', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            }
-        });
-        
-        const data = await response.json();
-        console.log('[DEBUG] WebSocket test response:', data);
-        
-        if (data.success) {
-            console.log(`[DEBUG] Test WebSocket event sent with session_id: ${data.test_session_id}`);
-            // Test session için listener kuralım
-            setupTrainingWebSocketListeners(data.test_session_id);
-        }
-        
-    } catch (error) {
-        console.error('[DEBUG] WebSocket test error:', error);
-    }
-}
 
 
 
-// Test WebSocket butonunu console'dan çağırmak için global yapıyoruz
-window.testWebSocket = testWebSocket;
-
-// Test function to verify modal elements and manually trigger updates
-function testModalProgressUpdate() {
-    console.log('[TEST] Testing modal progress update...');
-    
-    const modalProgressDiv = document.getElementById('modal-training-progress');
-    const progressBar = document.getElementById('modal-progress-bar');
-    const currentEpoch = document.getElementById('modal-current-epoch');
-    const currentLoss = document.getElementById('modal-current-loss');
-    const currentMAE = document.getElementById('modal-current-mae');
-    
-    console.log('[TEST] Modal elements:', {
-        modalProgressDiv: !!modalProgressDiv,
-        modalVisible: modalProgressDiv ? modalProgressDiv.style.display : 'not found',
-        progressBar: !!progressBar,
-        currentEpoch: !!currentEpoch,
-        currentLoss: !!currentLoss,
-        currentMAE: !!currentMAE
-    });
-    
-    if (modalProgressDiv) {
-        console.log('[TEST] Modal div display style:', modalProgressDiv.style.display);
-        console.log('[TEST] Modal div computed style:', window.getComputedStyle(modalProgressDiv).display);
-    }
-    
-    // Try to update with test data
-    const testData = {
-        current_epoch: 5,
-        total_epochs: 20,
-        current_loss: 0.1234,
-        current_mae: 0.5678,
-        current_r2: 0.0
-    };
-    
-    const progressPercent = (testData.current_epoch / testData.total_epochs) * 100;
-    
-    if (progressBar) {
-        progressBar.style.width = progressPercent + '%';
-        progressBar.setAttribute('aria-valuenow', Math.round(progressPercent));
-        console.log('[TEST] Progress bar updated to:', progressPercent + '%');
-    }
-    if (currentEpoch) {
-        currentEpoch.textContent = `${testData.current_epoch}/${testData.total_epochs}`;
-        console.log('[TEST] Epoch updated to:', `${testData.current_epoch}/${testData.total_epochs}`);
-    }
-    if (currentLoss) {
-        currentLoss.textContent = testData.current_loss.toFixed(4);
-        console.log('[TEST] Loss updated to:', testData.current_loss.toFixed(4));
-    }
-    if (currentMAE) {
-        currentMAE.textContent = testData.current_mae.toFixed(4);
-        console.log('[TEST] MAE updated to:', testData.current_mae.toFixed(4));
-    }
-    
-    // Test status message
-    if (typeof showModalTrainingStatus === 'function') {
-        showModalTrainingStatus(`Test Epoch ${testData.current_epoch}/${testData.total_epochs} (${Math.round(progressPercent)}%)`, 'info');
-        console.log('[TEST] Modal status updated');
-    } else {
-        console.log('[TEST] showModalTrainingStatus function not found');
-    }
-}
-
-// Global function to check WebSocket status
-function checkWebSocketStatus() {
-    console.log('[DEBUG] WebSocket Status Check:');
-    console.log('- Socket connected:', socket ? socket.connected : 'socket not defined');
-    console.log('- Socket ID:', socket ? socket.id : 'N/A');
-    console.log('- Socket listeners for training_progress:', socket ? socket.listeners('training_progress').length : 'N/A');
-    
-    if (socket) {
-        console.log('- All listeners:', Object.keys(socket._callbacks || {}));
-    }
-}
-
-// Make test functions available globally
-window.testModalProgressUpdate = testModalProgressUpdate;
-window.checkWebSocketStatus = checkWebSocketStatus;
 
 // Modal'dan model sıfırla
 function resetModelFromModal(modelType) {
@@ -6028,10 +5827,7 @@ function resetModelFromModal(modelType) {
     }
 }
 
-// Modal'dan versiyon aktifleştir - KULLANILMIYOR: Model Yönetimi Modal'dan yapılmalı
-function activateVersionFromModal(versionId) {
-    // ... existing code ...
-}
+
 
 // Ensemble corrections yenileme fonksiyonu
 function refreshEnsembleCorrections() {
