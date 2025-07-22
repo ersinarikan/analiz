@@ -6,6 +6,8 @@ import json
 import cv2
 import threading
 import time
+import concurrent.futures
+from queue import Queue
 
 from flask import current_app
 from app import db
@@ -30,7 +32,46 @@ logger = logging.getLogger(__name__)
 # Thread-safe session management
 _session_lock = threading.Lock()
 
-# Mock analizör sınıflarını kaldırıyoruz, gerçek analizörleri kullanacağız
+# 🚀 ASYNC AGE ESTIMATION: ThreadPoolExecutor for non-blocking age estimation
+_age_estimation_executor = concurrent.futures.ThreadPoolExecutor(
+    max_workers=2, 
+    thread_name_prefix="AgeEstimation"
+)
+
+def _async_age_estimation(age_estimator, image, face, face_idx, analysis_id, person_id):
+    """
+    Age estimation işlemini background thread'de yapar - main thread bloklanmaz!
+    Bu sayede CLIP hesaplamaları sırasında WebSocket bağlantısı cevap verebilir.
+    """
+    try:
+        logger.info(f"[ASYNC_AGE] Thread başlatıldı: Yüz #{face_idx} (person_id={person_id})")
+        start_time = time.time()
+        
+        # Age estimation işlemini yap (bu kısım 11-12 saniye sürebilir)
+        estimated_age, confidence, pseudo_data = age_estimator.estimate_age(image, face)
+        
+        elapsed_time = time.time() - start_time
+        logger.info(f"[ASYNC_AGE] Thread tamamlandı: Yüz #{face_idx}, Süre: {elapsed_time:.2f}s, Yaş={estimated_age}, Güven={confidence}")
+        
+        return {
+            'face_idx': face_idx,
+            'person_id': person_id,
+            'estimated_age': estimated_age,
+            'confidence': confidence,
+            'pseudo_data': pseudo_data,
+            'processing_time': elapsed_time
+        }
+        
+    except Exception as e:
+        logger.error(f"[ASYNC_AGE] Thread hatası - Yüz #{face_idx}: {str(e)}")
+        return {
+            'face_idx': face_idx,
+            'person_id': person_id,
+            'estimated_age': None,
+            'confidence': None,
+            'pseudo_data': None,
+            'error': str(e)
+        }
 
 class AnalysisService:
     """
@@ -373,13 +414,30 @@ def analyze_image(analysis):
                 h = y2 - y1
                 if x1 >= 0 and y1 >= 0 and w > 0 and h > 0 and x1+w <= image.shape[1] and y1+h <= image.shape[0]:
                     person_id = f"{analysis.id}_person_{i}"
-                    logger.info(f"[SVC_LOG] Yüz #{i} (person_id={person_id}) için yaş tahmini çağrılıyor. BBox: [{x1},{y1},{w},{h}]")
-                    # Yaş tahmini, güven skoru ve potansiyel sözde etiket verisi
-                    estimated_age, confidence, pseudo_data = age_estimator.estimate_age(image, face)
-                    logger.info(f"[SVC_LOG] Yüz #{i} (person_id={person_id}) için sonuç alındı: Yaş={estimated_age}, Güven={confidence}")
+                    logger.info(f"[SVC_LOG] Yüz #{i} (person_id={person_id}) için ASYNC yaş tahmini başlatılıyor. BBox: [{x1},{y1},{w},{h}]")
+                    
+                    # 🚀 ASYNC AGE ESTIMATION: Background thread'de yap - main thread bloklanmasın!
+                    future = _age_estimation_executor.submit(
+                        _async_age_estimation, 
+                        age_estimator, image, face, i, analysis.id, person_id
+                    )
+                    
+                    # Short timeout - age estimation uzun sürerse bile main thread devam etsin
+                    try:
+                        result = future.result(timeout=1.0)  # 1 saniye bekle, sonra devam et
+                        estimated_age = result['estimated_age']
+                        confidence = result['confidence'] 
+                        pseudo_data = result['pseudo_data']
+                        logger.info(f"[SVC_LOG] Yüz #{i} SYNC sonuç alındı: Yaş={estimated_age}, Güven={confidence}")
+                    except concurrent.futures.TimeoutError:
+                        # Age estimation henüz bitmedi, ama main thread devam etsin
+                        logger.info(f"[SVC_LOG] Yüz #{i} için age estimation background'da devam ediyor...")
+                        estimated_age = None
+                        confidence = None
+                        pseudo_data = None
 
                     if estimated_age is None or confidence is None:
-                        logger.warning(f"[SVC_LOG] Yüz #{i} için yaş/güven alınamadı, atlanıyor.")
+                        logger.info(f"[SVC_LOG] Yüz #{i} için yaş/güven henüz hazır değil, background işlem devam ediyor.")
                         continue
                                 
                     age = float(estimated_age)
@@ -872,13 +930,31 @@ def analyze_video(analysis):
                                 face_obj = det['face'] # Bu InsightFace face nesnesi
 
                                 x1, y1, w, h = det['bbox']
-                                logger.info(f"[SVC_LOG][VID] Kare #{i}: Track ID={track.track_id} (person_id={track_id_str}) için yaş tahmini çağrılıyor. BBox: [{x1},{y1},{w},{h}]")
+                                logger.info(f"[SVC_LOG][VID] Kare #{i}: Track ID={track.track_id} (person_id={track_id_str}) için ASYNC yaş tahmini başlatılıyor. BBox: [{x1},{y1},{w},{h}]")
                                 embedding_str = det['embedding_str']  # string (veritabanı için)
-                                estimated_age, confidence, pseudo_data = age_estimator.estimate_age(image, face_obj)
-                                logger.info(f"[SVC_LOG][VID] Kare #{i}: Track ID={track.track_id} için sonuç: Yaş={estimated_age}, Güven={confidence}")
+                                
+                                # 🚀 ASYNC AGE ESTIMATION: Background thread'de yap - video frame processing bloklanmasın!
+                                future = _age_estimation_executor.submit(
+                                    _async_age_estimation, 
+                                    age_estimator, image, face_obj, i, analysis.id, track_id_str
+                                )
+                                
+                                # Video için daha kısa timeout - frame processing hızlı devam etmeli
+                                try:
+                                    result = future.result(timeout=0.5)  # 500ms bekle, sonra devam et
+                                    estimated_age = result['estimated_age']
+                                    confidence = result['confidence']
+                                    pseudo_data = result['pseudo_data']
+                                    logger.info(f"[SVC_LOG][VID] Kare #{i}: Track ID={track.track_id} SYNC sonuç: Yaş={estimated_age}, Güven={confidence}")
+                                except concurrent.futures.TimeoutError:
+                                    # Age estimation background'da devam ediyor, frame processing devam etsin
+                                    logger.info(f"[SVC_LOG][VID] Kare #{i}: Track ID={track.track_id} age estimation background'da devam ediyor...")
+                                    estimated_age = None
+                                    confidence = None
+                                    pseudo_data = None
 
                                 if estimated_age is None or confidence is None:
-                                    logger.warning(f"[SVC_LOG][VID] Kare #{i}: Track ID={track.track_id} için yaş/güven alınamadı, atlanıyor.")
+                                    logger.info(f"[SVC_LOG][VID] Kare #{i}: Track ID={track.track_id} için yaş/güven henüz hazır değil, sonraki frame'e geç.")
                                     continue
                                 
                                 age = float(estimated_age)

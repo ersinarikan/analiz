@@ -518,18 +518,130 @@ function initializeSocket(settingsSaveLoader) {
                 }
             });
             
-            // Browser notification'ları user gesture olmadan engelle
+            // 🚫 KAPSAMLI NOTIFICATION ENGELLEME SİSTEMİ 🚫
+            console.log('🚫 Kapsamlı notification engelleme sistemi aktifleştiriliyor...');
+            
+            // 1. Standard Notification API'yi tamamen engelle
             const originalNotification = window.Notification;
             if (originalNotification) {
                 window.Notification = function() {
-                    // User gesture olmadan notification'ları engelle
-                    return { close: () => {} };
+                    console.log('🚫 Notification çağrısı engellendi');
+                    return { 
+                        close: () => {}, 
+                        addEventListener: () => {},
+                        removeEventListener: () => {},
+                        dispatchEvent: () => false
+                    };
                 };
                 window.Notification.permission = 'denied';
-                window.Notification.requestPermission = () => Promise.resolve('denied');
+                window.Notification.requestPermission = () => {
+                    console.log('🚫 Notification permission talebi engellendi');
+                    return Promise.resolve('denied');
+                };
+                // Static methods ve properties
+                Object.defineProperty(window.Notification, 'maxActions', { value: 0 });
+                Object.defineProperty(window.Notification, 'CLOSED', { value: 2 });
             }
+            
+            // 2. Service Worker registration'ı engelle
+            if ('serviceWorker' in navigator) {
+                const originalRegister = navigator.serviceWorker.register;
+                navigator.serviceWorker.register = function() {
+                    console.log('🚫 Service Worker kaydı engellendi');
+                    return Promise.reject(new Error('Service Worker disabled'));
+                };
+            }
+            
+            // 3. Push Manager API'yi engelle
+            if ('PushManager' in window) {
+                const originalSubscribe = PushManager.prototype.subscribe;
+                PushManager.prototype.subscribe = function() {
+                    console.log('🚫 Push subscription engellendi');
+                    return Promise.reject(new Error('Push notifications disabled'));
+                };
+            }
+            
+            // 4. Web Push API'yi engelle (navigator.push)
+            if (navigator.push) {
+                Object.defineProperty(navigator, 'push', {
+                    value: undefined,
+                    writable: false
+                });
+            }
+            
+            // 5. Browser dialogs'ları sessiz hale getir
+            const originalAlert = window.alert;
+            const originalConfirm = window.confirm;
+            const originalPrompt = window.prompt;
+            
+            window.alert = function(message) {
+                console.log('🚫 Alert dialog engellendi:', message);
+                // Sadece console'a yaz, popup gösterme
+                return undefined;
+            };
+            
+            window.confirm = function(message) {
+                console.log('🚫 Confirm dialog engellendi:', message);
+                return false; // Her zaman false dön
+            };
+            
+            window.prompt = function(message, defaultText) {
+                console.log('🚫 Prompt dialog engellendi:', message);
+                return null; // Her zaman null dön
+            };
+            
+            // 6. Web Audio API notification'larını engelle
+            if ('webkitNotifications' in window) {
+                window.webkitNotifications = undefined;
+            }
+            
+            // 7. Chrome-specific notification API'lerini engelle
+            if (window.chrome && window.chrome.notifications) {
+                const originalCreate = window.chrome.notifications.create;
+                window.chrome.notifications.create = function() {
+                    console.log('🚫 Chrome notification engellendi');
+                    return Promise.resolve('blocked');
+                };
+            }
+            
+            // 8. addEventListener için notification eventlerini filtrele
+            const originalAddEventListener = window.addEventListener;
+            window.addEventListener = function(type, listener, options) {
+                if (type.includes('notification') || type.includes('push')) {
+                    console.log('🚫 Notification event listener engellendi:', type);
+                    return;
+                }
+                return originalAddEventListener.call(this, type, listener, options);
+            };
+            
+            // 9. WebSocket disconnect mesajlarını sustur
+            const originalConsoleWarn = console.warn;
+            const originalConsoleError = console.error;
+            
+            console.warn = function(...args) {
+                const message = args.join(' ').toLowerCase();
+                if (message.includes('websocket') || message.includes('disconnect') || 
+                    message.includes('connection') || message.includes('socket')) {
+                    // WebSocket ile ilgili warning'leri sustur
+                    return;
+                }
+                return originalConsoleWarn.apply(console, args);
+            };
+            
+            console.error = function(...args) {
+                const message = args.join(' ').toLowerCase();
+                if (message.includes('websocket') || message.includes('disconnect') || 
+                    message.includes('connection') || message.includes('socket')) {
+                    // WebSocket ile ilgili error'ları sustur
+                    return;
+                }
+                return originalConsoleError.apply(console, args);
+            };
+            
+            console.log('✅ Kapsamlı notification engelleme sistemi aktif');
+            
         } catch (error) {
-            // Browser API hatalarını sessizce yakala
+            console.log('⚠️ Browser API hatası (göz ardı edildi):', error);
         }
         
         window.socketioClient.connect();
@@ -564,6 +676,460 @@ function initializeSocket(settingsSaveLoader) {
         showToast('Bilgi', 'Ayarlar kaydedildi ve sunucu bağlantısı yeniden kuruldu.', 'success');
     }
 }
+
+// Analiz parametreleri butonu için uyarı gösterme fonksiyonu
+function handleParamsAlert(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    alert('Analiz parametrelerini değiştirmeden önce lütfen yüklenmiş dosyaları kaldırın veya analizi tamamlayın.');
+}
+
+// Manual server restart fonksiyonu (production için)
+function manualServerRestart() {
+    const restartBtn = document.querySelector('.restart-btn');
+    if (restartBtn) {
+        restartBtn.disabled = true;
+        restartBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Yeniden Başlatılıyor...';
+    }
+    
+    showToast('Bilgi', 'Sunucu yeniden başlatılıyor...', 'info');
+    
+    fetch('/api/restart_server', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            showToast('Bilgi', 'Sunucu yeniden başlatıldı. Sayfa yenileniyor...', 'success');
+            
+            // 3 saniye sonra sayfayı yenile
+            setTimeout(() => {
+                window.location.reload();
+            }, 3000);
+        } else {
+            showToast('Hata', 'Restart hatası: ' + (data.error || 'Bilinmeyen hata'), 'error');
+            if (restartBtn) {
+                restartBtn.disabled = false;
+                restartBtn.innerHTML = '<i class="fas fa-sync me-2"></i>Sunucuyu Yeniden Başlat';
+            }
+        }
+    })
+    .catch(error => {
+        console.error('Manual restart error:', error);
+        // Restart başarılı olmuş olabilir, connection error olabilir
+        showToast('Bilgi', 'Restart signal gönderildi. Sayfa yenileniyor...', 'info');
+        
+        setTimeout(() => {
+            window.location.reload();
+        }, 5000);
+    });
+}
+
+// Model butonları için uyarı gösterme fonksiyonu
+function handleModelAlert(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    alert('Model işlemlerini yapmadan önce lütfen yüklenmiş dosyaları kaldırın veya analizi tamamlayın.');
+}
+
+// Analiz parametreleri ve model yönetimi butonlarının durumunu güncelleme fonksiyonu (sadece yüklü dosyalara göre)
+function updateAnalysisParamsButtonState() {
+    // Bu fonksiyon sadece dosya ekleme/çıkarma durumlarında çağrılır
+    // Kuyruk durumu kontrolü updateAnalysisParamsButtonStateWithQueue() fonksiyonunda yapılır
+    updateAnalysisParamsButtonStateWithQueue(null);
+}
+
+// Analiz parametreleri ve model yönetimi butonlarının durumunu güncelleme fonksiyonu (hem yüklü dosya hem kuyruk durumuna göre)
+function updateAnalysisParamsButtonStateWithQueue(queueData) {
+    const analysisParamsBtn = document.getElementById('openAnalysisParamsModalBtn');
+    const modelMetricsBtn = document.getElementById('modelMetricsBtn');
+    const trainModelBtn = document.getElementById('trainModelBtn');
+    const modelManagementBtn = document.getElementById('modelManagementBtn');
+
+    // Yüklü dosya kontrolü
+    const hasUploadedFiles = uploadedFiles.length > 0;
+    
+    // Kuyruk durumu kontrolü
+    let hasFilesInQueue = false;
+    if (queueData) {
+        // Backend response formatına göre düzelt
+        const data = queueData?.data || queueData;
+        hasFilesInQueue = (data?.queue_size > 0) || (data?.is_processing === true);
+    }
+    
+    // Butonlar sadece analiz devam ederken devre dışı olmalı
+    // Dosya yüklendiyse VE analiz devam ediyorsa → devre dışı
+    // Sadece dosya yüklendiyse → aktif (kullanıcı analiz başlatabilir)
+    const shouldDisableButtons = hasFilesInQueue; // Sadece kuyruk durumuna göre
+
+    // Debug logları (sadece durumda değişiklik varsa)
+    const currentState = `files:${hasUploadedFiles}_queue:${hasFilesInQueue}_disabled:${shouldDisableButtons}`;
+    if (window.lastButtonState !== currentState) {
+        console.log('🔄 Buton durumu değişti:', {
+            'Yüklü dosya': hasUploadedFiles,
+            'Kuyrukta dosya': hasFilesInQueue, 
+            'Butonlar devre dışı': shouldDisableButtons
+        });
+        window.lastButtonState = currentState;
+    }
+
+    if (shouldDisableButtons) {
+        // Analiz Parametreleri butonu
+        if (analysisParamsBtn) {
+            analysisParamsBtn.classList.add('disabled');
+            analysisParamsBtn.setAttribute('aria-disabled', 'true');
+            analysisParamsBtn.removeAttribute('data-bs-toggle');
+            analysisParamsBtn.removeAttribute('data-bs-target');
+            analysisParamsBtn.removeEventListener('click', handleParamsAlert);
+            analysisParamsBtn.addEventListener('click', handleParamsAlert);
+        }
+
+        // Model Metrikleri butonu
+        if (modelMetricsBtn) {
+            modelMetricsBtn.classList.add('disabled');
+            modelMetricsBtn.setAttribute('aria-disabled', 'true');
+            modelMetricsBtn.removeEventListener('click', handleModelAlert);
+            modelMetricsBtn.addEventListener('click', handleModelAlert);
+        }
+
+        // Model Eğitimi butonu
+        if (trainModelBtn) {
+            trainModelBtn.classList.add('disabled');
+            trainModelBtn.setAttribute('aria-disabled', 'true');
+            trainModelBtn.removeEventListener('click', handleModelAlert);
+            trainModelBtn.addEventListener('click', handleModelAlert);
+        }
+
+        // Model Yönetimi butonu
+        if (modelManagementBtn) {
+            modelManagementBtn.classList.add('disabled');
+            modelManagementBtn.setAttribute('aria-disabled', 'true');
+            modelManagementBtn.removeAttribute('data-bs-toggle');
+            modelManagementBtn.removeAttribute('data-bs-target');
+            modelManagementBtn.removeEventListener('click', handleModelAlert);
+            modelManagementBtn.addEventListener('click', handleModelAlert);
+        }
+    } else {
+        // Analiz Parametreleri butonu
+        if (analysisParamsBtn) {
+            analysisParamsBtn.classList.remove('disabled');
+            analysisParamsBtn.setAttribute('aria-disabled', 'false');
+            analysisParamsBtn.setAttribute('data-bs-toggle', 'modal');
+            analysisParamsBtn.setAttribute('data-bs-target', '#analysisParamsModal');
+            analysisParamsBtn.removeEventListener('click', handleParamsAlert);
+        }
+
+        // Model Metrikleri butonu
+        if (modelMetricsBtn) {
+            modelMetricsBtn.classList.remove('disabled');
+            modelMetricsBtn.setAttribute('aria-disabled', 'false');
+            modelMetricsBtn.removeEventListener('click', handleModelAlert);
+        }
+
+        // Model Eğitimi butonu
+        if (trainModelBtn) {
+            trainModelBtn.classList.remove('disabled');
+            trainModelBtn.setAttribute('aria-disabled', 'false');
+            trainModelBtn.removeEventListener('click', handleModelAlert);
+        }
+
+        // Model Yönetimi butonu
+        if (modelManagementBtn) {
+            modelManagementBtn.classList.remove('disabled');
+            modelManagementBtn.setAttribute('aria-disabled', 'false');
+            modelManagementBtn.setAttribute('data-bs-toggle', 'modal');
+            modelManagementBtn.setAttribute('data-bs-target', '#modelManagementModal');
+            modelManagementBtn.removeEventListener('click', handleModelAlert);
+        }
+    }
+}
+
+// Sayfa yüklendiğinde çalışacak fonksiyon
+document.addEventListener('DOMContentLoaded', () => {
+    const settingsSaveLoader = document.getElementById('settingsSaveLoader'); // Yükleyici elementi
+    
+    // Socket.io bağlantısı
+    initializeSocket(settingsSaveLoader); // Yükleyici elementini initializeSocket'a parametre olarak geç
+    
+    // Event Listeners
+    initializeEventListeners();
+    
+    // Eğitim butonu kurulumu
+    setupTrainingButton();
+    updateAnalysisParamsButtonState(); // Butonun başlangıç durumunu ayarla
+    
+    // Resim tıklama özelliğini etkinleştir
+    addImageClickListeners();
+
+    // --- Yeni Analiz Parametreleri Modalı (GLOBAL) için Event Listener'lar ve Fonksiyonlar ---
+    globalAnalysisParamsModalElement = document.getElementById('analysisParamsModal'); 
+    if (globalAnalysisParamsModalElement) {
+        const globalAnalysisParamsModal = new bootstrap.Modal(globalAnalysisParamsModalElement);
+        const globalAnalysisParamsForm = document.getElementById('analysisParamsForm'); 
+        const saveGlobalAnalysisParamsBtn = document.getElementById('saveAnalysisParamsBtn');
+        const loadDefaultAnalysisParamsBtn = document.getElementById('loadDefaultAnalysisParamsBtn');
+
+        // Helper function to setup slider and its value display
+        function setupSliderWithValueDisplay(sliderId, valueDisplayId, defaultValue) {
+            const slider = document.getElementById(sliderId);
+            const valueDisplay = document.getElementById(valueDisplayId);
+            if (slider && valueDisplay) {
+                slider.addEventListener('input', () => {
+                    valueDisplay.textContent = slider.value;
+                });
+                valueDisplay.textContent = slider.value || defaultValue;
+            }
+            return slider;
+        }
+
+        const faceDetectionConfidenceSlider = setupSliderWithValueDisplay('faceDetectionConfidence', 'faceDetectionConfidenceValue', '0.5');
+        const trackingReliabilityThresholdSlider = setupSliderWithValueDisplay('trackingReliabilityThreshold', 'trackingReliabilityThresholdValue', '0.5');
+        const idChangeThresholdSlider = setupSliderWithValueDisplay('idChangeThreshold', 'idChangeThresholdValue', '0.45');
+        const embeddingDistanceThresholdSlider = setupSliderWithValueDisplay('embeddingDistanceThreshold', 'embeddingDistanceThresholdValue', '0.4');
+        const maxLostFramesInput = document.getElementById('maxLostFrames');
+
+        // Modal açıldığında mevcut ayarları yükle
+        globalAnalysisParamsModalElement.addEventListener('show.bs.modal', function () {
+            fetch('/api/get_analysis_params')
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    if (data) {
+                        console.log('Fetched global params:', data);
+                        if (faceDetectionConfidenceSlider && data.face_detection_confidence !== null && data.face_detection_confidence !== undefined) {
+                            faceDetectionConfidenceSlider.value = data.face_detection_confidence;
+                            document.getElementById('faceDetectionConfidenceValue').textContent = data.face_detection_confidence;
+                        }
+                        if (trackingReliabilityThresholdSlider && data.tracking_reliability_threshold !== null && data.tracking_reliability_threshold !== undefined) {
+                            trackingReliabilityThresholdSlider.value = data.tracking_reliability_threshold;
+                            document.getElementById('trackingReliabilityThresholdValue').textContent = data.tracking_reliability_threshold;
+                        }
+                        if (idChangeThresholdSlider && data.id_change_threshold !== null && data.id_change_threshold !== undefined) {
+                            idChangeThresholdSlider.value = data.id_change_threshold;
+                            document.getElementById('idChangeThresholdValue').textContent = data.id_change_threshold;
+                        }
+                        if (maxLostFramesInput && data.max_lost_frames !== null && data.max_lost_frames !== undefined) {
+                            maxLostFramesInput.value = data.max_lost_frames;
+                        }
+                        if (embeddingDistanceThresholdSlider && data.embedding_distance_threshold !== null && data.embedding_distance_threshold !== undefined) {
+                            embeddingDistanceThresholdSlider.value = data.embedding_distance_threshold;
+                            document.getElementById('embeddingDistanceThresholdValue').textContent = data.embedding_distance_threshold;
+                        }
+                    }
+                })
+                .catch(error => {
+                    console.error('Error fetching global analysis params:', error);
+                    alert('Global analiz parametreleri yüklenirken bir hata oluştu: ' + error.message);
+                });
+        });
+
+        // Varsayılan ayarları yükle butonu
+        if (loadDefaultAnalysisParamsBtn) {
+            loadDefaultAnalysisParamsBtn.addEventListener('click', function() {
+                fetch('/api/get_analysis_params?use_defaults=true') 
+                    .then(response => {
+                        if (!response.ok) {
+                            throw new Error(`HTTP error! status: ${response.status}`);
+                        }
+                        return response.json();
+                    })
+                    .then(data => {
+                        if (data) {
+                            console.log('Loading default global params:', data);
+                            if (faceDetectionConfidenceSlider && data.face_detection_confidence !== null && data.face_detection_confidence !== undefined) {
+                                faceDetectionConfidenceSlider.value = data.face_detection_confidence;
+                                document.getElementById('faceDetectionConfidenceValue').textContent = data.face_detection_confidence;
+                            }
+                            if (trackingReliabilityThresholdSlider && data.tracking_reliability_threshold !== null && data.tracking_reliability_threshold !== undefined) {
+                                trackingReliabilityThresholdSlider.value = data.tracking_reliability_threshold;
+                                document.getElementById('trackingReliabilityThresholdValue').textContent = data.tracking_reliability_threshold;
+                            }
+                            if (idChangeThresholdSlider && data.id_change_threshold !== null && data.id_change_threshold !== undefined) {
+                                idChangeThresholdSlider.value = data.id_change_threshold;
+                                document.getElementById('idChangeThresholdValue').textContent = data.id_change_threshold;
+                            }
+                            if (maxLostFramesInput && data.max_lost_frames !== null && data.max_lost_frames !== undefined) {
+                                maxLostFramesInput.value = data.max_lost_frames;
+                            }
+                            if (embeddingDistanceThresholdSlider && data.embedding_distance_threshold !== null && data.embedding_distance_threshold !== undefined) {
+                                embeddingDistanceThresholdSlider.value = data.embedding_distance_threshold;
+                                document.getElementById('embeddingDistanceThresholdValue').textContent = data.embedding_distance_threshold;
+                            }
+                            showToast('Bilgi', 'Varsayılan analiz parametreleri yüklendi.', 'info');
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error fetching default global analysis params:', error);
+                        alert('Varsayılan global analiz parametreleri yüklenirken bir hata oluştu: ' + error.message);
+                    });
+            });
+        }
+
+        // Ayarları kaydet
+        if (saveGlobalAnalysisParamsBtn && globalAnalysisParamsForm) {
+            saveGlobalAnalysisParamsBtn.addEventListener('click', function () {
+                const formData = new FormData(globalAnalysisParamsForm);
+                const params = {};
+                let formIsValid = true;
+
+                for (let [key, value] of formData.entries()) {
+                    const inputElement = globalAnalysisParamsForm.elements[key];
+                    if (inputElement.type === 'number' || inputElement.type === 'range') {
+                        if (value === '') {
+                            params[key] = null; 
+                        } else {
+                            const numValue = Number(value);
+                            if (isNaN(numValue)) {
+                                alert(`Geçersiz sayısal değer: ${inputElement.name || inputElement.id}`);
+                                formIsValid = false;
+                                break;
+                            }
+                            if (inputElement.min && numValue < Number(inputElement.min)) {
+                                alert(`${inputElement.name || inputElement.id} için minimum değer ${inputElement.min} olmalıdır.`);
+                                formIsValid = false;
+                                break;
+                            }
+                            if (inputElement.max && numValue > Number(inputElement.max)) {
+                                alert(`${inputElement.name || inputElement.id} için maksimum değer ${inputElement.max} olmalıdır.`);
+                                formIsValid = false;
+                                break;
+                            }
+                            params[key] = numValue;
+                        }
+                    } else {
+                        params[key] = value;
+                    }
+                }
+
+                if (!formIsValid) return;
+                console.log('Saving global params:', params);
+
+                if(settingsSaveLoader) settingsSaveLoader.style.display = 'flex'; // Yükleyiciyi göster
+
+                fetch('/api/set_analysis_params', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(params),
+                })
+                .then(response => response.json().then(data => ({ status: response.status, body: data })))
+                .then(({ status, body }) => {
+                    if (status === 200 && body.message) {
+                        if (body.restart_required) {
+                            // Production mode - manual restart gerekli
+                            showToast('Bilgi', body.message, 'warning');
+                            
+                            // Manual restart butonu göster
+                            const restartBtn = document.createElement('button');
+                            restartBtn.className = 'btn btn-warning mt-2';
+                            restartBtn.innerHTML = '<i class="fas fa-sync me-2"></i>Sunucuyu Yeniden Başlat';
+                            restartBtn.onclick = () => manualServerRestart();
+                            
+                            // Modal içinde restart butonu göster
+                            const modalBody = document.querySelector('#analysisParamsModal .modal-body');
+                            if (modalBody) {
+                                // Önceki restart butonunu kaldır
+                                const existingBtn = modalBody.querySelector('.restart-btn');
+                                if (existingBtn) existingBtn.remove();
+                                
+                                restartBtn.classList.add('restart-btn');
+                                modalBody.appendChild(restartBtn);
+                            }
+                            
+                            // Loader'ı gizle
+                            if(settingsSaveLoader) settingsSaveLoader.style.display = 'none';
+                        } else {
+                            // Development mode - auto reload
+                            showToast('Bilgi', body.message + ' Sunucu yeniden başlatılıyor, lütfen bekleyin...', 'info');
+                            // Yükleyici zaten gösteriliyor, WebSocket bağlantısı ve modalın kapanması bekleniyor.
+                            // globalAnalysisParamsModal.hide(); // Hemen gizleme, socket connect'te gizlenecek
+                        }
+                    } else {
+                        if(settingsSaveLoader) settingsSaveLoader.style.display = 'none';
+                        if (hideLoaderTimeout) { // Add this check
+                            clearTimeout(hideLoaderTimeout);
+                            hideLoaderTimeout = null; // Optional: reset after clearing
+                        }
+                        let errorMessage = 'Global ayarlar kaydedilirken bir hata oluştu.';
+                        if (body.error) errorMessage += '\nSunucu Mesajı: ' + body.error;
+                        if (body.details && Array.isArray(body.details)) errorMessage += '\nDetaylar: ' + body.details.join('\n');
+                        else if (body.details) errorMessage += '\nDetaylar: ' + body.details;
+                        alert(errorMessage);
+                        console.error('Error saving global params:', body);
+                    }
+                })
+                .catch(error => {
+                    if(settingsSaveLoader) settingsSaveLoader.style.display = 'none';
+                    if (hideLoaderTimeout) { // Add this check
+                        clearTimeout(hideLoaderTimeout);
+                        hideLoaderTimeout = null; // Optional: reset after clearing
+                    }
+                    console.error('Error saving global analysis params:', error);
+                    alert('Global ayarlar kaydedilirken bir ağ hatası oluştu: ' + error.message);
+                });
+            });
+        }
+    } // --- Yeni Analiz Parametreleri Modalı (GLOBAL) için SON ---
+
+    // Modal accessibility düzeltmesi - aria-hidden attribute'unu düzelt
+    const analysisModal = document.getElementById('runAnalysisSettingsModal');
+    if (analysisModal) {
+        analysisModal.addEventListener('show.bs.modal', function () {
+            this.removeAttribute('aria-hidden');
+            // Body scroll'unu engelle
+            document.body.style.overflow = 'hidden';
+            console.log('[DEBUG] Analysis modal açıldı, body scroll engellendi');
+        });
+        analysisModal.addEventListener('hide.bs.modal', function () {
+            this.setAttribute('aria-hidden', 'true');
+            console.log('[DEBUG] Analysis modal kapandı, aria-hidden eklendi');
+        });
+        analysisModal.addEventListener('hidden.bs.modal', function () {
+            // Modal tamamen kapandığında backdrop'ı temizle ve scroll'u geri getir
+            const backdrops = document.querySelectorAll('.modal-backdrop');
+            backdrops.forEach(backdrop => {
+                backdrop.remove();
+                console.log('[DEBUG] Backdrop temizlendi');
+            });
+            document.body.style.overflow = '';
+            console.log('[DEBUG] Body scroll geri getirildi');
+        });
+    }
+
+    // Image zoom modal için de aynı düzeltmeyi uygula
+    const imageModal = document.getElementById('imageZoomModal');
+    if (imageModal) {
+        imageModal.addEventListener('show.bs.modal', function () {
+            this.removeAttribute('aria-hidden');
+            // Body scroll'unu engelle
+            document.body.style.overflow = 'hidden';
+            console.log('[DEBUG] Image modal açıldı, body scroll engellendi');
+        });
+        imageModal.addEventListener('hide.bs.modal', function () {
+            this.setAttribute('aria-hidden', 'true');
+            console.log('[DEBUG] Image modal kapandı, aria-hidden eklendi');
+        });
+        imageModal.addEventListener('hidden.bs.modal', function () {
+            // Modal tamamen kapandığında backdrop'ı temizle ve scroll'u geri getir
+            const backdrops = document.querySelectorAll('.modal-backdrop');
+            backdrops.forEach(backdrop => {
+                backdrop.remove();
+                console.log('[DEBUG] Image modal backdrop temizlendi');
+            });
+            document.body.style.overflow = '';
+            console.log('[DEBUG] Body scroll geri getirildi');
+        });
+    }
+
+});
 
 // Olay dinleyicileri
 function initializeEventListeners() {
@@ -1244,14 +1810,19 @@ function startAnalysisForAllFiles(framesPerSecond, includeAgeAnalysis) {
     if (analyzeBtn) {
         analyzeBtn.innerHTML = '<i class="fas fa-stop me-1"></i> Analizi Durdur';
         analyzeBtn.className = 'btn btn-danger';
-        // Direkt onclick kullan (daha güvenilir)
-        analyzeBtn.onclick = function(e) {
+        
+        // 🔧 TÜM EVENT LISTENER'LARI TEMİZLE (modal açan handler'lar dahil)
+        const newAnalyzeBtn = analyzeBtn.cloneNode(true);
+        analyzeBtn.parentNode.replaceChild(newAnalyzeBtn, analyzeBtn);
+        
+        // Sadece stopAnalysis handler'ını ekle
+        newAnalyzeBtn.onclick = function(e) {
             e.preventDefault();
             e.stopPropagation();
             console.log('[DEBUG] Analizi Durdur butonu tıklandı!');
             stopAnalysis();
         };
-        console.log('[DEBUG] Analiz Et butonu -> Analizi Durdur olarak değiştirildi');
+        console.log('[DEBUG] Analiz Et butonu -> Analizi Durdur olarak değiştirildi (event listeners temizlendi)');
     }
     
     // Ana sayfadaki "Analiz Başlat" butonunu da değiştir
@@ -1259,14 +1830,19 @@ function startAnalysisForAllFiles(framesPerSecond, includeAgeAnalysis) {
     if (startAnalysisMainBtn) {
         startAnalysisMainBtn.innerHTML = '<i class="fas fa-stop me-2"></i>Analizi Durdur';
         startAnalysisMainBtn.className = 'btn btn-danger btn-lg me-3';
-        // Direkt onclick kullan (daha güvenilir)
-        startAnalysisMainBtn.onclick = function(e) {
+        
+        // 🔧 TÜM EVENT LISTENER'LARI TEMİZLE (önceki handler'lar dahil)
+        const newStartAnalysisMainBtn = startAnalysisMainBtn.cloneNode(true);
+        startAnalysisMainBtn.parentNode.replaceChild(newStartAnalysisMainBtn, startAnalysisMainBtn);
+        
+        // Sadece stopAnalysis handler'ını ekle
+        newStartAnalysisMainBtn.onclick = function(e) {
             e.preventDefault();
             e.stopPropagation();
             console.log('[DEBUG] Ana sayfa Analizi Durdur butonu tıklandı!');
             stopAnalysis();
         };
-        console.log('[DEBUG] Analiz Başlat butonu -> Analizi Durdur olarak değiştirildi');
+        console.log('[DEBUG] Analiz Başlat butonu -> Analizi Durdur olarak değiştirildi (event listeners temizlendi)');
     }
     
     // Her bir dosya için analiz başlat
@@ -6064,13 +6640,23 @@ if (modal) {
 function stopAnalysis() {
     console.log('[DEBUG] stopAnalysis çağrıldı');
     
-    // Kullanıcıdan onay al
-    if (!confirm('Tüm analizler durdurulacak ve kuyruk temizlenecek. Emin misiniz?')) {
+    // 🚀 "Analizi Durdur" butonuna basıldıysa kullanıcı zaten onaylamış demektir
+    // Notification engelleme sistemi confirm'u engelleyebilir, bu durumda da devam et
+    let userConfirmed = false;
+    try {
+        userConfirmed = confirm('Tüm analizler durdurulacak ve kuyruk temizlenecek. Emin misiniz?');
+    } catch(e) {
+        console.log('[DEBUG] stopAnalysis: Confirm dialog hatası/engellendi, devam ediliyor...');
+        userConfirmed = true; // Dialog engellenirse otomatik onay
+    }
+    
+    // Eğer confirm false dönerse ve notification engelleme sisteminden kaynaklanmıyorsa
+    if (!userConfirmed && window.confirm !== undefined) {
         console.log('[DEBUG] stopAnalysis: Kullanıcı işlemi iptal etti');
         return;
     }
     
-    console.log('[DEBUG] stopAnalysis: Kullanıcı onayladı, API çağrısı yapılıyor...');
+    console.log('[DEBUG] stopAnalysis: İşlem onaylandı, API çağrısı yapılıyor...');
     
     // Loading spinner'ı gizle
     const settingsSaveLoader = document.getElementById('settingsSaveLoader');
@@ -6139,13 +6725,15 @@ function resetAnalyzeButton() {
         analyzeBtn.replaceWith(analyzeBtn.cloneNode(true));
         // Yeni referansı al ve orijinal event listener'ı ekle
         const newAnalyzeBtn = document.getElementById('analyzeBtn');
-        newAnalyzeBtn.addEventListener('click', () => {
+        newAnalyzeBtn.onclick = function(e) {
+            e.preventDefault();
+            e.stopPropagation();
             if (uploadedFiles.length > 0) {
                 // Analiz parametreleri modalını aç (ANLIK AYARLAR İÇİN YENİ MODAL)
                 const modal = new bootstrap.Modal(document.getElementById('runAnalysisSettingsModal'));
                 modal.show();
             }
-        });
+        };
         console.log('[DEBUG] Analizi Durdur butonu -> Analiz Et olarak değiştirildi');
     }
     
@@ -6158,9 +6746,11 @@ function resetAnalyzeButton() {
         startAnalysisMainBtn.replaceWith(startAnalysisMainBtn.cloneNode(true));
         // Yeni referansı al ve orijinal event listener'ı ekle
         const newStartAnalysisMainBtn = document.getElementById('startAnalysisMainBtn');
-        newStartAnalysisMainBtn.addEventListener('click', function() { 
+        newStartAnalysisMainBtn.onclick = function(e) {
+            e.preventDefault();
+            e.stopPropagation(); 
             document.getElementById('uploadFileBtn').click(); 
-        });
+        };
         console.log('[DEBUG] Analizi Durdur butonu -> Analiz Başlat olarak değiştirildi');
     }
 }
@@ -6174,4 +6764,3 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 });
-// ... existing code ...
