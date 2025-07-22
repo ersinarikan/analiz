@@ -260,9 +260,9 @@ def analyze_file(analysis_id):
     if needs_context:
         # Import burada yapıyoruz circular import'ı önlemek için
         try:
-            import app as app_module
-            app = app_module.create_app()
-            with app.app_context():
+            from flask import current_app
+            app_ctx = current_app._get_current_object()
+            with app_ctx.app_context():
                 return _perform_analysis()
         except Exception as e:
             logger.error(f"App context oluşturma hatası: {str(e)}", exc_info=True)

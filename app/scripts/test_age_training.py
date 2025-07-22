@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 def test_age_training():
     """Age training sistemini test eder"""
-    app = create_app()
+    app, socketio_direct = create_app()  # Tuple'ı unpack et
     
     with app.app_context():
         # ModelVersion tablosunun var olduğunu kontrol et

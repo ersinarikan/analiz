@@ -177,8 +177,8 @@ def main():
     print_banner()
     
     try:
-        # Flask app oluştur
-        app = create_app()
+        # Flask uygulama bağlamı oluştur
+        app, socketio_direct = create_app()  # Tuple'ı unpack et
         
         with app.app_context():
             logger.info("🚀 CLIP training script başlatılıyor...")

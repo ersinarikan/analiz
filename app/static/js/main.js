@@ -23,11 +23,15 @@ function normalizePath(path) {
 
 // Globals for tracking analysis state
 const fileStatuses = new Map();  // Maps fileId to status
-const fileAnalysisMap = new Map();  // Maps fileId to analysisId
+const fileAnalysisMap = new Map();  // Maps analysisId to fileId
 const cancelledAnalyses = new Set();  // Set of cancelled analysisId values
 const fileErrorCounts = new Map();  // Maps fileId to error count
 let totalAnalysisCount = 0;
 let MAX_STATUS_CHECK_RETRIES = 5;
+
+// window üzerinden global state paylaşımı
+window.fileAnalysisMap = fileAnalysisMap;
+window.uploadedFiles = uploadedFiles;
 
 // Analiz parametreleri butonu için uyarı gösterme fonksiyonu
 function handleParamsAlert(e) {
@@ -488,7 +492,14 @@ document.addEventListener('DOMContentLoaded', () => {
 function initializeSocket(settingsSaveLoader) { 
     console.log('WebSocket sistemi aktif');
     
-    // WebSocket client otomatik olarak başlatılıyor (websocket-client.js'te)
+    // 🔥 WebSocket client instance'ını oluştur ve global variable'a ata
+    if (typeof WebSocketClient !== 'undefined') {
+        window.socketioClient = new WebSocketClient();
+        window.socketioClient.connect();
+        console.log('✅ WebSocket client oluşturuldu ve bağlantı başlatıldı');
+    } else {
+        console.error('❌ WebSocketClient class bulunamadı!');
+    }
     
     // Model değişikliği kontrolü
     if (localStorage.getItem('modelChangedReloadRequired') === 'true') {
@@ -902,6 +913,7 @@ function addFileToList(file) {
     }
     
     uploadedFiles.push(newFile);
+    window.uploadedFiles = uploadedFiles;
     updateAnalysisParamsButtonState(); // Add this line
 
     const fileList = document.getElementById('fileList');
@@ -924,19 +936,26 @@ function createFileCard(file) {
     const fileCard = template.content.cloneNode(true);
     
     // Karta dosya ID'si ata
-    fileCard.querySelector('.file-card').id = file.id;
+    const cardElem = fileCard.querySelector('.file-card');
+    cardElem.id = file.id;
+    // Analiz için benzersiz data-analysis-id attribute'u ekle
+    cardElem.setAttribute('data-analysis-id', file.analysisId || '');
     
     // Dosya adı ve boyutu ayarla
     fileCard.querySelector('.filename').textContent = file.name;
     fileCard.querySelector('.filesize').textContent = formatFileSize(file.size);
     
     // Dosya önizlemesi oluştur
-    createFilePreview(file.originalFile, fileCard.querySelector('.file-preview')); // Pass the original File object
+    createFilePreview(file.originalFile, fileCard.querySelector('.file-preview'));
     
     // Dosya silme butonuna olay dinleyicisi ekle
     fileCard.querySelector('.remove-file-btn').addEventListener('click', () => removeFile(file.id));
     
-    return fileCard.querySelector('.file-card');
+    // Status message elementine .status-message class'ı ekle
+    const statusElem = fileCard.querySelector('.file-status-text');
+    if (statusElem) statusElem.classList.add('status-message');
+    
+    return cardElem;
 }
 
 // Dosya önizlemesi oluştur
@@ -1009,6 +1028,7 @@ function removeFile(fileId) {
 
         // Dosyayı listeden ve UI'dan kaldır
         uploadedFiles = uploadedFiles.filter(f => f.id !== fileId);
+        window.uploadedFiles = uploadedFiles;
         updateAnalysisParamsButtonState(); // Add this line
 
         const fileCard = document.getElementById(fileId);
@@ -1165,6 +1185,14 @@ function startAnalysis(fileId, serverFileId, framesPerSecond, includeAgeAnalysis
 
     console.log("Analiz başlatılıyor:", analysisParams);
 
+    // FileAnalysisMap'i hazırla (race condition'ı önlemek için)
+    if (!window.fileAnalysisMap) window.fileAnalysisMap = new Map();
+    
+    // IMMEDIATE MAPPING: Server file ID ile fileId'yi hemen eşleştir
+    const tempAnalysisKey = `temp_${serverFileId}`;
+    window.fileAnalysisMap.set(tempAnalysisKey, fileId);
+    console.log('[DEBUG] Immediate temporary mapping:', tempAnalysisKey, '→', fileId);
+
     // API'ye analiz isteği gönder
     fetch('/api/analysis/start', {
         method: 'POST',
@@ -1197,34 +1225,95 @@ function startAnalysis(fileId, serverFileId, framesPerSecond, includeAgeAnalysis
             throw new Error("Analiz ID alınamadı");
         }
         
-        // Socket.io tarafından zaten işlenmemişse analiz durumunu kontrol et
-        // (Yani fileAnalysisMap'te bu dosya için bir analysisId yoksa)
-        if (!fileAnalysisMap.has(fileId)) {
-            fileAnalysisMap.set(fileId, analysisId);
+        // fileAnalysisMap'i mutlaka tanımla ve güncelle
+        if (!window.fileAnalysisMap) window.fileAnalysisMap = new Map();
+        
+        // Temp mapping'i temizle (eğer henüz temp_ ile progress gelmemişse)
+        const tempKey = `temp_${serverFileId}`;
+        if (window.fileAnalysisMap.has(tempKey)) {
+            window.fileAnalysisMap.delete(tempKey);
+            console.log('[DEBUG] Temp mapping temizlendi:', tempKey);
+        }
+        
+        window.fileAnalysisMap.set(analysisId, fileId);
+        console.log('[DEBUG] fileAnalysisMap güncellendi:', analysisId, fileId, window.fileAnalysisMap);
+        
+        // Pending progress queue'sunu kontrol et ve uygula
+        if (window.pendingProgress && window.pendingProgress.has(analysisId)) {
+            const pendingUpdates = window.pendingProgress.get(analysisId);
+            console.log('[DEBUG] Pending progress uygulanıyor:', pendingUpdates.length, 'adet');
             
-            // Dosyaya analiz ID'sini ekle
-            const fileIndex = uploadedFiles.findIndex(f => f.id === fileId);
-            if (fileIndex !== -1) {
-                uploadedFiles[fileIndex].analysisId = analysisId;
+            pendingUpdates.forEach(progressData => {
+                updateFileStatus(fileId, 'processing', progressData.progress, progressData.message);
+                console.log('[DEBUG] Pending progress uygulandı:', progressData.progress + '%', progressData.message);
+            });
+            
+            // Queue'yu temizle
+            window.pendingProgress.delete(analysisId);
+            console.log('[DEBUG] Pending progress queue temizlendi');
+        }
+        
+        // DOM'a da analysis-id attribute'unu set et (fallback için)
+        const fileCard = document.getElementById(fileId);
+        if (fileCard) {
+            fileCard.dataset.analysisId = analysisId;
+            console.log('[DEBUG] DOM fileCard analysis-id set edildi:', fileId, analysisId);
+        }
+        
+        // Dosyaya analiz ID'sini ekle
+        const fileIndex = uploadedFiles.findIndex(f => f.id === fileId);
+        if (fileIndex !== -1) {
+            uploadedFiles[fileIndex].analysisId = analysisId;
+            window.uploadedFiles = uploadedFiles;
+            // DOM'daki file-card'ın data-analysis-id attribute'unu güncelle
+            const cardElem = document.getElementById(fileId);
+            if (cardElem) {
+                cardElem.setAttribute('data-analysis-id', analysisId);
+                console.log('[DEBUG] file-card data-analysis-id güncellendi:', cardElem);
+            } else {
+                console.warn('[DEBUG] file-card bulunamadı! fileId:', fileId);
             }
-            
-            // Hata sayacını sıfırla
-            fileErrorCounts.set(fileId, 0);
-            
-            // FALLBACK: SocketIO event'leri gelmezse 30 saniye sonra HTTP polling başlat
-            const fallbackTimeout = setTimeout(() => {
-                console.warn('⚠️  SocketIO event alınmadı, HTTP polling başlatılıyor...');
-                checkAnalysisStatus(analysisId, fileId);
-            }, 30000);
-            
-            // Event gelirse timeout'u iptal et
-            if (typeof socketioClient !== 'undefined' && socketioClient) {
-                const eventReceived = () => clearTimeout(fallbackTimeout);
-                socketioClient.once('analysis_started', eventReceived);
-                socketioClient.once('analysis_progress', eventReceived);
-                socketioClient.once('analysis_completed', eventReceived);
-                socketioClient.once('analysis_failed', eventReceived);
+        }
+        
+        // Hata sayacını sıfırla
+        fileErrorCounts.set(fileId, 0);
+        
+        // 🔥 WebSocket analysis room'una katıl (HER ZAMAN)
+        console.log('[DEBUG] WebSocket join kontrolleri:', {
+            socketioClient: typeof socketioClient,
+            connected: socketioClient ? socketioClient.connected : 'N/A',
+            analysisId: analysisId
+        });
+        
+        if (typeof socketioClient !== 'undefined' && socketioClient && socketioClient.connected) {
+            console.log(`🚀 WebSocket analysis room'una katılıyor: ${analysisId}`);
+            socketioClient.joinAnalysis(analysisId);
+        } else {
+            console.warn('⚠️ WebSocket bağlı değil, room join edilemiyor');
+            // WebSocket bağlantısını tekrar dene
+            if (typeof socketioClient !== 'undefined' && socketioClient && !socketioClient.connected) {
+                console.log('🔄 WebSocket yeniden bağlanmayı deniyor...');
+                socketioClient.connect();
+                // Kısa bir gecikme sonrası tekrar dene
+                setTimeout(() => {
+                    if (socketioClient.connected) {
+                        console.log(`🚀 WebSocket yeniden bağlandı, room'a katılıyor: ${analysisId}`);
+                        socketioClient.joinAnalysis(analysisId);
+                    }
+                }, 1000);
             }
+        }
+        
+        // 🔥 FIX: WebSocket timeout timer'ını global olarak saklayalım
+        const timeoutId = setTimeout(() => {
+            alert('WebSocket üzerinden analiz ilerleme bilgisi alınamadı! Sunucu ile gerçek zamanlı bağlantı kurulamıyor. Lütfen sayfayı yenileyin veya sistem yöneticisine başvurun.');
+        }, 150000);
+        
+        // Timer'ı dosya objesi üzerinde saklayalım ki completed olduğunda temizleyebilelim
+        const file = uploadedFiles.find(f => f.id === fileId);
+        if (file) {
+            file.alertTimeoutId = timeoutId;
+            console.log('[DEBUG] 🔥 Alert timeout set for file:', fileId, timeoutId);
         }
     })
     .catch(error => {
@@ -1242,7 +1331,14 @@ function checkAllAnalysesCompleted() {
     // Tüm dosya durumlarını kontrol et
     for (const [fileId, status] of fileStatuses.entries()) {
         // İptal edilmiş analizleri tamamlanmış olarak kabul et
-        const analysisId = fileAnalysisMap.get(fileId);
+        // analysisId'yi bulma - fileAnalysisMap'ten ters lookup gerekli
+        let analysisId = null;
+        for (const [aid, fid] of fileAnalysisMap.entries()) {
+            if (fid === fileId) {
+                analysisId = aid;
+                break;
+            }
+        }
         if (status !== "completed" && status !== "failed" && !cancelledAnalyses.has(analysisId)) {
             return false;  // Hala işlemde olan veya başarısız olmayan analiz var
         }
@@ -1263,8 +1359,10 @@ function getCompletedAnalysesCount() {
 
 // Dosya durumunu güncelle
 function updateFileStatus(fileId, status, progress, error = null) {
+    // DEBUG LOG EKLE
+    console.log('[DEBUG] updateFileStatus çağrıldı:', fileId, status, progress);
     const fileCard = document.getElementById(fileId);
-    
+    console.log('[DEBUG] fileCard bulundu mu?', !!fileCard, fileCard);
     if (!fileCard) return;
     
     // Durum metnini düzenle (API'den gelen İngilizce durumları Türkçe'ye çevirelim)
@@ -1281,11 +1379,23 @@ function updateFileStatus(fileId, status, progress, error = null) {
     
     // Durum metni
     const statusText = fileCard.querySelector('.file-status-text');
-    statusText.textContent = displayStatus;
+    console.log('[DEBUG] statusText bulundu mu?', !!statusText, statusText);
+    if (statusText) {
+        statusText.textContent = displayStatus;
+        console.log('[DEBUG] statusText güncellendi:', displayStatus);
+    } else {
+        console.error('[DEBUG] statusText elementi bulunamadı!');
+    }
     
     // Durum etiketi
     const statusBadge = fileCard.querySelector('.file-status');
-    statusBadge.textContent = displayStatus;
+    console.log('[DEBUG] statusBadge bulundu mu?', !!statusBadge, statusBadge);
+    if (statusBadge) {
+        statusBadge.textContent = displayStatus;
+        console.log('[DEBUG] statusBadge güncellendi:', displayStatus);
+    } else {
+        console.error('[DEBUG] statusBadge elementi bulunamadı!');
+    }
     
     // Status badge rengi
     statusBadge.className = 'file-status';
@@ -1318,8 +1428,21 @@ function updateFileStatus(fileId, status, progress, error = null) {
     
     // İlerleme çubuğu
     const progressBar = fileCard.querySelector('.progress-bar');
-    progressBar.style.width = `${progress}%`;
-    progressBar.setAttribute('aria-valuenow', progress);
+    console.log('[DEBUG] progressBar bulundu mu?', !!progressBar, progressBar);
+    if (progressBar) {
+        // Progress değeri güvenli hale getirilsin
+        const safeProgress = Math.max(0, Math.min(100, progress || 0));
+        
+        // 🔥 ÖNCEDEN width değerini kontrol et
+        console.log('[DEBUG] 🔥 Progress bar BEFORE - width:', progressBar.style.width, 'computed:', window.getComputedStyle(progressBar).width);
+        
+        progressBar.style.width = `${safeProgress}%`;
+        progressBar.setAttribute('aria-valuenow', safeProgress);
+        
+        // 🔥 SONRADAN width değerini kontrol et
+        console.log('[DEBUG] 🔥 Progress bar AFTER - width:', progressBar.style.width, 'computed:', window.getComputedStyle(progressBar).width);
+        console.log('[DEBUG] Progress bar güncellendi:', safeProgress + '%');
+    }
     
     // İlerleme yüzdesini ekle
     if (progress > 0 && progress < 100) {
@@ -1333,14 +1456,62 @@ function updateFileStatus(fileId, status, progress, error = null) {
         progressBar.style.width = '100%';
         progressBar.setAttribute('aria-valuenow', 100);
         progressBar.classList.add('bg-success');
+        
+        // 🔥 FIX: Alert timeout timer'ını temizle!
+        const file = uploadedFiles.find(f => f.id === fileId);
+        if (file && file.alertTimeoutId) {
+            clearTimeout(file.alertTimeoutId);
+            console.log('[DEBUG] 🔥 Alert timeout cleared for completed file:', fileId);
+            delete file.alertTimeoutId;
+        }
+        
+        // 🔥 CRITICAL: Analysis tamamlandığında buton durumlarını kontrol et!
+        console.log('🎉 [updateFileStatus] Analysis completed - buton durumları kontrol ediliyor');
+        setTimeout(() => {
+            // Queue status'ü kontrol et ve butonları güncelle
+            fetch('/api/queue/status')
+            .then(response => response.json())
+            .then(response => {
+                console.log('🎉 [updateFileStatus] Queue status alındı:', response);
+                updateAnalysisParamsButtonStateWithQueue(response.data || response);
+            })
+            .catch(error => {
+                console.warn('Queue status kontrol hatası, butonları yine de aktif et:', error);
+                // Hata durumunda yine de butonları aktif et
+                updateAnalysisParamsButtonStateWithQueue({queue_size: 0, is_processing: false});
+            });
+        }, 500); // Kısa gecikme ile queue'nun güncellendiğinden emin ol
+        
     } else if (displayStatus === 'Hata' || status === 'failed') {
         progressBar.classList.add('bg-danger');
+        
+        // Hata durumunda da buton durumlarını kontrol et
+        setTimeout(() => {
+            fetch('/api/queue/status')
+            .then(response => response.json())
+            .then(response => {
+                updateAnalysisParamsButtonStateWithQueue(response.data || response);
+            })
+            .catch(() => {
+                updateAnalysisParamsButtonStateWithQueue({queue_size: 0, is_processing: false});
+            });
+        }, 500);
+        
     } else if (displayStatus === 'Analiz Ediliyor' || status === 'processing' || displayStatus.startsWith('Analiz:') || displayStatus === 'Analiz Başlatıldı') {
         // Analiz sırasında daha göze çarpan renk
         progressBar.classList.add('bg-primary');
         progressBar.classList.add('progress-bar-striped');
         progressBar.classList.add('progress-bar-animated');
     }
+    
+    // 🔥 CRITICAL FIX: Dosya durumu değiştiğinde global progress bar'ı güncelle
+    // fileStatuses map'ine durumu kaydet (eğer henüz kaydedilmemişse)
+    fileStatuses.set(fileId, status);
+    
+    // Global progress bar'ı güncelle
+    updateGlobalProgress();
+    
+    console.log('[DEBUG] updateFileStatus tamamlandı - fileId:', fileId, 'status:', status, 'global progress güncellendi');
 }
 
 // Genel ilerlemeyi güncelle
@@ -1385,8 +1556,8 @@ function updateGlobalProgress(current, total) {
     }
 }
 
-// Analiz sonuçlarını al
-function getAnalysisResults(fileId, analysisId, isPartial = false) {
+// Analiz sonuçlarını al - GLOBAL SCOPE
+window.getAnalysisResults = function getAnalysisResults(fileId, analysisId, isPartial = false) {
     console.log(`Analiz sonuçları alınıyor: fileId=${fileId}, analysisId=${analysisId}, partial=${isPartial}`);
     
     if (!analysisId) {
@@ -5969,3 +6140,16 @@ function refreshEnsembleCorrections() {
         showToast('Hata', `Ensemble refresh hatası: ${error.message}`, 'danger');
     });
 }
+
+
+
+// ... existing code ...
+// Modal kapandıktan sonra focus'u kaldır (vanilla JS)
+const modal = document.getElementById('runAnalysisSettingsModal');
+if (modal) {
+    modal.addEventListener('hidden.bs.modal', function () {
+        const btn = document.getElementById('startAnalysisBtn');
+        if (btn) btn.blur();
+    });
+}
+// ... existing code ...

@@ -1,23 +1,16 @@
-from app import create_app
-import logging
+"""
+WSGI Configuration for production deployment
+"""
 import os
+import sys
 
-"""
-WSGI sunucusu için giriş noktası.
-- Flask uygulamasını WSGI uyumlu sunucularla başlatmak için kullanılır.
-"""
+# Add the project directory to the Python path
+sys.path.insert(0, os.path.dirname(__file__))
 
-# TensorFlow uyarılarını bastır
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # INFO ve WARNING loglarını gizle
-import tensorflow as tf
-tf.get_logger().setLevel('ERROR')  # Sadece ERROR loglarını göster
+from app import create_app
 
-app = create_app()
+# Initialize the Flask application
+app, socketio = create_app()  # Tuple'ı unpack et
 
-if __name__ == '__main__':
-    # Werkzeug HTTP request loglarını kapat
-    log = logging.getLogger('werkzeug')
-    log.setLevel(logging.ERROR)
-    
-    # Development sunucusu için - SocketIO kaldırıldı
-    app.run(debug=True, host='0.0.0.0', port=5000) 
+if __name__ == "__main__":
+    socketio.run(app, host='0.0.0.0', port=5000) 

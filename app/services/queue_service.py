@@ -101,104 +101,94 @@ def process_queue():
     global is_processing
     
     try:
-        # Flask uygulama bağlamını oluştur
-        from app import create_app
-        app = create_app()
-        
-        logger.info("Kuyruk işleyici çalışıyor. Uygulama bağlamı oluşturuldu.")
-        
-        while not analysis_queue.empty():
-            # Kuyruk durumu bildirimi gönder
-            emit_queue_status()
-            
-            # Sıradaki analizi al
-            analysis_id = analysis_queue.get()
-            logger.info(f"Analiz işleme başlıyor: #{analysis_id}, Kalan işler: {analysis_queue.qsize()}")
-            
-            try:
-                # Thread-safe database session kullan
-                with database_session(app) as session:
-                    # Gerekli modülleri import et
-                    from app.models.analysis import Analysis
-                    from app.services.analysis_service import analyze_file
-                    
-                    # Analiz nesnesini al ve durumunu güncelle
-                    analysis = Analysis.query.get(analysis_id)
-                    if not analysis:
-                        logger.error(f"Analiz bulunamadı: {analysis_id}")
-                        analysis_queue.task_done()
-                        continue
-                    
-                    # Status kontrolü yap ama start_analysis'i analyze_file'a bırak
-                    logger.info(f"Analiz #{analysis_id} kuyruğa alındı, status: {analysis.status}")
-                    
-                # Session bitti, şimdi analizi gerçekleştir (ayrı session'da)
-                start_time = time.time()
-                success, message = analyze_file(analysis_id)
-                elapsed_time = time.time() - start_time
-                
-                # Sonuç bildirim
-                logger.info(f"Analiz #{analysis_id} tamamlandı: {'Başarılı' if success else 'Başarısız'}, "
-                           f"Süre: {elapsed_time:.2f}s, Mesaj: {message}")
-                
-                # Final durumu için yeni session
-                analysis_file_id = None
-                with database_session(app) as session:
-                    analysis = Analysis.query.get(analysis_id)
-                    if analysis:
-                        analysis_file_id = analysis.file_id  # file_id'yi önceden al
-                        if success:
-                            # analyze_file zaten status'u 'completed' yapmış olmalı
-                            analysis.status_message = message or 'Analiz başarıyla tamamlandı'
-                        else:
-                            analysis.status = 'failed'
-                            analysis.status_message = message or 'Analiz başarısız'
-                        session.commit()
-                
-                # Socket bildirim gönder - completed/failed
-                _emit_analysis_completion(analysis_id, analysis_file_id, success, elapsed_time, message)
-                
-            except Exception as e:
-                logger.error(f"Analiz işleme hatası: #{analysis_id}, {str(e)}")
-                logger.error(traceback.format_exc())
-                
-                # Hata durumunda analizi başarısız olarak işaretle - yeni session ile
-                try:
-                    error_analysis_file_id = None
-                    with database_session(app) as session:
-                        analysis = Analysis.query.get(analysis_id)
-                        if analysis:
-                            error_analysis_file_id = analysis.file_id  # file_id'yi önceden al
-                            analysis.status = 'failed'
-                            analysis.status_message = f"İşlem sırasında hata: {str(e)}"[:250]
-                            session.commit()
-                            
-                        # Hata bildirimi
-                        _emit_analysis_completion(analysis_id, error_analysis_file_id, 
-                                                False, 0, f"İşlem hatası: {str(e)}")
-                        
-                except Exception as db_err:
-                    logger.error(f"Hata durumunda DB güncelleme hatası: {str(db_err)}")
-                    
-            finally:
-                # Kuyruk işlemi tamamlandı
-                analysis_queue.task_done()
-                logger.info(f"Analiz #{analysis_id} işlemi tamamlandı ve kuyruktan çıkarıldı.")
-                
+        # Ana Flask app'i globalden al ve context aç
+        from app import global_flask_app, db
+        from app.socketio_instance import get_socketio
+        logger.info("Kuyruk işleyici çalışıyor. Global Flask app context açılıyor.")
+        with global_flask_app.app_context():
+            while not analysis_queue.empty():
                 # Kuyruk durumu bildirimi gönder
                 emit_queue_status()
-                
-                # Gecikmeli olarak bir sonraki analizi başlat (DB'nin nefes alması için)
-                time.sleep(1)
-        
-        logger.info("Tüm analizler tamamlandı, kuyruk boş.")
-        
-        # Son kuyruk durumu bildirimi
-        emit_queue_status()
-        
+                # Sıradaki analizi al
+                analysis_id = analysis_queue.get()
+                logger.info(f"Analiz işleme başlıyor: #{analysis_id}, Kalan işler: {analysis_queue.qsize()}")
+                try:
+                    # Thread-safe database session kullan
+                    with database_session(global_flask_app) as session:
+                        from app.models.analysis import Analysis
+                        from app.services.analysis_service import analyze_file
+                        analysis = Analysis.query.get(analysis_id)
+                        if not analysis:
+                            logger.error(f"Analiz bulunamadı: {analysis_id}")
+                            analysis_queue.task_done()
+                            continue
+                        logger.info(f"Analiz #{analysis_id} kuyruğa alındı, status: {analysis.status}")
+                    # Session bitti, şimdi analizi gerçekleştir (ayrı session'da)
+                    start_time = time.time()
+                    success, message = analyze_file(analysis_id)
+                    elapsed_time = time.time() - start_time
+                    
+                    # Sonuç bildirim
+                    logger.info(f"Analiz #{analysis_id} tamamlandı: {'Başarılı' if success else 'Başarısız'}, "
+                               f"Süre: {elapsed_time:.2f}s, Mesaj: {message}")
+                    
+                    # Final durumu için yeni session
+                    analysis_file_id = None
+                    with database_session(global_flask_app) as session:
+                        analysis = Analysis.query.get(analysis_id)
+                        if analysis:
+                            analysis_file_id = analysis.file_id  # file_id'yi önceden al
+                            if success:
+                                # analyze_file zaten status'u 'completed' yapmış olmalı
+                                analysis.status_message = message or 'Analiz başarıyla tamamlandı'
+                            else:
+                                analysis.status = 'failed'
+                                analysis.status_message = message or 'Analiz başarısız'
+                            session.commit()
+                    
+                    # Socket bildirim gönder - completed/failed
+                    _emit_analysis_completion(analysis_id, analysis_file_id, success, elapsed_time, message)
+                    
+                except Exception as e:
+                    logger.error(f"Analiz işleme hatası: #{analysis_id}, {str(e)}")
+                    logger.error(traceback.format_exc())
+                    
+                    # Hata durumunda analizi başarısız olarak işaretle - yeni session ile
+                    try:
+                        error_analysis_file_id = None
+                        with database_session(global_flask_app) as session:
+                            analysis = Analysis.query.get(analysis_id)
+                            if analysis:
+                                error_analysis_file_id = analysis.file_id  # file_id'yi önceden al
+                                analysis.status = 'failed'
+                                analysis.status_message = f"İşlem sırasında hata: {str(e)}"[:250]
+                                session.commit()
+                                
+                            # Hata bildirimi
+                            _emit_analysis_completion(analysis_id, error_analysis_file_id, 
+                                                    False, 0, f"İşlem hatası: {str(e)}")
+                            
+                    except Exception as db_err:
+                        logger.error(f"Hata durumunda DB güncelleme hatası: {str(db_err)}")
+                        
+                finally:
+                    # Kuyruk işlemi tamamlandı
+                    analysis_queue.task_done()
+                    logger.info(f"Analiz #{analysis_id} işlemi tamamlandı ve kuyruktan çıkarıldı.")
+                    
+                    # Kuyruk durumu bildirimi gönder
+                    emit_queue_status()
+                    
+                    # Gecikmeli olarak bir sonraki analizi başlat (DB'nin nefes alması için)
+                    time.sleep(1)
+            
+            logger.info("Tüm analizler tamamlandı, kuyruk boş.")
+            
+            # Son kuyruk durumu bildirimi
+            emit_queue_status()
+            
     except Exception as e:
-        logger.error(f"Kuyruk işleyici kritik hatası: {str(e)}")
-        logger.error(traceback.format_exc())
+        logger.error(f"Kuyruk işleyici genel hatası: {str(e)}", exc_info=True)
         
     finally:
         # İşleme durumunu sıfırla

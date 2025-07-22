@@ -7,6 +7,7 @@ from app.models.content import ModelVersion
 from app.models.feedback import Feedback
 from app import db
 from datetime import datetime
+from app.socketio_instance import get_socketio
 
 bp = Blueprint('model', __name__, url_prefix='/api/model')
 # Root logger'ı kullan (terminalde görünmesi için)
@@ -821,7 +822,7 @@ def analyze_conflicts(model_type):
 def test_websocket():
     """WebSocket bağlantısını test et"""
     try:
-        from app import socketio
+        from app.routes.websocket_routes import emit_training_progress
         from flask import current_app
         import uuid
         
@@ -831,9 +832,7 @@ def test_websocket():
         # Test event'i gönder - background task ile
         def emit_test_event(app_instance, session_id):
             with app_instance.app_context():
-                socketio.emit('training_progress', {
-                    'session_id': session_id,
-                    'progress': 50.0,
+                emit_training_progress(session_id, 50.0, "Test WebSocket Event", **{
                     'epoch': 10,
                     'total_epochs': 20,
                     'metrics': {
@@ -844,7 +843,7 @@ def test_websocket():
                 })
                 logger.info(f"[DEBUG] Test WebSocket event emitted with session_id: {session_id}")
         
-        socketio.start_background_task(emit_test_event, app, test_session_id)
+        get_socketio().start_background_task(emit_test_event, app, test_session_id)
         
         return jsonify({
             'success': True,
@@ -863,7 +862,12 @@ def test_websocket():
 def test_websocket_manual():
     """Manuel WebSocket test endpoint'i"""
     try:
-        from app import socketio
+        from app.routes.websocket_routes import (
+            emit_training_started, 
+            emit_training_progress, 
+            emit_training_completed, 
+            get_socketio
+        )
         from flask import current_app
         import uuid
         
@@ -878,7 +882,7 @@ def test_websocket_manual():
         def emit_all_test_events(app_instance, session_id):
             with app_instance.app_context():
                 # 1. Basit test event
-                socketio.emit('test_manual', {
+                get_socketio().emit('test_manual', {
                     'message': 'BASIT TEST EVENT!',
                     'session_id': session_id,
                     'timestamp': str(datetime.now())
@@ -886,16 +890,11 @@ def test_websocket_manual():
                 logger.info("[WEBSOCKET TEST] test_manual sent")
                 
                 # 2. Test training_started
-                socketio.emit('training_started', {
-                    'session_id': session_id,
-                    'model_type': 'test',
-                    'total_samples': 100
-                })
+                emit_training_started(session_id, "Test training started")
                 logger.info("[WEBSOCKET TEST] training_started sent")
                 
                 # 3. Test training_progress
-                socketio.emit('training_progress', {
-                    'session_id': session_id,
+                emit_training_progress(session_id, 25.0, "Test training progress", **{
                     'current_epoch': 5,
                     'total_epochs': 20,
                     'current_loss': 0.1234,
@@ -905,8 +904,7 @@ def test_websocket_manual():
                 logger.info("[WEBSOCKET TEST] training_progress sent")
                 
                 # 4. Test training_completed
-                socketio.emit('training_completed', {
-                    'session_id': session_id,
+                emit_training_completed(session_id, {
                     'success': True,
                     'model_version': 'test_v1',
                     'metrics': {'mae': 0.1234}
@@ -914,13 +912,13 @@ def test_websocket_manual():
                 logger.info("[WEBSOCKET TEST] training_completed sent")
                 
                 # 5. Test generic event
-                socketio.emit('test_event', {
+                get_socketio().emit('test_event', {
                     'message': 'Hello from backend!',
                     'timestamp': str(datetime.now())
                 })
                 logger.info("[WEBSOCKET TEST] test_event sent")
         
-        socketio.start_background_task(emit_all_test_events, app, test_session_id)
+        get_socketio().start_background_task(emit_all_test_events, app, test_session_id)
         
         return jsonify({
             'success': True,

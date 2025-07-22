@@ -1238,7 +1238,7 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     
     <!-- Socket.IO Client Library -->
-    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    <script src="https://cdn.socket.io/3.1.3/socket.io.min.js"></script>
     
     <!-- WebSocket Client -->
     <script src="{{ url_for('static', filename='js/websocket-client.js') }}"></script>
@@ -1248,6 +1248,9 @@
     
     <!-- Main JS -->
     <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+    
+    <!-- Progress Bar Debug Script -->
+    <script src="{{ url_for('static', filename='js/debug-progress.js') }}"></script>
 
     <!-- Yükleme Göstergesi Overlay -->
     <div id="settingsSaveLoader" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5); z-index: 9999; display: flex; justify-content: center; align-items: center; flex-direction: column; color: white; text-align: center;">

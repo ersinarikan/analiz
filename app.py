@@ -94,7 +94,7 @@ if __name__ == "__main__":
             write_pid()
             logger.info("WSANALIZ Flask Uygulaması Başlatılıyor...")
             
-            app = create_app()
+            app, socketio_direct = create_app()  # Hem app hem socketio döndürülüyor
             initialize_app(app)  # Sadece ana süreçte çalıştırılacak
             
             # Werkzeug HTTP request loglarını kapat
@@ -116,13 +116,13 @@ if __name__ == "__main__":
             logger.info("CLIP Monitoring: http://localhost:5000/clip-monitoring")
             logger.info("Durdurmak için: Ctrl+C")
             
-            # SocketIO server başlatılıyor - temiz WebSocket sistemi
-            if socketio:
-                logger.info("SocketIO server başlatılıyor...")
-                socketio.run(app, debug=is_debug, host="0.0.0.0", port=5000)
-            else:
-                logger.warning("SocketIO bulunamadı, normal Flask server kullanılıyor")
-                app.run(debug=is_debug, host="0.0.0.0", port=5000)
+            logger.info("SocketIO server başlatılıyor...")
+            # SocketIO ile çalıştır
+            socketio_direct.run(app, 
+                               host='0.0.0.0', 
+                               port=5000, 
+                               debug=False,  # DEBUG MODE KAPATILDI!
+                               allow_unsafe_werkzeug=True)
             
         except KeyboardInterrupt:
             logger.info("Keyboard interrupt alındı...")

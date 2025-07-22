@@ -1,17 +1,26 @@
+"""
+WSANALIZ Flask Uygulaması - Ana Modül
+"""
+import logging
 import os
+import signal
+import sys
 import shutil
-from datetime import datetime
-from flask import Flask, send_from_directory, current_app
+import importlib
+from datetime import datetime, timedelta
+
+from flask import Flask, request, send_from_directory, current_app
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
-from flask_cors import CORS
-from flask_socketio import SocketIO
 from config import config
-import logging
-import threading
-import importlib
-from app.middleware.security_middleware import SecurityMiddleware
+
+# 🎯 SocketIO'yu ayrı dosyadan import et (circular import önleme)
+from app.socketio_instance import socketio
 from app.json_encoder import CustomJSONEncoder
+
+# Global minimal socketio reference (runtime'da set edilecek)
+_current_running_socketio = None
+global_flask_app = None  # Ana Flask app nesnesi, background thread'ler için
 
 # Memory utils - optional import
 try:
@@ -22,13 +31,15 @@ except ImportError:
 # Global extensions
 db = SQLAlchemy()
 migrate = Migrate()
-socketio = SocketIO()
-
-# Thread-safe logging lock
-_log_lock = threading.Lock()
 
 logger = logging.getLogger("wsanaliz.app_init")
 logging.basicConfig(level=logging.INFO)
+
+# ===============================
+# 🎯 STANDARD FLASK-SOCKETIO PATTERN
+# ===============================
+# DİKKAT: SocketIO instance'ı SADECE burada, uygulama başlatılırken oluşturulur ve set edilir.
+# Başka hiçbir yerde yeni SocketIO instance'ı yaratılmayacak veya set edilmeyecek!
 
 def register_blueprints_from_list(app, blueprint_defs):
     """
@@ -64,22 +75,117 @@ def create_app(config_name='default'):
     Returns:
         Flask: Yapılandırılmış Flask uygulaması.
     """
-    app = Flask(__name__)
-    app.config.from_object(config[config_name])
+    flask_app = Flask(__name__)
+    flask_app.config.from_object(config[config_name])
     
     # Initialize extensions
-    db.init_app(app)
-    socketio.init_app(app, 
-                      cors_allowed_origins="*",
-                      logger=False,
-                      engineio_logger=False)
+    db.init_app(flask_app)
+    
+    # ✅ MİNİMAL PATTERN: Direct SocketIO setup with optimized configuration
+    from flask_socketio import SocketIO
+    minimal_socketio = SocketIO(
+        flask_app,
+        cors_allowed_origins="*",
+        ping_timeout=60,  # Stability için
+        ping_interval=20,  # Daha sık ping ile stabilite
+        logger=False,     # Verbose logging kapat
+        engineio_logger=False
+    )
+    
+    # Global instance'ı güncelleyelim - emit_analysis_progress için
+    import app.socketio_instance
+    app.socketio_instance.set_socketio(minimal_socketio)  # TEK NOKTA SET!
+    
+    print(f"🔥🔥🔥 GLOBAL SOCKETIO SET EDİLDİ: ID {id(minimal_socketio)}")
+    
+    # ✅ MİNİMAL PATTERN: Direct event handler registration
+    print(f"🔥🔥🔥 REGISTERING MINIMAL HANDLERS ON: {minimal_socketio} (ID: {id(minimal_socketio)})")
+    
+    @minimal_socketio.on('connect')
+    def handle_connect():
+        from flask import request
+        from flask_socketio import emit
+        print(f"🎉🎉🎉 MİNİMAL CONNECT! Session: {request.sid}")
+        print(f"🔥 MINIMAL CONNECT HANDLER CALLED - SOCKET ID: {id(minimal_socketio)}")
+        emit('connected', {'message': 'Minimal pattern bağlantısı başarılı!'})
+        
+    @minimal_socketio.on('disconnect')  
+    def handle_disconnect():
+        from flask import request
+        print(f"❌❌❌ MİNİMAL DISCONNECT! Session: {request.sid}")
+        
+    @minimal_socketio.on('ping')
+    def handle_ping(data):
+        from flask import request
+        from flask_socketio import emit
+        print(f"🏓🏓🏓 MİNİMAL PING! Session: {request.sid}, Data: {data}")
+        emit('pong', {'message': 'Minimal PONG!', 'data': data})
+        print(f"🔥 MİNİMAL PONG GÖNDERİLDİ!")
+
+    @minimal_socketio.on('join_analysis')
+    def handle_join_analysis(data):
+        from flask import request
+        from flask_socketio import emit, join_room
+        print("=" * 80)
+        print("🔥🔥🔥 MİNİMAL JOIN_ANALYSIS HANDLER ÇAĞRILDI!")
+        print(f"🔍🔍🔍 MİNİMAL JOIN_ANALYSIS! Session: {request.sid}, Data: {data}")
+        print(f"🔍 MİNİMAL SOCKETIO INSTANCE ID: {id(minimal_socketio)}")
+        print("=" * 80)
+        import sys
+        sys.stdout.flush()  # Force flush console output
+        
+        if data and 'analysis_id' in data:
+            analysis_id = data['analysis_id']
+            room = f"analysis_{analysis_id}"
+            
+            # Room'a katıl
+            join_room(room)
+            
+            # DEBUG: Room membership kontrol et
+            try:
+                room_members = minimal_socketio.server.manager.get_participants(namespace='/', room=room)
+                room_members_list = list(room_members)
+                print(f"🔍🔍🔍 MİNİMAL JOIN: Room {room} members after join: {room_members_list}")
+            except Exception as room_err:
+                print(f"🔍 MİNİMAL JOIN: Room membership check failed: {room_err}")
+            
+            # Başarı mesajı gönder
+            emit('joined_analysis', {
+                'analysis_id': analysis_id,
+                'room': room,
+                'message': f'Analysis {analysis_id} room\'una katıldınız (minimal)',
+                'source': 'minimal-handler'
+            })
+            print(f"🔥🔥🔥 MİNİMAL JOINED_ANALYSIS GÖNDERİLDİ for room {room}")
+        else:
+            print(f"❌ MİNİMAL JOIN_ANALYSIS: No analysis_id in data")
+            
+    print(f"🔥🔥🔥 MINIMAL HANDLERS REGISTERED SUCCESSFULLY ON: {minimal_socketio} (ID: {id(minimal_socketio)})")
+    
+    logger.info("✅ Minimal pattern SocketIO handlers registered!")
+    print("✅ Minimal pattern SocketIO handlers registered!")
+    
+    # Minimal SocketIO'yu app'e attach et ki emit_analysis_progress bulabilsin
+    app.minimal_socketio = minimal_socketio
+    
+    # Global referans da tut
+    import app as app_module
+    app_module._current_minimal_socketio = minimal_socketio
+    
+    # Global modül-level referansı da set et
+    global _current_running_socketio
+    _current_running_socketio = minimal_socketio
+    
+    # Ana Flask app nesnesini global değişkene ata
+    global global_flask_app
+    global_flask_app = flask_app
     
     # JSON encoder'ı ayarla
-    app.json_encoder = CustomJSONEncoder
+    flask_app.json_encoder = CustomJSONEncoder
     
     # Initialize security middleware
     from app.middleware.security_middleware import SecurityMiddleware
-    SecurityMiddleware(app)
+    SecurityMiddleware(flask_app)
     
     # Initialize memory management for performance optimization
     try:
@@ -106,20 +212,21 @@ def create_app(config_name='default'):
         ("app.routes.ensemble_routes", "ensemble_bp", None),
         ("app.routes.clip_training_routes", "clip_training_bp", None),
     ]
-    register_blueprints_from_list(app, blueprint_defs)
+    register_blueprints_from_list(flask_app, blueprint_defs)
     
-    # WebSocket event handlers import
-    try:
-        import app.routes.websocket_routes
-        logger.info("WebSocket event handlers loaded")
-    except Exception as e:
-        logger.error(f"WebSocket handlers import failed: {e}")
+    # WebSocket event handlers registration - ESKİ YÖNTEMs DEVRE DIŞI
+    # try:
+    #     from app.routes.websocket_routes import register_websocket_handlers
+    #     register_websocket_handlers(socketio)
+    #     logger.info("WebSocket event handlers registered successfully")
+    # except Exception as e:
+    #     logger.error(f"WebSocket handlers registration failed: {e}")
     
-    # Error handlers
-    register_error_handlers(app)
+    # Error handlers - Geçici olarak disable edildi (circular import problemi)
+    # register_error_handlers(flask_app)
     
     # Startup tasks
-    with app.app_context():
+    with flask_app.app_context():
         try:
             db.create_all()
             logger.info("Veritabanı tabloları oluşturuldu/kontrol edildi")
@@ -131,7 +238,7 @@ def create_app(config_name='default'):
         except Exception as e:
             logger.error(f"Startup görevleri hatası: {str(e)}", exc_info=True)
     
-    return app
+    return flask_app, minimal_socketio
 
 def initialize_app(app):
     """
@@ -615,14 +722,15 @@ def register_global_routes(app):
         processed_folder = os.path.join(app.config['STORAGE_FOLDER'], 'processed')
         return send_from_directory(processed_folder, filename)
 
-def register_error_handlers(app):
+def register_error_handlers(flask_app):
     """Register error handlers"""
-    @app.errorhandler(404)
+    logger.info(f"register_error_handlers called with: {type(flask_app)} - {flask_app}")
+    @flask_app.errorhandler(404)
     def page_not_found(e):
         from flask import jsonify
         return jsonify({'error': 'Not found'}), 404
 
-    @app.errorhandler(500)
+    @flask_app.errorhandler(500)
     def internal_server_error(e):
         from flask import jsonify
         return jsonify({'error': 'Internal server error'}), 500 

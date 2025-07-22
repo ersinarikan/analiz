@@ -140,7 +140,7 @@ class TestInsightFaceAgeEstimator:
         mock_face.bbox = [10, 10, 50, 50]
         mock_face.embedding = np.random.rand(512)
         
-        app = create_app()
+        app, _ = create_app()
         with app.app_context():
         with patch.object(InsightFaceAgeEstimator, '__init__', return_value=None):
             estimator = InsightFaceAgeEstimator()
@@ -333,7 +333,7 @@ def test_content_analyzer_import():
 def test_age_estimator_import():
     """Test AgeEstimator can be imported"""
     from app import create_app
-    app = create_app()
+    app, _ = create_app()
     with app.app_context():
     with patch('insightface.app.FaceAnalysis'):
         from app.ai.insightface_age_estimator import InsightFaceAgeEstimator

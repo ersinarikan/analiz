@@ -83,7 +83,7 @@ class Analysis(db.Model):
         Args:
             progress: 0-100 arası ilerleme yüzdesi
         """
-        self.progress = min(progress, 100)  # 100'den büyük değerler kabul edilmez
+        self.progress = min(progress, 100)
         db.session.commit()
         
         # WebSocket ile progress bildirimi gönder
