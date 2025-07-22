@@ -7,9 +7,10 @@ class WebSocketClient {
         this.socket = null;
         this.connected = false;
         this.reconnectAttempts = 0;
-        this.maxReconnectAttempts = 1000; // Sınırsız reconnect için çok yüksek değer
-        this.reconnectDelay = 1000; // 1 saniye
+        this.maxReconnectAttempts = 3; // Daha az attempt ile tarayıcı bildirimlerini azalt
+        this.reconnectDelay = 2000; // 2 saniye
         this.pingInterval = null; // Otomatik ping için interval
+        this.silentMode = false; // Silent mode flag
     }
 
     // WebSocket bağlantısını başlat
@@ -20,7 +21,16 @@ class WebSocketClient {
             this.socket = io({
                 transports: ['websocket'],
                 upgrade: false,
-                timeout: 20000
+                timeout: 10000,
+                reconnection: true,
+                reconnectionAttempts: 3,
+                reconnectionDelay: 2000,
+                reconnectionDelayMax: 5000,
+                maxHttpBufferSize: 1e6,
+                pingTimeout: 60000,
+                pingInterval: 25000,
+                autoConnect: true,
+                forceNew: false
             });
 
             this.setupEventListeners();
@@ -112,8 +122,9 @@ class WebSocketClient {
             }
             if (cardId) {
                 window.fileAnalysisMap.set(analysisId, cardId);
-                updateFileStatus(cardId, 'processing', 0, data.message || 'Analiz başlatıldı');
-                console.log('🚀 [WebSocket] Analysis started güncellendi (cardId):', cardId);
+                // analysis_started sadece kuyruğa eklendiği anlamına gelir - "Sırada" durumunda kalır
+                updateFileStatus(cardId, 'queued', 0, data.message || 'Analiz kuyruğa eklendi');
+                console.log('🚀 [WebSocket] Analysis started - kuyruğa eklendi (cardId):', cardId);
             } else {
                 console.warn('[WebSocket] analysis_started: fileId bulunamadı!', data);
             }
@@ -260,18 +271,26 @@ class WebSocketClient {
     // Yeniden bağlantı deneme
     attemptReconnect() {
         if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-            console.error('[WebSocket] Maksimum yeniden bağlantı denemesi aşıldı');
+            console.warn('[WebSocket] Maksimum yeniden bağlantı denemesi aşıldı, silent mode aktif');
+            this.silentMode = true;
             return;
         }
 
         this.reconnectAttempts++;
-        const delay = this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1);
+        const delay = Math.min(this.reconnectDelay * this.reconnectAttempts, 5000); // Max 5 saniye delay
         
-        console.log(`[WebSocket] Yeniden bağlantı deneniyor... ${this.reconnectAttempts}/${this.maxReconnectAttempts} (${delay}ms)`);
+        if (!this.silentMode) {
+            console.log(`[WebSocket] Yeniden bağlantı deneniyor... ${this.reconnectAttempts}/${this.maxReconnectAttempts} (${delay}ms)`);
+        }
         
         setTimeout(() => {
-            if (!this.connected) {
-                this.connect();
+            if (!this.connected && !this.silentMode) {
+                try {
+                    this.connect();
+                } catch (error) {
+                    console.error('[WebSocket] Reconnect sırasında hata:', error);
+                    this.silentMode = true;
+                }
             }
         }, delay);
     }

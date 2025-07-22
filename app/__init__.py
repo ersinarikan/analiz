@@ -86,10 +86,11 @@ def create_app(config_name='default'):
     minimal_socketio = SocketIO(
         flask_app,
         cors_allowed_origins="*",
-        ping_timeout=720,  # Uzun analizler için 12 dakikaya çıkarıldı
-        ping_interval=20,  # Daha sık ping ile stabilite
-        logger=False,     # Verbose logging kapat
-        engineio_logger=False
+        ping_timeout=60,   # Daha kısa timeout ile hızlı reconnect
+        ping_interval=25,  # Client ile sync edildi
+        logger=False,      # Verbose logging kapat
+        engineio_logger=False,
+        async_mode='eventlet'  # Eventlet async mode
     )
     
     # Global instance'ı güncelleyelim - emit_analysis_progress için

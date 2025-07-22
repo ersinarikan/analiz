@@ -504,6 +504,20 @@ function initializeSocket(settingsSaveLoader) {
     // 🔥 WebSocket client instance'ını oluştur ve global variable'a ata
     if (typeof WebSocketClient !== 'undefined') {
         window.socketioClient = new WebSocketClient();
+        
+        // Browser notification'ları engelle
+        try {
+            if ('Notification' in window && Notification.permission !== 'denied') {
+                Notification.requestPermission().then(permission => {
+                    if (permission === 'granted') {
+                        console.log('✅ Browser notification permission alındı');
+                    }
+                });
+            }
+        } catch (error) {
+            // Notification API hatalarını sessizce yakala
+        }
+        
         window.socketioClient.connect();
         console.log('✅ WebSocket client oluşturuldu ve bağlantı başlatıldı');
     } else {
@@ -1216,11 +1230,13 @@ function startAnalysisForAllFiles(framesPerSecond, includeAgeAnalysis) {
     if (analyzeBtn) {
         analyzeBtn.innerHTML = '<i class="fas fa-stop me-1"></i> Analizi Durdur';
         analyzeBtn.className = 'btn btn-danger';
-        // Önceki tüm event listener'ları temizle
-        analyzeBtn.replaceWith(analyzeBtn.cloneNode(true));
-        // Yeni referansı al
-        const newAnalyzeBtn = document.getElementById('analyzeBtn');
-        newAnalyzeBtn.addEventListener('click', stopAnalysis);
+        // Direkt onclick kullan (daha güvenilir)
+        analyzeBtn.onclick = function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            console.log('[DEBUG] Analizi Durdur butonu tıklandı!');
+            stopAnalysis();
+        };
         console.log('[DEBUG] Analiz Et butonu -> Analizi Durdur olarak değiştirildi');
     }
     
@@ -1229,11 +1245,13 @@ function startAnalysisForAllFiles(framesPerSecond, includeAgeAnalysis) {
     if (startAnalysisMainBtn) {
         startAnalysisMainBtn.innerHTML = '<i class="fas fa-stop me-2"></i>Analizi Durdur';
         startAnalysisMainBtn.className = 'btn btn-danger btn-lg me-3';
-        // Önceki tüm event listener'ları temizle
-        startAnalysisMainBtn.replaceWith(startAnalysisMainBtn.cloneNode(true));
-        // Yeni referansı al
-        const newStartAnalysisMainBtn = document.getElementById('startAnalysisMainBtn');
-        newStartAnalysisMainBtn.addEventListener('click', stopAnalysis);
+        // Direkt onclick kullan (daha güvenilir)
+        startAnalysisMainBtn.onclick = function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            console.log('[DEBUG] Ana sayfa Analizi Durdur butonu tıklandı!');
+            stopAnalysis();
+        };
         console.log('[DEBUG] Analiz Başlat butonu -> Analizi Durdur olarak değiştirildi');
     }
     
@@ -6034,8 +6052,11 @@ function stopAnalysis() {
     
     // Kullanıcıdan onay al
     if (!confirm('Tüm analizler durdurulacak ve kuyruk temizlenecek. Emin misiniz?')) {
+        console.log('[DEBUG] stopAnalysis: Kullanıcı işlemi iptal etti');
         return;
     }
+    
+    console.log('[DEBUG] stopAnalysis: Kullanıcı onayladı, API çağrısı yapılıyor...');
     
     // Loading spinner'ı gizle
     const settingsSaveLoader = document.getElementById('settingsSaveLoader');
@@ -6052,10 +6073,16 @@ function stopAnalysis() {
             'Content-Type': 'application/json'
         }
     })
-    .then(response => response.json())
+    .then(response => {
+        console.log('[DEBUG] stopAnalysis: Response status:', response.status);
+        console.log('[DEBUG] stopAnalysis: Response ok:', response.ok);
+        return response.json();
+    })
     .then(data => {
         console.log('[DEBUG] stopAnalysis API response:', data);
+        console.log('[DEBUG] stopAnalysis: showToast çağrılıyor...');
         showToast('Başarılı', 'Analizler durduruldu ve kuyruk temizlendi.', 'success');
+        console.log('[DEBUG] stopAnalysis: showToast çağrıldı');
         
         // Tüm dosya durumlarını iptal edildi olarak işaretle
         for (const [fileId, status] of fileStatuses.entries()) {
@@ -6079,8 +6106,11 @@ function stopAnalysis() {
         
     })
     .catch(error => {
-        console.error('Analiz durdurma hatası:', error);
+        console.error('[DEBUG] stopAnalysis: Fetch error:', error);
+        console.log('[DEBUG] stopAnalysis: Error type:', typeof error);
+        console.log('[DEBUG] stopAnalysis: Error message:', error.message);
         showToast('Hata', 'Analizler durdurulurken hata oluştu: ' + error.message, 'danger');
+        console.log('[DEBUG] stopAnalysis: Error toast gösterildi');
     });
 }
 
