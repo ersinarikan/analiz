@@ -7,10 +7,11 @@ class WebSocketClient {
         this.socket = null;
         this.connected = false;
         this.reconnectAttempts = 0;
-        this.maxReconnectAttempts = 3; // Daha az attempt ile tarayıcı bildirimlerini azalt
-        this.reconnectDelay = 2000; // 2 saniye
+        this.maxReconnectAttempts = 10; // Uzun analizler için daha fazla deneme
+        this.reconnectDelay = 1000; // 1 saniye
         this.pingInterval = null; // Otomatik ping için interval
         this.silentMode = false; // Silent mode flag
+        this.backgroundMode = false; // Browser arka plan modu
     }
 
     // WebSocket bağlantısını başlat
@@ -21,14 +22,14 @@ class WebSocketClient {
             this.socket = io({
                 transports: ['websocket'],
                 upgrade: false,
-                timeout: 10000,
+                timeout: 20000,
                 reconnection: true,
-                reconnectionAttempts: 3,
-                reconnectionDelay: 2000,
-                reconnectionDelayMax: 5000,
+                reconnectionAttempts: 10,  // Uzun analizler için daha fazla deneme
+                reconnectionDelay: 1000,
+                reconnectionDelayMax: 10000,
                 maxHttpBufferSize: 1e6,
-                pingTimeout: 60000,
-                pingInterval: 25000,
+                pingTimeout: 720000,  // 12 dakika - sunucu ile sync
+                pingInterval: 60000,  // 1 dakika - sunucu ile sync  
                 autoConnect: true,
                 forceNew: false
             });
@@ -271,25 +272,30 @@ class WebSocketClient {
     // Yeniden bağlantı deneme
     attemptReconnect() {
         if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-            console.warn('[WebSocket] Maksimum yeniden bağlantı denemesi aşıldı, silent mode aktif');
-            this.silentMode = true;
+            console.warn('[WebSocket] Maksimum yeniden bağlantı denemesi aşıldı');
+            // Silent mode yerine daha uzun interval ile denemeye devam et
+            setTimeout(() => {
+                this.reconnectAttempts = 0; // Reset attempts
+                if (!this.connected) {
+                    this.attemptReconnect();
+                }
+            }, 30000); // 30 saniye bekle
             return;
         }
 
         this.reconnectAttempts++;
-        const delay = Math.min(this.reconnectDelay * this.reconnectAttempts, 5000); // Max 5 saniye delay
+        const baseDelay = this.backgroundMode ? 5000 : this.reconnectDelay; // Arka planda daha uzun delay
+        const delay = Math.min(baseDelay * this.reconnectAttempts, 15000); // Max 15 saniye delay
         
-        if (!this.silentMode) {
-            console.log(`[WebSocket] Yeniden bağlantı deneniyor... ${this.reconnectAttempts}/${this.maxReconnectAttempts} (${delay}ms)`);
-        }
+        const mode = this.backgroundMode ? '(arka plan)' : '';
+        console.log(`[WebSocket] Yeniden bağlantı deneniyor... ${this.reconnectAttempts}/${this.maxReconnectAttempts} (${delay}ms) ${mode}`);
         
         setTimeout(() => {
-            if (!this.connected && !this.silentMode) {
+            if (!this.connected) {
                 try {
                     this.connect();
                 } catch (error) {
                     console.error('[WebSocket] Reconnect sırasında hata:', error);
-                    this.silentMode = true;
                 }
             }
         }, delay);
@@ -308,9 +314,10 @@ class WebSocketClient {
         this.pingInterval = setInterval(() => {
             if (this.connected && this.socket) {
                 this.socket.emit('ping', 'auto');
-                console.log('[WebSocket] Otomatik ping gönderildi');
+                const mode = this.backgroundMode ? '(arka plan)' : '';
+                console.log(`[WebSocket] Otomatik ping gönderildi ${mode}`);
             }
-        }, 20000); // 20 saniyede bir ping
+        }, 45000); // 45 saniyede bir ping (sunucu 60s interval'ından biraz önce)
     }
 
     // Otomatik ping'i durdur

@@ -505,17 +505,31 @@ function initializeSocket(settingsSaveLoader) {
     if (typeof WebSocketClient !== 'undefined') {
         window.socketioClient = new WebSocketClient();
         
-        // Browser notification'ları engelle
+        // Browser background detection ve visibility API
         try {
-            if ('Notification' in window && Notification.permission !== 'denied') {
-                Notification.requestPermission().then(permission => {
-                    if (permission === 'granted') {
-                        console.log('✅ Browser notification permission alındı');
-                    }
-                });
+            // Page Visibility API ile browser arka plan durumunu takip et
+            document.addEventListener('visibilitychange', () => {
+                if (document.hidden) {
+                    window.socketioClient.backgroundMode = true;
+                    console.log('🌙 Browser arka plana geçti, background mode aktif');
+                } else {
+                    window.socketioClient.backgroundMode = false;
+                    console.log('🌞 Browser ön plana geçti, normal mode aktif');
+                }
+            });
+            
+            // Browser notification'ları user gesture olmadan engelle
+            const originalNotification = window.Notification;
+            if (originalNotification) {
+                window.Notification = function() {
+                    // User gesture olmadan notification'ları engelle
+                    return { close: () => {} };
+                };
+                window.Notification.permission = 'denied';
+                window.Notification.requestPermission = () => Promise.resolve('denied');
             }
         } catch (error) {
-            // Notification API hatalarını sessizce yakala
+            // Browser API hatalarını sessizce yakala
         }
         
         window.socketioClient.connect();
