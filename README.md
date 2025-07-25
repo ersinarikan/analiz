@@ -48,14 +48,14 @@
 1. **Video Analizi:** Herhangi bir video dosyasını sisteme yükleyin
 2. **Sonuçları Görün:** Risk kareleri ve zaman damgaları listesi çıkar
 3. **Tek Tıkla İzleme:** Herhangi bir "02:35" gibi zaman damgasına tıklayın
-4. **Otomatik Player:** Video o andan 1sn önce başlayıp 1sn sonra bitirir
-5. **Hiç İşlem Yükü Yok:** Video kırpma, indirme, bekleme yok!
+4. **HTML5 Video Player:** Bootstrap modal içinde HTML5 video elementi açılır
+5. **Otomatik Zaman Atlama:** Video belirtilen zaman damgasından başlar
 
 ### 🔥 Avantajlar:
 - ⚡ **Anında Doğrulama:** Risk tespitinin gerçekten doğru olup olmadığını hemen görün
 - 🎯 **Bağlamsal Analiz:** O anın öncesi ve sonrasını izleyerek tam resmi anlayın  
-- 🚀 **Sıfır Bekleme:** Video işleme, kırpma, indirme süresi yok
-- 🎮 **Çoklu Player:** Birden fazla riski aynı anda karşılaştırabilirsiniz
+- 🚀 **HTML5 Native:** Tarayıcının native video player'ı kullanır
+- 🎮 **Çoklu Modal:** Birden fazla video modal'ını aynı anda açabilirsiniz
 - ⌨️ **Klavye Kontrolleri:** ESC ile tüm player'ları kapatma, Space ile oynat/duraklat
 
 ## ⏹️ **YENİ ÖZELLİK: Force Stop Sistemi**
@@ -217,7 +217,7 @@ graph TB
 - **🐍 Python:** 3.8+ sürümleri
 - **🌏 Tarayıcı:** Chrome, Firefox, Safari, Edge
 - **📱 Mobile:** Responsive design ile mobil uyumlu
-- **☁️ Cloud:** Docker container desteği
+- **☁️ Cloud:** Gunicorn production server desteği
 
 ## 🛠️ **Gelişmiş Konfigürasyon**
 
@@ -386,7 +386,7 @@ ACCURATE_CONFIG = {
 **A:** Geri bildirim verin! Sistem öğrenir ve gelişir.
 
 #### **Q: Video Timeline Player nasıl çalışır?**
-**A:** Risk karelerindeki zaman damgasına tıklayın, video otomatik açılır.
+**A:** Risk karelerindeki zaman damgasına tıklayın, HTML5 video modal açılır ve belirtilen zamandan oynatır.
 
 ### 🛠️ **Yaygın Sorunlar ve Çözümleri**
 
@@ -407,26 +407,19 @@ ACCURATE_CONFIG = {
 
 ## 🚀 **Deployment ve Production**
 
-### 🐳 **Docker ile Deployment**
-```dockerfile
-# Dockerfile
-FROM python:3.9-slim
-
-WORKDIR /app
-COPY requirements.txt .
-RUN pip install -r requirements.txt
-
-COPY . .
-EXPOSE 5000
-
-CMD ["python", "app.py"]
-```
-
+### 🚀 **Production Deployment**
 ```bash
-# Build ve run
-docker build -t wsanaliz .
-docker run -p 5000:5000 wsanaliz
+# Production mode ile başlatma
+python app.py
+
+# Gunicorn ile production server
+gunicorn --bind 0.0.0.0:5000 --workers 4 app:app
+
+# Background process olarak çalıştırma
+nohup python app.py > wsanaliz.log 2>&1 &
 ```
+
+**Not:** Docker konfigürasyonu `archive_unused/` klasöründe mevcut ancak şu anda aktif kullanımda değil.
 
 ### ☁️ **Cloud Deployment**
 ```bash
@@ -491,7 +484,7 @@ docker run -p 5000:5000 wsanaliz
 - **Q1:** Mobile responsive design iyileştirmeleri
 - **Q2:** Advanced analytics dashboard
 - **Q3:** Multi-language support (EN, DE, FR)
-- **Q4:** Enterprise features ve cloud integration
+- **Q4:** Enterprise features ve deployment options
 
 ## 📞 **İletişim ve Destek**
 
