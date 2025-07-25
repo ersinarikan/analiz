@@ -1,4 +1,4 @@
-<!-- WS Analiz Detaylı Yardım Dokümantasyonu -->
+<!-- WS Analiz Comprehensive Help Documentation -->
 
 <!-- İçerik Alanı -->
 <div class="tab-content" id="v-pills-tabContent">
@@ -10,12 +10,24 @@
             <!-- Platform Tanıtımı -->
             <div class="info-box info">
                 <h5><i class="fas fa-star me-2"></i>WS Analiz Nedir?</h5>
-                <p><strong>WS Analiz</strong>, en son yapay zeka teknolojilerini kullanarak görüntü ve video içeriklerini analiz eden, 
-                güvenlik odaklı bir platform olarak tasarlanmıştır. Platform, özellikle içerik denetimi, yaş doğrulama ve 
-                güvenlik taraması alanlarında profesyonel çözümler sunmaktadır.</p>
+                <p><strong>WS Analiz</strong>, yapay zeka teknolojilerini kullanarak görüntü ve video içeriklerini analiz eden, 
+                güvenlik odaklı bir platform olarak tasarlanmıştır. Sistem sadece teknik bilgiye sahip kişiler değil, 
+                <strong>teknolojik okuryazarlığı olmayan kullanıcılar için de</strong> son derece kolay kullanılabilir olacak şekilde geliştirilmiştir.</p>
+                
+                <div class="alert alert-success mt-3">
+                    <h6><i class="fas fa-user-friends me-2"></i>Kimler Kullanabilir?</h6>
+                    <ul class="mb-0">
+                        <li><strong>İçerik Moderatörleri:</strong> Sosyal medya ve platform yöneticileri</li>
+                        <li><strong>Eğitim Kurumları:</strong> Okul ve üniversite güvenlik ekipleri</li>
+                        <li><strong>Aile Bireyler:</strong> Çocuk güvenliği için endişeli ebeveynler</li>
+                        <li><strong>Güvenlik Profesyonelleri:</strong> Kamera kayıtlarını analiz edenler</li>
+                        <li><strong>Hukuk Uzmanları:</strong> Dijital delil değerlendirmesi yapanlar</li>
+                        <li><strong>Medya Analisti:</strong> İçerik değerlendirme uzmanları</li>
+                    </ul>
+                </div>
                 
                 <div class="row mt-3">
-                    <div class="col-md-4">
+                    <div class="col-md-3">
                         <div class="text-center">
                             <div class="help-icon primary mb-2">
                                 <i class="fas fa-shield-alt"></i>
@@ -24,7 +36,7 @@
                             <p>İçerikleri güvenlik açısından detaylı analiz eder</p>
                         </div>
                     </div>
-                    <div class="col-md-4">
+                    <div class="col-md-3">
                         <div class="text-center">
                             <div class="help-icon success mb-2">
                                 <i class="fas fa-brain"></i>
@@ -33,13 +45,22 @@
                             <p>En son AI teknolojileri ile donatılmıştır</p>
                         </div>
                     </div>
-                    <div class="col-md-4">
+                    <div class="col-md-3">
                         <div class="text-center">
                             <div class="help-icon info mb-2">
                                 <i class="fas fa-chart-line"></i>
                             </div>
                             <h6>Öğrenen Sistem</h6>
                             <p>Geri bildirimlerle sürekli gelişir</p>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="text-center">
+                            <div class="help-icon warning mb-2">
+                                <i class="fas fa-mouse-pointer"></i>
+                            </div>
+                            <h6>Kullanıcı Dostu</h6>
+                            <p>Teknik bilgi gerektirmez, herkes kullanabilir</p>
                         </div>
                     </div>
                 </div>
@@ -99,8 +120,12 @@
                                 <li><strong>Silah ve Tehlike Tespiti:</strong> Ateşli silah, bıçak ve tehlikeli objeler</li>
                                 <li><strong>Madde Kullanımı Analizi:</strong> Uyuşturucu kullanımı ve ilgili içerikler</li>
                                 <li><strong>Taciz İçeriği Tespiti:</strong> Zorbalık ve taciz davranışları</li>
-                                <li><strong>Gerçek Zamanlı Analiz:</strong> Anında sonuç alma</li>
+                                <li><strong>Video Timeline Player:</strong> Riskli kareleri video içinde anında gösterme</li>
+                                <li><strong>Force Stop Sistemi:</strong> Analizi anında durdurma ve sistem temizleme</li>
+                                <li><strong>Model Yönetimi:</strong> AI modellerini izleme ve versiyon kontrolü</li>
+                                <li><strong>Gerçek Zamanlı Analiz:</strong> WebSocket ile anında sonuç alma</li>
                                 <li><strong>Toplu İşlem Desteği:</strong> Birden fazla dosya eş zamanlı analiz</li>
+                                <li><strong>Global Video Control:</strong> Tüm video oynatımları tek tıkla yönetme</li>
                             </ul>
                         </div>
                     </div>
@@ -1779,6 +1804,160 @@
         </div>
     </div>
 
+    <!-- 8. Yeni Özellikler (Video Timeline & Force Stop) -->
+    <div class="tab-pane fade" id="v-pills-new-features" role="tabpanel">
+        <div class="help-section">
+            <h3><i class="fas fa-magic me-2 text-primary"></i>Yeni Özellikler Detaylı Kullanım Rehberi</h3>
+            
+            <!-- Video Timeline Player -->
+            <div class="info-box success">
+                <h5><i class="fas fa-play-circle me-2"></i>Video Timeline Player - Yenilik!</h5>
+                <p>Bu özellik sayesinde analiz sonuçlarında gördüğünüz <strong>herhangi bir zaman damgasına tıklayarak</strong> 
+                o anın 1 saniye öncesi ve 1 saniye sonrasını içeren 3 saniyelik video bölümünü anında izleyebilirsiniz.</p>
+                
+                <div class="row">
+                    <div class="col-md-6">
+                        <h6><i class="fas fa-mouse-pointer me-2"></i>Nasıl Kullanılır:</h6>
+                        <ol>
+                            <li><strong>Video Analizi Yapın:</strong> Herhangi bir video dosyasını analiz edin</li>
+                            <li><strong>Sonuçları İnceleyin:</strong> Analiz tamamlandığında risk karelerini görün</li>
+                            <li><strong>Zaman Damgasına Tıklayın:</strong> Örnek: "02:35" yazısına tıklayın</li>
+                            <li><strong>Video Modal Açılır:</strong> Otomatik olarak player modal açılır</li>
+                            <li><strong>İzleyin:</strong> Video otomatik olarak o andan başlar</li>
+                            <li><strong>Kontrol Edin:</strong> Play/pause, ses kontrolü, tam ekran</li>
+                        </ol>
+                    </div>
+                    <div class="col-md-6">
+                        <h6><i class="fas fa-star me-2"></i>Avantajlar:</h6>
+                        <ul>
+                            <li><strong>Hızlı Doğrulama:</strong> Risk tespitinin doğruluğunu anında kontrol</li>
+                            <li><strong>Bağlamsal Analiz:</strong> O anın öncesi ve sonrasını görme</li>
+                            <li><strong>Hiç İşlem Yükü Yok:</strong> Video kırpma/işleme gerektirmez</li>
+                            <li><strong>Anlık Erişim:</strong> Tek tıkla istediğiniz anda ulaşım</li>
+                            <li><strong>Multiple Player:</strong> Birden fazla video aynı anda açabilir</li>
+                            <li><strong>Tam Kontrol:</strong> Hız, ses, tam ekran özellikleri</li>
+                        </ul>
+                    </div>
+                </div>
+                
+                <div class="alert alert-info mt-3">
+                    <h6><i class="fas fa-keyboard me-2"></i>Hızlı Klavye Kontrolleri:</h6>
+                    <ul class="mb-0">
+                        <li><strong>ESC:</strong> Tüm video player'ları kapat</li>
+                        <li><strong>Space:</strong> Oynat/Duraklat</li>
+                        <li><strong>F:</strong> Tam ekran moduna geç</li>
+                        <li><strong>M:</strong> Sesi kapat/aç</li>
+                        <li><strong>←/→:</strong> 5 saniye geri/ileri atlama</li>
+                    </ul>
+                </div>
+            </div>
+
+            <!-- Force Stop Sistemi -->
+            <div class="info-box warning">
+                <h5><i class="fas fa-stop-circle me-2"></i>Force Stop Sistemi - Güçlü Durdurma</h5>
+                <p>Analiz işlemini <strong>anında durdurmak</strong> istediğinizde kullanabileceğiniz güçlü bir özelliktir. 
+                Normal "durdur" işleminden farklı olarak, sistem <strong>tüm işlemleri zorla sonlandırır</strong> ve temizlik yapar.</p>
+                
+                <div class="row">
+                    <div class="col-md-6">
+                        <h6><i class="fas fa-exclamation-triangle me-2"></i>Ne Zaman Kullanılır:</h6>
+                        <ul>
+                            <li><strong>Takılan Analiz:</strong> Çok uzun süren veya donmuş analiz</li>
+                            <li><strong>Acil Durdurmak:</strong> Hemen durdurmak istediğiniz durum</li>
+                            <li><strong>Hatalı Dosya:</strong> Problematik dosya analizi</li>
+                            <li><strong>Sistem Yenileme:</strong> Temiz başlangıç istediğinizde</li>
+                            <li><strong>Bellek Sorunu:</strong> Sistem yavaşladığında</li>
+                        </ul>
+                    </div>
+                    <div class="col-md-6">
+                        <h6><i class="fas fa-cogs me-2"></i>Force Stop Ne Yapar:</h6>
+                        <ul>
+                            <li><strong>Thread'leri Durdurur:</strong> Tüm analiz işlemlerini sonlandırır</li>
+                            <li><strong>Veritabanını Temizler:</strong> Yarım kalan kayıtları siler</li>
+                            <li><strong>Dosyaları Temizler:</strong> Geçici dosyaları kaldırır</li>
+                            <li><strong>Sistemi Yeniler:</strong> Uygulamayı yeniden başlatır</li>
+                            <li><strong>Belleği Temizler:</strong> Tüm cache'leri sıfırlar</li>
+                        </ul>
+                    </div>
+                </div>
+                
+                <div class="alert alert-warning mt-3">
+                    <h6><i class="fas fa-info-circle me-2"></i>Önemli Bilgiler:</h6>
+                    <ul class="mb-0">
+                        <li><strong>Veri Kaybı:</strong> Devam eden analiz sonuçları kaybolacaktır</li>
+                        <li><strong>Yeniden Başlatma:</strong> Sistem otomatik olarak yeniden başlar (~10 saniye)</li>
+                        <li><strong>Loading Ekranı:</strong> İşlem sırasında loading göstergesi belirir</li>
+                        <li><strong>Güvenli İşlem:</strong> Kullanıcı dosyalarına zarar vermez</li>
+                    </ul>
+                </div>
+            </div>
+
+            <!-- Model Yönetimi -->
+            <div class="info-box feature">
+                <h5><i class="fas fa-brain me-2"></i>Model Yönetimi Sistemi</h5>
+                <p>AI modellerinizin durumunu izleyebilir, yeni versiyonlar oluşturabilir ve performanslarını takip edebilirsiniz.</p>
+                
+                <div class="row">
+                    <div class="col-md-6">
+                        <h6><i class="fas fa-tachometer-alt me-2"></i>Model Performans İzleme:</h6>
+                        <ul>
+                            <li><strong>Doğruluk Oranları:</strong> Model ne kadar doğru tahmin yapıyor</li>
+                            <li><strong>İşlem Hızı:</strong> Analiz ne kadar süre alıyor</li>
+                            <li><strong>Bellek Kullanımı:</strong> Model ne kadar kaynak tüketiyor</li>
+                            <li><strong>Eğitim Verisi:</strong> Kaç adet feedback ile eğitilmiş</li>
+                            <li><strong>Son Güncelleme:</strong> Model ne zaman güncellenmiş</li>
+                        </ul>
+                    </div>
+                    <div class="col-md-6">
+                        <h6><i class="fas fa-cog me-2"></i>Model İşlemleri:</h6>
+                        <ul>
+                            <li><strong>Versiyon Değiştirme:</strong> Eski model versiyonuna geri dönme</li>
+                            <li><strong>Model Eğitimi:</strong> Geri bildirimlerle yeni versiyon oluşturma</li>
+                            <li><strong>Model Sıfırlama:</strong> Orijinal duruma döndürme</li>
+                            <li><strong>Versiyon Silme:</strong> Gereksiz versiyonları temizleme</li>
+                            <li><strong>Performans Analizi:</strong> Detaylı metrik görüntüleme</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Global Video Control -->
+            <div class="info-box info">
+                <h5><i class="fas fa-video me-2"></i>Global Video Control</h5>
+                <p>Birden fazla video player açtığınızda, tümünü tek seferde kontrol edebilmek için geliştirilmiş özellik.</p>
+                
+                <div class="table-responsive">
+                    <table class="table table-striped help-table">
+                        <thead>
+                            <tr>
+                                <th>Kontrol</th>
+                                <th>Açıklama</th>
+                                <th>Kullanım</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td><span class="badge bg-primary">ESC Tuşu</span></td>
+                                <td>Tüm video player'ları kapatır</td>
+                                <td>Klavyede ESC tuşuna basın</td>
+                            </tr>
+                            <tr>
+                                <td><span class="badge bg-success">Navbar Butonu</span></td>
+                                <td>"Video'ları Kapat" butonu</td>
+                                <td>Üst menüde belirir, tıklayın</td>
+                            </tr>
+                            <tr>
+                                <td><span class="badge bg-info">Player Close</span></td>
+                                <td>Tek player'ı kapat</td>
+                                <td>Video üzerindeki X butonuna tıklayın</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- 9. Sıkça Sorulan Sorular (SSS) -->
     <div class="tab-pane fade" id="v-pills-faq" role="tabpanel">
         <div class="help-section">
@@ -1797,6 +1976,272 @@
                             <div class="table-responsive">
                                 <table class="table table-sm">
                                     <thead class="table-light">
+                                        <tr>
+                                            <th>Dosya Türü</th>
+                                            <th>Boyut</th>
+                                            <th>Yaş Analizi Kapalı</th>
+                                            <th>Yaş Analizi Açık</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr>
+                                            <td>Küçük Resim</td>
+                                            <td>< 5MB</td>
+                                            <td>10-30 saniye</td>
+                                            <td>15-45 saniye</td>
+                                        </tr>
+                                        <tr>
+                                            <td>Büyük Resim</td>
+                                            <td>5-20MB</td>
+                                            <td>30-60 saniye</td>
+                                            <td>45-90 saniye</td>
+                                        </tr>
+                                        <tr>
+                                            <td>Kısa Video</td>
+                                            <td>< 100MB</td>
+                                            <td>1-5 dakika</td>
+                                            <td>2-10 dakika</td>
+                                        </tr>
+                                        <tr>
+                                            <td>Uzun Video</td>
+                                            <td>100MB-1GB</td>
+                                            <td>5-20 dakika</td>
+                                            <td>10-40 dakika</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                            
+                            <div class="alert alert-success mt-3">
+                                <strong>💡 Hız İpuçları:</strong>
+                                <ul class="mb-0">
+                                    <li><strong>FPS Ayarı:</strong> 0.5 FPS kullanın (2x daha hızlı)</li>
+                                    <li><strong>Yaş Analizi:</strong> Gerekmedikçe kapatın (50% hız artışı)</li>
+                                    <li><strong>Dosya Boyutu:</strong> Video'ları 500MB altında tutun</li>
+                                    <li><strong>Format:</strong> MP4 formatı en hızlı işlenir</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="accordion-item">
+                    <h2 class="accordion-header" id="faq2">
+                        <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapse2">
+                            <i class="fas fa-shield-alt me-2"></i>Verilerim güvende mi?
+                        </button>
+                    </h2>
+                    <div id="collapse2" class="accordion-collapse collapse" data-bs-parent="#faqAccordion">
+                        <div class="accordion-body">
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <h6><i class="fas fa-lock me-2"></i>Güvenlik Önlemleri:</h6>
+                                    <ul>
+                                        <li><strong>Yerel İşleme:</strong> Dosyalarınız cihazınızdan çıkmaz</li>
+                                        <li><strong>Şifreli Depolama:</strong> Veriler şifrelenmiş olarak saklanır</li>
+                                        <li><strong>Otomatik Silme:</strong> Geçici dosyalar otomatik temizlenir</li>
+                                        <li><strong>Erişim Kontrolü:</strong> Sadece yetkilendirilmiş erişim</li>
+                                        <li><strong>Audit Logs:</strong> Tüm işlemler loglanır</li>
+                                    </ul>
+                                </div>
+                                <div class="col-md-6">
+                                    <h6><i class="fas fa-user-shield me-2"></i>Gizlilik Politikası:</h6>
+                                    <ul>
+                                        <li><strong>Veri Paylaşımı:</strong> Hiçbir veri üçüncü tarafla paylaşılmaz</li>
+                                        <li><strong>Anonimleştirme:</strong> AI eğitimi için veriler anonimdir</li>
+                                        <li><strong>Retention Policy:</strong> Veriler belirli süre sonra silinir</li>
+                                        <li><strong>GDPR Uyumlu:</strong> Avrupa veri koruma standartları</li>
+                                        <li><strong>User Control:</strong> Verilerinizi istediğiniz zaman silebilirsiniz</li>
+                                    </ul>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="accordion-item">
+                    <h2 class="accordion-header" id="faq3">
+                        <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapse3">
+                            <i class="fas fa-exclamation-triangle me-2"></i>Analiz hatası alıyorum, ne yapmalıyım?
+                        </button>
+                    </h2>
+                    <div id="collapse3" class="accordion-collapse collapse" data-bs-parent="#faqAccordion">
+                        <div class="accordion-body">
+                            <h6><i class="fas fa-tools me-2"></i>Yaygın Sorunlar ve Çözümleri:</h6>
+                            
+                            <div class="table-responsive">
+                                <table class="table table-bordered help-table">
+                                    <thead class="table-light">
+                                        <tr>
+                                            <th>Problem</th>
+                                            <th>Olası Sebep</th>
+                                            <th>Çözüm</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr>
+                                            <td>"Dosya işlenemiyor"</td>
+                                            <td>Desteklenmeyen format</td>
+                                            <td>JPG, PNG, MP4 formatı kullanın</td>
+                                        </tr>
+                                        <tr>
+                                            <td>"Bellek yetersiz"</td>
+                                            <td>Çok büyük dosya</td>
+                                            <td>Dosyayı küçültün veya kaliteyi düşürün</td>
+                                        </tr>
+                                        <tr>
+                                            <td>"Model yüklenemiyor"</td>
+                                            <td>AI model hatası</td>
+                                            <td>Sayfayı yenileyin veya Force Stop kullanın</td>
+                                        </tr>
+                                        <tr>
+                                            <td>"WebSocket bağlantı hatası"</td>
+                                            <td>İnternet bağlantısı</td>
+                                            <td>Bağlantınızı kontrol edin, sayfayı yenileyin</td>
+                                        </tr>
+                                        <tr>
+                                            <td>"Analiz takıldı"</td>
+                                            <td>System freeze</td>
+                                            <td>Force Stop butonunu kullanın</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                            
+                            <div class="alert alert-danger mt-3">
+                                <h6><i class="fas fa-sos me-2"></i>Acil Durum Çözümleri:</h6>
+                                <ol class="mb-0">
+                                    <li><strong>Force Stop:</strong> "Analizi Durdur" butonuna tıklayın</li>
+                                    <li><strong>Sayfa Yenileme:</strong> F5 tuşuna basın veya tarayıcıyı yenileyin</li>
+                                    <li><strong>Cache Temizleme:</strong> Tarayıcı geçmişini temizleyin</li>
+                                    <li><strong>Farklı Tarayıcı:</strong> Chrome, Firefox veya Edge deneyin</li>
+                                </ol>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="accordion-item">
+                    <h2 class="accordion-header" id="faq4">
+                        <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapse4">
+                            <i class="fas fa-question-circle me-2"></i>Yaş tahmini doğru değil, nasıl düzeltebilirim?
+                        </button>
+                    </h2>
+                    <div id="collapse4" class="accordion-collapse collapse" data-bs-parent="#faqAccordion">
+                        <div class="accordion-body">
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <h6><i class="fas fa-thumbs-up me-2"></i>Geri Bildirim Verin:</h6>
+                                    <ol>
+                                        <li><strong>Sonuç Kartını Açın:</strong> Yaş tahmin sonucuna tıklayın</li>
+                                        <li><strong>Doğru Yaşı Girin:</strong> Gerçek yaşı yazın</li>
+                                        <li><strong>Gönder:</strong> Geri bildirim butonuna tıklayın</li>
+                                        <li><strong>Sistem Öğrenir:</strong> Model bu bilgiyi kullanarak gelişir</li>
+                                    </ol>
+                                </div>
+                                <div class="col-md-6">
+                                    <h6><i class="fas fa-brain me-2"></i>Model Eğitimi:</h6>
+                                    <ul>
+                                        <li><strong>Otomatik Eğitim:</strong> Yeterli feedback sonrası model otomatik eğitilir</li>
+                                        <li><strong>Manuel Eğitim:</strong> Model Yönetimi'nden eğitim başlatabilirsiniz</li>
+                                        <li><strong>Versiyon Kontrolü:</strong> Yeni model versiyonları oluşturulur</li>
+                                        <li><strong>Performans Takibi:</strong> İyileşme metrikleri izlenir</li>
+                                    </ul>
+                                </div>
+                            </div>
+                            
+                            <div class="alert alert-info mt-3">
+                                <strong>📈 Model İyileştirme Süreci:</strong>
+                                <p class="mb-0">Verdiğiniz her doğru geri bildirim sistemin öğrenmesine katkıda bulunur. 
+                                100+ feedback sonrası model yeniden eğitilir ve doğruluk oranı artar.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="accordion-item">
+                    <h2 class="accordion-header" id="faq5">
+                        <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapse5">
+                            <i class="fas fa-video me-2"></i>Video Timeline Player nasıl kullanılır?
+                        </button>
+                    </h2>
+                    <div id="collapse5" class="accordion-collapse collapse" data-bs-parent="#faqAccordion">
+                        <div class="accordion-body">
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <h6><i class="fas fa-play me-2"></i>Adım Adım Kullanım:</h6>
+                                    <ol>
+                                        <li><strong>Video Analizi:</strong> Bir video dosyasını analiz edin</li>
+                                        <li><strong>Sonuçları Görün:</strong> Risk kareleri listesini inceleyin</li>
+                                        <li><strong>Zaman Tıklayın:</strong> Herhangi bir "XX:XX" zaman damgasına tıklayın</li>
+                                        <li><strong>Player Açılır:</strong> Video modal otomatik açılır</li>
+                                        <li><strong>Otomatik Başlar:</strong> Video o andan itibaren oynar</li>
+                                    </ol>
+                                </div>
+                                <div class="col-md-6">
+                                    <h6><i class="fas fa-keyboard me-2"></i>Klavye Kısayolları:</h6>
+                                    <ul>
+                                        <li><strong>Space:</strong> Oynat/Duraklat</li>
+                                        <li><strong>ESC:</strong> Tüm player'ları kapat</li>
+                                        <li><strong>F:</strong> Tam ekran modu</li>
+                                        <li><strong>M:</strong> Ses aç/kapat</li>
+                                        <li><strong>←/→:</strong> 5sn geri/ileri</li>
+                                        <li><strong>↑/↓:</strong> Ses yüksek/alçak</li>
+                                    </ul>
+                                </div>
+                            </div>
+                            
+                            <div class="alert alert-success mt-3">
+                                <strong>🎬 Pro İpuçları:</strong>
+                                <ul class="mb-0">
+                                    <li><strong>Multiple Video:</strong> Birden fazla zaman damgasını açabilirsiniz</li>
+                                    <li><strong>Karşılaştırma:</strong> Farklı risk karelerini karşılaştırın</li>
+                                    <li><strong>Bağlam Analizi:</strong> Olayın öncesi ve sonrasını görün</li>
+                                    <li><strong>Hızlı Kapatma:</strong> ESC tuşu ile tümünü kapatın</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="accordion-item">
+                    <h2 class="accordion-header" id="faq6">
+                        <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapse6">
+                            <i class="fas fa-stop-circle me-2"></i>Force Stop ne zaman kullanmalıyım?
+                        </button>
+                    </h2>
+                    <div id="collapse6" class="accordion-collapse collapse" data-bs-parent="#faqAccordion">
+                        <div class="accordion-body">
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <h6><i class="fas fa-exclamation-triangle me-2"></i>Kullanım Durumları:</h6>
+                                    <ul>
+                                        <li><strong>Donmuş Analiz:</strong> İşlem çok uzun sürerse</li>
+                                        <li><strong>Hatalı Dosya:</strong> Problem yaratıyorsa</li>
+                                        <li><strong>Sistem Yavaşlığı:</strong> Bellek dolmuşsa</li>
+                                        <li><strong>Acil Durdurma:</strong> Hemen durdurmak istiyorsanız</li>
+                                        <li><strong>Model Hatası:</strong> AI model sorunu varsa</li>
+                                    </ul>
+                                </div>
+                                <div class="col-md-6">
+                                    <h6><i class="fas fa-info-circle me-2"></i>Dikkat Edilecekler:</h6>
+                                    <ul>
+                                        <li><strong>Veri Kaybı:</strong> İşlem sonuçları kaybolur</li>
+                                        <li><strong>Sistem Restart:</strong> 10-15 saniye sürer</li>
+                                        <li><strong>Loading Ekranı:</strong> İşlem sırasında bekleyin</li>
+                                        <li><strong>Güvenli İşlem:</strong> Dosyalarınıza zarar vermez</li>
+                                        <li><strong>Otomatik Temizlik:</strong> Geçici dosyalar silinir</li>
+                                    </ul>
+                                </div>
+                            </div>
+                            
+                            <div class="alert alert-warning mt-3">
+                                <strong>⚠️ Önemli Uyarı:</strong>
+                                <p class="mb-0">Force Stop kullandığınızda devam eden tüm analizler durdurulur ve sonuçları kaybolur. 
+                                Bu işlem geri alınamaz, bu yüzden sadece gerekli durumlarda kullanın.</p>
+                            </div>
+                        </div>
+                    </div>ht">
                                         <tr>
                                             <th>İçerik Türü</th>
                                             <th>Boyut</th>
