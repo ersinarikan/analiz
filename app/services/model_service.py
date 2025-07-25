@@ -1984,3 +1984,91 @@ class ModelService:
             results["success"] = False
             results["error"] = str(e)
             return results
+
+    def switch_model_version(self, model_type, version_name):
+        """
+        Model versiyonunu değiştirmek için version name'den version_id bulup activate eder
+        """
+        try:
+            # Version name ile version bulma logic'i 
+            if version_name == 'base_model' or version_name == 'base_openclip':
+                # Base model için version 0 ara
+                version_obj = db.session.query(ModelVersion).filter_by(
+                    model_type=model_type,
+                    version=0
+                ).first()
+            else:
+                # Version name'den exact match veya pattern match ara
+                version_obj = db.session.query(ModelVersion).filter_by(
+                    model_type=model_type
+                ).filter(ModelVersion.filepath.contains(version_name)).first()
+                
+                # Fallback: version string'den sayısal version çıkarma
+                if not version_obj:
+                    try:
+                        version_num = int(version_name.replace('v', '').split('.')[0])
+                        version_obj = db.session.query(ModelVersion).filter_by(
+                            model_type=model_type,
+                            version=version_num
+                        ).first()
+                    except:
+                        pass
+            
+            if not version_obj:
+                return False, f"'{version_name}' versiyonu bulunamadı"
+            
+            # Existing activate method'unu kullan
+            result = self.activate_model_version(version_obj.id)
+            return result.get('success', False), result.get('message', 'Bilinmeyen hata')
+            
+        except Exception as e:
+            logger.error(f"Version switching hatası: {str(e)}")
+            return False, f"Versiyon değiştirme hatası: {str(e)}"
+
+    def delete_specific_model_version(self, model_type, version_name):
+        """
+        Specific model versiyonunu siler
+        """
+        try:
+            # Version name ile version bulma (switch ile aynı logic)
+            if version_name == 'base_model' or version_name == 'base_openclip':
+                return False, "Base model silinemez"
+            
+            # Version name'den exact match veya pattern match ara
+            version_obj = db.session.query(ModelVersion).filter_by(
+                model_type=model_type
+            ).filter(ModelVersion.filepath.contains(version_name)).first()
+            
+            # Fallback: version string'den sayısal version çıkarma
+            if not version_obj:
+                try:
+                    version_num = int(version_name.replace('v', '').split('.')[0])
+                    version_obj = db.session.query(ModelVersion).filter_by(
+                        model_type=model_type,
+                        version=version_num
+                    ).first()
+                except:
+                    pass
+            
+            if not version_obj:
+                return False, f"'{version_name}' versiyonu bulunamadı"
+            
+            if version_obj.version == 0:
+                return False, "Base model (v0) silinemez"
+            
+            if version_obj.is_active:
+                return False, "Aktif model versiyonu silinemez. Önce başka bir versiyona geçin."
+            
+            # Model dosyasını sil
+            if version_obj.filepath and os.path.exists(version_obj.filepath):
+                os.remove(version_obj.filepath)
+            
+            # Database'den sil
+            db.session.delete(version_obj)
+            db.session.commit()
+            
+            return True, f"'{version_name}' versiyonu başarıyla silindi"
+            
+        except Exception as e:
+            logger.error(f"Specific version silme hatası: {str(e)}")
+            return False, f"Versiyon silme hatası: {str(e)}"

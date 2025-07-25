@@ -350,3 +350,58 @@ def get_cleanup_status():
             "success": False,
             "error": str(e)
         }), 500 
+
+@model_management_bp.route('/delete-latest/<string:model_type>', methods=['DELETE'])
+def delete_latest_model_version_route(model_type):
+    """ Belirtilen model tipinin en son versiyonunu siler. """
+    if model_type not in ['content', 'age']:
+        return jsonify({"error": "Invalid model type"}), 400
+    try:
+        # ModelService'de mevcut metod adı farklı
+        result = model_service.delete_latest_version(model_type)
+        success = result.get('success', False)
+        message = result.get('message', 'Bilinmeyen hata')
+        if success:
+            return jsonify({"message": message}), 200
+        else:
+            return jsonify({"error": message}), 500
+    except Exception as e:
+        logger.error(f"/{model_type}/delete-latest endpoint hatası: {str(e)}", exc_info=True)
+        return jsonify({"error": f"En son versiyon silinirken sunucu hatası: {str(e)}"}), 500
+
+@model_management_bp.route('/switch/<string:model_type>', methods=['POST'])
+def switch_model_version_route(model_type):
+    """ Belirtilen model tipinin aktif versiyonunu değiştirir. """
+    if model_type not in ['content', 'age']:
+        return jsonify({"error": "Invalid model type"}), 400
+    try:
+        data = request.get_json()
+        if not data or 'version' not in data:
+            return jsonify({"error": "Version bilgisi gerekli"}), 400
+        
+        version = data['version']
+        # ModelService'de yeni eklenen metod
+        success, message = model_service.switch_model_version(model_type, version)
+        if success:
+            return jsonify({"message": message}), 200
+        else:
+            return jsonify({"error": message}), 500
+    except Exception as e:
+        logger.error(f"/{model_type}/switch endpoint hatası: {str(e)}", exc_info=True)
+        return jsonify({"error": f"Model versiyon değiştirme sırasında sunucu hatası: {str(e)}"}), 500
+
+@model_management_bp.route('/delete/<string:model_type>/<string:version>', methods=['DELETE'])
+def delete_specific_model_version_route(model_type, version):
+    """ Belirtilen model tipinin spesifik bir versiyonunu siler. """
+    if model_type not in ['content', 'age']:
+        return jsonify({"error": "Invalid model type"}), 400
+    try:
+        # ModelService'de yeni eklenen metod
+        success, message = model_service.delete_specific_model_version(model_type, version)
+        if success:
+            return jsonify({"message": message}), 200
+        else:
+            return jsonify({"error": message}), 500
+    except Exception as e:
+        logger.error(f"/{model_type}/delete/{version} endpoint hatası: {str(e)}", exc_info=True)
+        return jsonify({"error": f"Spesifik versiyon silinirken sunucu hatası: {str(e)}"}), 500

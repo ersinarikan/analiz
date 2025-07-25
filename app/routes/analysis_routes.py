@@ -376,7 +376,20 @@ def get_detailed_results(analysis_id):
             
         # Analiz sonuçlarını getir
         content_detections = [cd.to_dict() for cd in analysis.content_detections]
-        age_estimations = [ae.to_dict() for ae in analysis.age_estimations] if analysis.include_age_analysis else []
+        
+        # Age estimations'ı alıp processed_image_path'leri düzelt
+        age_estimations = []
+        if analysis.include_age_analysis:
+            for ae in analysis.age_estimations:
+                ae_dict = ae.to_dict()
+                # Eğer processed_image_path None ise, frame_path'den türet
+                if not ae_dict.get('processed_image_path') and ae_dict.get('frame_path'):
+                    frame_path = ae_dict['frame_path'].replace('\\', '/')
+                    if '/storage/' in frame_path:
+                        ae_dict['processed_image_path'] = frame_path.split('/storage/')[-1]
+                    else:
+                        ae_dict['processed_image_path'] = frame_path
+                age_estimations.append(ae_dict)
         
         # En yüksek riskli kare yolunu uygun formata getir
         highest_risk_frame = analysis.highest_risk_frame
@@ -389,8 +402,23 @@ def get_detailed_results(analysis_id):
                 frame_url = frame_filename
             else:
                 frame_url = f"frame_{frame_filename}"
+                
+            # Processed image path'i de set et (highest_risk için)
+            processed_image_path = highest_risk_frame.replace('\\', '/')
+            if '/storage/' in processed_image_path:
+                path_after_storage = processed_image_path.split('/storage/')[-1]
+                # Resim analizi için uploads klasörü kontrolü
+                if path_after_storage.startswith('uploads/'):
+                    # Resim dosyası için uploads klasöründen serve et
+                    processed_image_path = path_after_storage  # uploads/dosya.jpg
+                else:
+                    # Video kareleri için processed klasöründen serve et  
+                    processed_image_path = path_after_storage  # processed/frames_xxx/...
+            else:
+                processed_image_path = highest_risk_frame
         else:
             frame_url = None
+            processed_image_path = None
         
         results = {
             'analysis_id': analysis.id,
@@ -398,6 +426,7 @@ def get_detailed_results(analysis_id):
             'file_name': analysis.file.original_filename if analysis.file else None,
             'file_type': analysis.file.file_type if analysis.file else None,
             'file_path': analysis.file.file_path if analysis.file else None,
+            'file_filename': analysis.file.filename if analysis.file else None,  # Orijinal video için
             'overall_scores': {
                 'violence': analysis.overall_violence_score,
                 'adult_content': analysis.overall_adult_content_score,
@@ -412,7 +441,8 @@ def get_detailed_results(analysis_id):
                 'analysis_id': analysis.id,
                 'timestamp': analysis.highest_risk_frame_timestamp,
                 'score': analysis.highest_risk_score,
-                'category': analysis.highest_risk_category
+                'category': analysis.highest_risk_category,
+                'processed_image_path': processed_image_path
             },
             'highest_risk_frame_details': {
                 'frame_path': analysis.highest_risk_frame
@@ -431,6 +461,8 @@ def get_detailed_results(analysis_id):
             logger.info(f"[BACKEND][age_estimations][{idx}] processed_image_path: {age.get('processed_image_path')}")
         # highest_risk frame logla
         logger.info(f"[BACKEND][highest_risk] frame: {results['highest_risk'].get('frame')}")
+        logger.info(f"[BACKEND][highest_risk] processed_image_path: {results['highest_risk'].get('processed_image_path')}")
+        logger.info(f"[BACKEND][highest_risk] RAW analysis.highest_risk_frame: {analysis.highest_risk_frame}")
         # --- LOG EKLEME SONU ---
 
         # NumPy veri tipleri ile başa çıkabilmek için özel JSON dönüştürücü kullan

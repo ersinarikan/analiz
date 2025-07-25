@@ -207,10 +207,7 @@ def emit_analysis_completed(analysis_id, message="Analiz tamamlandı", file_id=N
         
         running_socketio = get_socketio()
         
-        # Broadcast emit
-        running_socketio.emit('analysis_completed', data)
-        
-        # Room-specific emit
+        # Sadece room-specific emit (duplicate önlemek için global broadcast kaldırıldı)
         running_socketio.emit('analysis_completed', data, room=f"analysis_{analysis_id}")
         
         logger.info(f"Analysis completed emit successful: {data}")

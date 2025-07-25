@@ -215,6 +215,11 @@ class WebSocketClient {
             if (data) {
                 window.queueStatus = data;
                 
+                // 🎯 BUTTON STATE UPDATE - Queue durumuna göre butonları güncelle
+                if (window.updateAnalysisParamsButtonStateWithQueue) {
+                    window.updateAnalysisParamsButtonStateWithQueue(data);
+                }
+                
                 // updateQueueStatus fonksiyonunu çağır (main.js'te)
                 if (typeof updateQueueStatus === 'function') {
                     updateQueueStatus(data);

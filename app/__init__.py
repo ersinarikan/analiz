@@ -149,8 +149,8 @@ def create_app(config_name='default'):
         else:
             print(f"❌ MİNİMAL JOIN_ANALYSIS: No analysis_id in data")
             
-    logger.info("✅ Minimal pattern SocketIO handlers registered!")
-    print("✅ Minimal pattern SocketIO handlers registered!")
+    logger.info("[OK] Minimal pattern SocketIO handlers registered!")
+    print("[OK] Minimal pattern SocketIO handlers registered!")
     
     # Minimal SocketIO'yu app'e attach et ki emit_analysis_progress bulabilsin
     app.minimal_socketio = minimal_socketio
@@ -425,7 +425,7 @@ def sync_model_versions_on_startup():
         # CLIP model versiyonlarını senkronize et
         sync_clip_model_versions_startup()
         
-        logger.info("✅ Model versiyonları başarıyla senkronize edildi!")
+        logger.info("[OK] Model versiyonları başarıyla senkronize edildi!")
         
     except Exception as e:
         logger.error(f"❌ Model senkronizasyon hatası: {e}", exc_info=True)

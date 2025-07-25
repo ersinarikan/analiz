@@ -310,8 +310,30 @@ export function addImageClickListeners() {
 export function initializeEventListeners() {
     // Dosya yükleme event'leri
     const uploadBtn = document.getElementById('uploadFileBtn');
-    if (uploadBtn) {
-        uploadBtn.addEventListener('change', handleFileSelection);
+    const folderBtn = document.getElementById('uploadFolderBtn');
+    const fileInput = document.getElementById('fileInput');
+    const folderInput = document.getElementById('folderInput');
+    
+    if (uploadBtn && fileInput) {
+        // Click event: Upload butonuna basıldığında file input'u aç
+        uploadBtn.addEventListener('click', () => {
+            console.log('📁 [DEBUG] Upload button clicked, opening file dialog...');
+            fileInput.click();
+        });
+        
+        // Change event: Dosya seçildiğinde işle
+        fileInput.addEventListener('change', handleFileSelection);
+    }
+    
+    if (folderBtn && folderInput) {
+        // Click event: Folder butonuna basıldığında folder input'u aç
+        folderBtn.addEventListener('click', () => {
+            console.log('📁 [DEBUG] Folder button clicked, opening folder dialog...');
+            folderInput.click();
+        });
+        
+        // Change event: Klasör seçildiğinde işle
+        folderInput.addEventListener('change', handleFileSelection);
     }
     
     // Drag & Drop event'leri
@@ -403,6 +425,12 @@ function setupAnalysisButtons() {
             const framesPerSecond = framesPerSecondInput ? parseFloat(framesPerSecondInput.value) : 1;
             const includeAgeAnalysis = includeAgeAnalysisInput ? includeAgeAnalysisInput.checked : false;
             
+            // 🔍 DEBUG: Checkbox state'ini logla
+            console.log("🔍 CHECKBOX DEBUG:");
+            console.log("🔍 includeAgeAnalysisInput element:", includeAgeAnalysisInput);
+            console.log("🔍 includeAgeAnalysisInput.checked:", includeAgeAnalysisInput ? includeAgeAnalysisInput.checked : 'element not found');
+            console.log("🔍 Final includeAgeAnalysis value:", includeAgeAnalysis);
+            
             // Modalı kapat
             const modalElement = document.getElementById('runAnalysisSettingsModal');
             if (modalElement) {
@@ -442,9 +470,12 @@ function setupModals() {
  * @param {HTMLElement} modalElement - Modal element
  */
 function setupAnalysisParamsModal(modalElement) {
+    console.log('🔧 setupAnalysisParamsModal çağrıldı');
     const form = document.getElementById('analysisParamsForm');
     const saveBtn = document.getElementById('saveAnalysisParamsBtn');
     const loadDefaultBtn = document.getElementById('loadDefaultAnalysisParamsBtn');
+    
+    console.log('🔍 Form elements:', { form, saveBtn, loadDefaultBtn });
     
     if (!form) return;
     
@@ -456,9 +487,134 @@ function setupAnalysisParamsModal(modalElement) {
     
     // Modal show event
     modalElement.addEventListener('show.bs.modal', function () {
-        // Current settings'leri yükle
         loadCurrentAnalysisParams();
     });
+    
+    // 🎯 SAVE BUTTON EVENT LISTENER (from main.js.backup)
+    if (saveBtn) {
+        saveBtn.addEventListener('click', function() {
+            console.log('🔧 Settings kaydediliyor...');
+            
+            // Form validation
+            const params = {};
+            let formIsValid = true;
+            
+            // Get all form values
+            const faceDetectionConfidence = document.getElementById('faceDetectionConfidence');
+            const trackingReliabilityThreshold = document.getElementById('trackingReliabilityThreshold');
+            const idChangeThreshold = document.getElementById('idChangeThreshold');
+            const embeddingDistanceThreshold = document.getElementById('embeddingDistanceThreshold');
+            const maxLostFrames = document.getElementById('maxLostFrames');
+            
+            // Collect parameters
+            if (faceDetectionConfidence) params.face_detection_confidence = parseFloat(faceDetectionConfidence.value);
+            if (trackingReliabilityThreshold) params.tracking_reliability_threshold = parseFloat(trackingReliabilityThreshold.value);
+            if (idChangeThreshold) params.id_change_threshold = parseFloat(idChangeThreshold.value);
+            if (embeddingDistanceThreshold) params.embedding_distance_threshold = parseFloat(embeddingDistanceThreshold.value);
+            if (maxLostFrames) params.max_lost_frames = parseInt(maxLostFrames.value);
+            
+            if (!formIsValid) return;
+            console.log('Saving global params:', params);
+            
+            // Show loading
+            const settingsSaveLoader = document.getElementById('settingsSaveLoader');
+            console.log('🔧 settingsSaveLoader element:', settingsSaveLoader);
+            if (settingsSaveLoader) {
+                settingsSaveLoader.style.display = 'flex';
+                settingsSaveLoader.style.visibility = 'visible';
+                console.log('✅ Loading spinner gösterildi');
+            } else {
+                console.error('❌ settingsSaveLoader elementi bulunamadı!');
+            }
+            
+            // API call
+            fetch('/api/settings/analysis-params', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(params),
+            })
+            .then(response => response.json().then(data => ({ status: response.status, body: data })))
+            .then(({ status, body }) => {
+                console.log('Settings response:', { status, body });
+                
+                if (status === 200 && body.message) {
+                    if (body.restart_required) {
+                        // Production mode - manual restart required
+                        if (window.showToast) {
+                            window.showToast('Bilgi', body.message, 'warning');
+                        }
+                        console.log('🔄 Production mode - manual restart required');
+                    } else {
+                        // Development mode - auto reload
+                        if (window.showToast) {
+                            window.showToast('Başarılı', body.message + ' Ayarlar kaydedildi!', 'success');
+                        }
+                        console.log('✅ Settings başarıyla kaydedildi');
+                        
+                        // Modal'ı kapat
+                        const modal = bootstrap.Modal.getInstance(modalElement);
+                        if (modal) modal.hide();
+                    }
+                } else {
+                    console.error('Settings kaydetme hatası:', body);
+                    if (window.showToast) {
+                        window.showToast('Hata', 'Ayarlar kaydedilirken bir hata oluştu: ' + (body.error || 'Bilinmeyen hata'), 'error');
+                    }
+                }
+                
+                // Hide loading
+                if (settingsSaveLoader) {
+                    settingsSaveLoader.style.display = 'none';
+                    console.log('🔄 Loading spinner gizlendi');
+                }
+            })
+            .catch(error => {
+                console.error('Settings fetch hatası:', error);
+                if (window.showToast) {
+                    window.showToast('Hata', 'Bağlantı hatası: ' + error.message, 'error');
+                }
+                if (settingsSaveLoader) {
+                    settingsSaveLoader.style.display = 'none';
+                    console.log('🔄 Loading spinner gizlendi (catch)');
+                }
+            });
+        });
+    }
+    
+    // 🎯 LOAD DEFAULTS BUTTON (from main.js.backup)
+    if (loadDefaultBtn) {
+        console.log('✅ Load defaults button bulundu:', loadDefaultBtn);
+        loadDefaultBtn.addEventListener('click', function() {
+            console.log('🔧 Default ayarlar yükleniyor...');
+            console.log('📡 API call: /api/settings/analysis-params/defaults');
+            
+            fetch('/api/settings/analysis-params/defaults')
+                .then(response => {
+                    console.log('📥 Defaults response status:', response.status);
+                    if (!response.ok) {
+                        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    console.log('✅ Default settings loaded:', data);
+                    populateFormWithParams(data);
+                    if (window.showToast) {
+                        window.showToast('Bilgi', 'Varsayılan ayarlar yüklendi', 'info');
+                    }
+                })
+                .catch(error => {
+                    console.error('❌ Default settings yükleme hatası:', error);
+                    if (window.showToast) {
+                        window.showToast('Hata', 'Varsayılan ayarlar yüklenemedi: ' + error.message, 'error');
+                    }
+                });
+        });
+    } else {
+        console.error('❌ loadDefaultAnalysisParamsBtn elementi bulunamadı!');
+    }
     
     // Load default button
     if (loadDefaultBtn) {
@@ -545,6 +701,75 @@ export function exposeUIManagerToWindow() {
         initializeEventListeners
     };
 }
+
+// 🎯 HELPER FUNCTIONS for Settings
+function populateFormWithParams(data) {
+    console.log('Populating form with params:', data);
+    
+    // Populate form fields
+    if (data.face_detection_confidence !== undefined) {
+        const el = document.getElementById('faceDetectionConfidence');
+        if (el) {
+            el.value = data.face_detection_confidence;
+            const valueDisplay = document.getElementById('faceDetectionConfidenceValue');
+            if (valueDisplay) {
+                valueDisplay.textContent = el.value;
+                console.log('✅ Face Detection Confidence güncellendi:', el.value);
+            }
+            // Trigger input event for consistency
+            el.dispatchEvent(new Event('input'));
+        }
+    }
+    
+    if (data.tracking_reliability_threshold !== undefined) {
+        const el = document.getElementById('trackingReliabilityThreshold');
+        if (el) {
+            el.value = data.tracking_reliability_threshold;
+            const valueDisplay = document.getElementById('trackingReliabilityThresholdValue');
+            if (valueDisplay) {
+                valueDisplay.textContent = el.value;
+                console.log('✅ Tracking Reliability güncellendi:', el.value);
+            }
+            el.dispatchEvent(new Event('input'));
+        }
+    }
+    
+    if (data.id_change_threshold !== undefined) {
+        const el = document.getElementById('idChangeThreshold');
+        if (el) {
+            el.value = data.id_change_threshold;
+            const valueDisplay = document.getElementById('idChangeThresholdValue');
+            if (valueDisplay) {
+                valueDisplay.textContent = el.value;
+                console.log('✅ ID Change Threshold güncellendi:', el.value);
+            }
+            el.dispatchEvent(new Event('input'));
+        }
+    }
+    
+    if (data.embedding_distance_threshold !== undefined) {
+        const el = document.getElementById('embeddingDistanceThreshold');
+        if (el) {
+            el.value = data.embedding_distance_threshold;
+            const valueDisplay = document.getElementById('embeddingDistanceThresholdValue');
+            if (valueDisplay) {
+                valueDisplay.textContent = el.value;
+                console.log('✅ Embedding Distance güncellendi:', el.value);
+            }
+            el.dispatchEvent(new Event('input'));
+        }
+    }
+    
+    if (data.max_lost_frames !== undefined) {
+        const el = document.getElementById('maxLostFrames');
+        if (el) {
+            el.value = data.max_lost_frames;
+            console.log('✅ Max Lost Frames güncellendi:', el.value);
+        }
+    }
+}
+
+// showToast already defined in globals.js - removed duplicate
 
 // Initialize window exposure
 exposeUIManagerToWindow(); 

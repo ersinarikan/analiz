@@ -38,29 +38,35 @@ _age_estimation_executor = concurrent.futures.ThreadPoolExecutor(
     thread_name_prefix="AgeEstimation"
 )
 
-def _async_age_estimation(age_estimator, image, face, face_idx, analysis_id, person_id):
+def _async_age_estimation(age_estimator, image, face, face_idx, analysis_id, person_id, app_context=None):
     """
     Age estimation işlemini background thread'de yapar - main thread bloklanmaz!
     Bu sayede CLIP hesaplamaları sırasında WebSocket bağlantısı cevap verebilir.
     """
     try:
-        logger.info(f"[ASYNC_AGE] Thread başlatıldı: Yüz #{face_idx} (person_id={person_id})")
-        start_time = time.time()
+        # Flask Application Context ekle - Thread içinde database erişimi için!
+        if app_context is None:
+            from flask import current_app
+            app_context = current_app._get_current_object()
         
-        # Age estimation işlemini yap (bu kısım 11-12 saniye sürebilir)
-        estimated_age, confidence, pseudo_data = age_estimator.estimate_age(image, face)
-        
-        elapsed_time = time.time() - start_time
-        logger.info(f"[ASYNC_AGE] Thread tamamlandı: Yüz #{face_idx}, Süre: {elapsed_time:.2f}s, Yaş={estimated_age}, Güven={confidence}")
-        
-        return {
-            'face_idx': face_idx,
-            'person_id': person_id,
-            'estimated_age': estimated_age,
-            'confidence': confidence,
-            'pseudo_data': pseudo_data,
-            'processing_time': elapsed_time
-        }
+        with app_context.app_context():
+            logger.info(f"[ASYNC_AGE] Thread başlatıldı: Yüz #{face_idx} (person_id={person_id})")
+            start_time = time.time()
+            
+            # Age estimation işlemini yap (bu kısım 11-12 saniye sürebilir)
+            estimated_age, confidence, pseudo_data = age_estimator.estimate_age(image, face)
+            
+            elapsed_time = time.time() - start_time
+            logger.info(f"[ASYNC_AGE] Thread tamamlandı: Yüz #{face_idx}, Süre: {elapsed_time:.2f}s, Yaş={estimated_age}, Güven={confidence}")
+            
+            return {
+                'face_idx': face_idx,
+                'person_id': person_id,
+                'estimated_age': estimated_age,
+                'confidence': confidence,
+                'pseudo_data': pseudo_data,
+                'processing_time': elapsed_time
+            }
         
     except Exception as e:
         logger.error(f"[ASYNC_AGE] Thread hatası - Yüz #{face_idx}: {str(e)}")
@@ -417,28 +423,30 @@ def analyze_image(analysis):
                     logger.info(f"[SVC_LOG] Yüz #{i} (person_id={person_id}) için ASYNC yaş tahmini başlatılıyor. BBox: [{x1},{y1},{w},{h}]")
                     
                     # 🚀 ASYNC AGE ESTIMATION: Background thread'de yap - main thread bloklanmasın!
+                    from flask import current_app
                     future = _age_estimation_executor.submit(
                         _async_age_estimation, 
-                        age_estimator, image, face, i, analysis.id, person_id
+                        age_estimator, image, face, i, analysis.id, person_id, current_app._get_current_object()
                     )
                     
-                    # Short timeout - age estimation uzun sürerse bile main thread devam etsin
+                    # Longer timeout for image analysis - bekle ki yaş tahmini tamamlansın
                     try:
-                        result = future.result(timeout=1.0)  # 1 saniye bekle, sonra devam et
+                        result = future.result(timeout=5.0)  # 5 saniye bekle - image analysis için yeterli
                         estimated_age = result['estimated_age']
                         confidence = result['confidence'] 
                         pseudo_data = result['pseudo_data']
                         logger.info(f"[SVC_LOG] Yüz #{i} SYNC sonuç alındı: Yaş={estimated_age}, Güven={confidence}")
                     except concurrent.futures.TimeoutError:
-                        # Age estimation henüz bitmedi, ama main thread devam etsin
-                        logger.info(f"[SVC_LOG] Yüz #{i} için age estimation background'da devam ediyor...")
-                        estimated_age = None
-                        confidence = None
+                        # Age estimation zaman aşımı - default değerlerle devam et
+                        logger.warning(f"[SVC_LOG] Yüz #{i} için age estimation timeout (5s) - default değerlerle kaydediliyor")
+                        estimated_age = face.age if hasattr(face, 'age') and face.age is not None else 25.0
+                        confidence = 0.5  # Düşük güven skoru
                         pseudo_data = None
 
-                    if estimated_age is None or confidence is None:
-                        logger.info(f"[SVC_LOG] Yüz #{i} için yaş/güven henüz hazır değil, background işlem devam ediyor.")
-                        continue
+                    if estimated_age is None:
+                        logger.warning(f"[SVC_LOG] Yüz #{i} için yaş None - fallback değer kullanılıyor")
+                        estimated_age = face.age if hasattr(face, 'age') and face.age is not None else 25.0
+                        confidence = confidence or 0.3  # Düşük güven
                                 
                     age = float(estimated_age)
                     
@@ -651,6 +659,8 @@ def analyze_video(analysis):
         Tuple[bool, str]: (başarı, mesaj)
     """
     try:
+        from flask import current_app
+        
         file = File.query.get(analysis.file_id)
         if not file:
             logger.error(f"Analiz için dosya bulunamadı: #{analysis.id}")
@@ -934,28 +944,30 @@ def analyze_video(analysis):
                                 embedding_str = det['embedding_str']  # string (veritabanı için)
                                 
                                 # 🚀 ASYNC AGE ESTIMATION: Background thread'de yap - video frame processing bloklanmasın!
+                                from flask import current_app
                                 future = _age_estimation_executor.submit(
                                     _async_age_estimation, 
-                                    age_estimator, image, face_obj, i, analysis.id, track_id_str
+                                    age_estimator, image, face_obj, i, analysis.id, track_id_str, current_app._get_current_object()
                                 )
                                 
-                                # Video için daha kısa timeout - frame processing hızlı devam etmeli
+                                # Video için makul timeout - yaş tahmini tamamlansın
                                 try:
-                                    result = future.result(timeout=0.5)  # 500ms bekle, sonra devam et
+                                    result = future.result(timeout=2.0)  # 2 saniye bekle - video frame için makul
                                     estimated_age = result['estimated_age']
                                     confidence = result['confidence']
                                     pseudo_data = result['pseudo_data']
                                     logger.info(f"[SVC_LOG][VID] Kare #{i}: Track ID={track.track_id} SYNC sonuç: Yaş={estimated_age}, Güven={confidence}")
                                 except concurrent.futures.TimeoutError:
-                                    # Age estimation background'da devam ediyor, frame processing devam etsin
-                                    logger.info(f"[SVC_LOG][VID] Kare #{i}: Track ID={track.track_id} age estimation background'da devam ediyor...")
-                                    estimated_age = None
-                                    confidence = None
+                                    # Age estimation timeout - fallback değerlerle devam et
+                                    logger.warning(f"[SVC_LOG][VID] Kare #{i}: Track ID={track.track_id} age estimation timeout (2s) - fallback kullanılıyor")
+                                    estimated_age = face_obj.age if hasattr(face_obj, 'age') and face_obj.age is not None else 25.0
+                                    confidence = 0.4  # Düşük güven
                                     pseudo_data = None
 
-                                if estimated_age is None or confidence is None:
-                                    logger.info(f"[SVC_LOG][VID] Kare #{i}: Track ID={track.track_id} için yaş/güven henüz hazır değil, sonraki frame'e geç.")
-                                    continue
+                                if estimated_age is None:
+                                    logger.warning(f"[SVC_LOG][VID] Kare #{i}: Track ID={track.track_id} için yaş None - fallback kullanılıyor")
+                                    estimated_age = face_obj.age if hasattr(face_obj, 'age') and face_obj.age is not None else 25.0
+                                    confidence = confidence or 0.3
                                 
                                 age = float(estimated_age)
 
@@ -1283,6 +1295,13 @@ def analyze_video(analysis):
             for cat in categories:
                 if cat == 'safe': # 'safe' kategorisini genel en yüksek risk için dahil etme
                     continue
+                
+                # İlk 2 saniyedeki kareleri filtrele (genellikle boş/bulanık olur)
+                risk_timestamp = category_specific_highest_risks[cat]['timestamp']
+                if risk_timestamp is not None and risk_timestamp <= 2.0:
+                    logger.info(f"İlk kare filtreleme: {cat} kategorisi ilk 2 saniye içinde ({risk_timestamp:.2f}s), atlaniyor")
+                    continue
+                    
                 if category_specific_highest_risks[cat]['score'] > overall_highest_risk_score:
                     overall_highest_risk_score = category_specific_highest_risks[cat]['score']
                     overall_highest_risk_category = cat
@@ -1425,6 +1444,13 @@ def calculate_overall_scores(analysis):
         for cat in categories:
             if cat == 'safe': 
                 continue
+                
+            # İlk 2 saniyedeki kareleri filtrele (genellikle boş/bulanık olur)
+            risk_timestamp = category_specific_highest_risks[cat]['timestamp']
+            if risk_timestamp is not None and risk_timestamp <= 2.0:
+                logger.info(f"İlk kare filtreleme (calculate_overall_scores): {cat} kategorisi ilk 2 saniye içinde ({risk_timestamp:.2f}s), atlaniyor")
+                continue
+                
             if category_specific_highest_risks[cat]['score'] > overall_highest_risk_score:
                 overall_highest_risk_score = category_specific_highest_risks[cat]['score']
                 overall_highest_risk_category = cat

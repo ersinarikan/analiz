@@ -23,22 +23,37 @@ export function initializeSocket(settingsSaveLoader) {
     // 🔥 Kapsamlı notification engelleme sistemi
     setupNotificationBlocking();
     
-    // WebSocket client instance'ını oluştur
-    if (typeof WebSocketClient !== 'undefined') {
-        socketioClient = new WebSocketClient();
-        window.socketioClient = socketioClient;
-        setSocket(socketioClient);
-        
-        setupWebSocketEventListeners();
-        
-        console.log('✅ WebSocket client oluşturuldu ve bağlantı başlatıldı');
-    } else {
-        console.error('❌ WebSocketClient class bulunamadı!');
-        return;
-    }
+    // 🔧 WebSocket client bağlantısını kurmak için biraz bekle (websocket-client.js yüklensin)
+    setTimeout(() => {
+        // WebSocket client instance'ını oluştur
+        if (typeof WebSocketClient !== 'undefined') {
+            socketioClient = new WebSocketClient();
+            window.socketioClient = socketioClient;
+            setSocket(socketioClient);
+            
+            // Explicit connection başlat
+            socketioClient.connect();
+            
+            setupWebSocketEventListeners();
+            
+            console.log('✅ WebSocket client oluşturuldu ve bağlantı başlatıldı');
+        } else {
+            console.error('❌ WebSocketClient class bulunamadı!');
+            // FALLBACK: Direct socket.io connection
+            if (typeof io !== 'undefined') {
+                console.log('🔄 Fallback: Direct socket.io connection');
+                socketioClient = io();
+                window.socketioClient = socketioClient;
+                setSocket(socketioClient);
+                
+                setupWebSocketEventListeners();
+                console.log('✅ Fallback WebSocket connection kuruldu');
+            }
+        }
+    }, 100);
     
-    // Analysis params modal setup
-    setupAnalysisParamsModal(settingsSaveLoader);
+    // Analysis params modal setup - MOVED TO ui-manager.js
+    // setupAnalysisParamsModal(settingsSaveLoader);
 }
 
 /**
@@ -144,20 +159,62 @@ function setupNotificationBlocking() {
 function setupWebSocketEventListeners() {
     if (!socketioClient) return;
     
+    console.log('🔧 WebSocket event listeners kuruluyor...');
+    
+    // WebSocketClient wrapper'dan native socket'a erişim
+    const nativeSocket = socketioClient.socket || socketioClient;
+    
+    if (typeof nativeSocket.on !== 'function') {
+        console.error('❌ Socket.io native instance bulunamadı!');
+        return;
+    }
+    
+    // Connection event'leri
+    nativeSocket.on('connect', () => {
+        console.log('✅ WebSocket bağlantısı kuruldu');
+    });
+    
+    nativeSocket.on('disconnect', () => {
+        console.log('⚠️ WebSocket bağlantısı kesildi');
+    });
+    
+    // Analysis progress events - ASIL PROGRESS LISTENER!
+    nativeSocket.on('analysis_progress', (data) => {
+        console.log('📊 Analysis progress alındı:', data);
+        if (window.handleAnalysisProgress) {
+            window.handleAnalysisProgress(data);
+        } else {
+            console.error('❌ handleAnalysisProgress fonksiyonu bulunamadı!');
+        }
+    });
+    
+    nativeSocket.on('analysis_completed', (data) => {
+        console.log('✅ Analysis completed alındı:', data);
+        if (window.handleAnalysisCompleted) {
+            window.handleAnalysisCompleted(data);
+        }
+    });
+    
     // Browser background detection ve visibility API
     try {
         document.addEventListener('visibilitychange', () => {
             if (document.hidden) {
-                socketioClient.backgroundMode = true;
+                if (socketioClient.backgroundMode !== undefined) {
+                    socketioClient.backgroundMode = true;
+                }
                 console.log('🌙 Browser arka plana geçti, background mode aktif');
             } else {
-                socketioClient.backgroundMode = false;
+                if (socketioClient.backgroundMode !== undefined) {
+                    socketioClient.backgroundMode = false;
+                }
                 console.log('🌞 Browser ön plana geçti, normal mode aktif');
             }
         });
     } catch(e) {
         console.log('⚠️ Visibility API desteklenmiyor:', e);
     }
+    
+    console.log('✅ WebSocket event listeners kuruldu');
 }
 
 /**
@@ -302,10 +359,19 @@ export function isSocketConnected() {
  * WebSocket event emit eder
  */
 export function emitSocketEvent(eventName, data) {
-    if (isSocketConnected()) {
-        socketioClient.emit(eventName, data);
+    if (socketioClient && socketioClient.connected) {
+        const nativeSocket = socketioClient.socket || socketioClient;
+        
+        // join_analysis için özel format (backend dict bekliyor)
+        if (eventName === 'join_analysis') {
+            const joinData = { analysis_id: data };
+            console.log('🔗 WebSocket join_analysis emit:', joinData);
+            nativeSocket.emit(eventName, joinData);
+        } else {
+            nativeSocket.emit(eventName, data);
+        }
         return true;
     }
-    console.warn('⚠️ WebSocket bağlı değil, event emit edilemedi:', eventName);
+    console.warn('⚠️ WebSocket bağlantısı yok, event emit edilemedi:', eventName);
     return false;
 } 

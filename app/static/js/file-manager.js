@@ -92,6 +92,11 @@ function addFileToList(file) {
     
     uploadedFiles.push(fileInfo);
     
+    // 🎯 Overall progress bar'ı güncelle (yeni dosya eklendi)
+    if (typeof window.updateOverallProgress === 'function') {
+        window.updateOverallProgress({ queue_size: 0, is_processing: false });
+    }
+    
     // UI'da file card oluştur
     createFileCard(fileInfo);
     
@@ -109,43 +114,67 @@ function createFileCard(fileInfo) {
     const fileList = document.getElementById('fileList');
     if (!fileList) return;
     
+    // File list section'ı görünür yap (ilk dosya eklendiğinde)
+    const fileListSection = document.getElementById('fileListSection');
+    if (fileListSection && fileListSection.style.display === 'none') {
+        fileListSection.style.display = 'block';
+        console.log('📁 File list section görünür hale getirildi');
+    }
+    
+    // 🎨 ORİJİNAL DESIGN: HTML template'dan güzel tasarımı kullan
     const fileCard = document.createElement('div');
-    fileCard.className = 'col-md-6 col-lg-4 mb-3';
+    fileCard.className = 'col-12 mb-3';
     fileCard.id = fileInfo.id;
     fileCard.setAttribute('data-file-id', fileInfo.id);
     
     fileCard.innerHTML = `
-        <div class="card file-card h-100">
-            <div class="file-preview">
+        <div class="file-card file-list-layout">
+            <div class="file-preview-area">
                 ${createFilePreviewHTML(fileInfo)}
+                <div class="file-status bg-secondary">Sırada</div>
             </div>
-            <div class="card-body">
-                <h6 class="card-title text-truncate" title="${fileInfo.name}">
-                    ${fileInfo.name}
-                </h6>
-                <p class="card-text">
-                    <small class="text-muted">
-                        Boyut: ${formatFileSize(fileInfo.size)}
-                    </small>
-                </p>
-                <div class="file-status">
-                    <span class="badge bg-secondary status-badge">Bekleniyor</span>
-                    <div class="progress mt-2" style="height: 8px;">
-                        <div class="progress-bar" role="progressbar" style="width: 0%"></div>
+            <div class="file-details-area">
+                <div class="file-status-area">
+                    <div>
+                        <div class="filename fw-bold" title="${fileInfo.name}">${fileInfo.name}</div>
+                        <small class="filesize text-muted">Boyut: ${formatFileSize(fileInfo.size)}</small>
                     </div>
-                    <small class="status-text text-muted">Yükleme bekleniyor...</small>
+                    <button class="btn btn-sm btn-danger remove-file-btn" onclick="window.removeFile('${fileInfo.id}')">
+                        <i class="fas fa-times"></i> Kaldır
+                    </button>
                 </div>
-            </div>
-            <div class="card-footer">
-                <button type="button" class="btn btn-sm btn-outline-danger remove-file-btn" 
-                        onclick="window.fileManager.removeFile('${fileInfo.id}')">
-                    <i class="fas fa-trash-alt me-1"></i>Kaldır
-                </button>
+                <div class="file-status-text mb-2">Sırada</div>
+                <div class="progress">
+                    <div class="progress-bar" role="progressbar" style="width: 0%;" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"></div>
+                </div>
             </div>
         </div>
     `;
     
     fileList.appendChild(fileCard);
+    
+    // 🎬 VIDEO DOSYASI İÇİN GERÇEK THUMBNAIL OLUŞTUR
+    if (fileInfo.type.startsWith('video/')) {
+        const previewImg = fileCard.querySelector('.file-preview');
+        if (previewImg) {
+            createVideoThumbnail(fileInfo, previewImg);
+        }
+    }
+    
+    // 🔘 FILE YÜKLENINCE ANALYZE BUTTON'I ENABLE ET
+    enableAnalyzeButton();
+}
+
+/**
+ * Analyze button'ını enable eder
+ */
+function enableAnalyzeButton() {
+    const analyzeBtn = document.getElementById('analyzeBtn');
+    if (analyzeBtn && uploadedFiles.length > 0) {
+        analyzeBtn.disabled = false;
+        analyzeBtn.classList.remove('disabled');
+        console.log('🔘 Analyze button enabled - dosya sayısı:', uploadedFiles.length);
+    }
 }
 
 /**
@@ -156,26 +185,62 @@ function createFileCard(fileInfo) {
 function createFilePreviewHTML(fileInfo) {
     if (fileInfo.type.startsWith('image/')) {
         const imageUrl = URL.createObjectURL(fileInfo.file);
-        return `
-            <img src="${imageUrl}" alt="${fileInfo.name}" 
-                 class="file-preview-img" 
-                 onload="URL.revokeObjectURL(this.src)">
-        `;
+        return `<img class="file-preview" src="${imageUrl}" alt="${fileInfo.name}">`;
     } else if (fileInfo.type.startsWith('video/')) {
-        return `
-            <div class="video-preview">
-                <i class="fas fa-video fa-3x text-primary"></i>
-                <div class="mt-2">Video</div>
-            </div>
-        `;
+        // Video için boş img tag oluştur, JavaScript ile thumbnail ayarlanacak
+        return `<img class="file-preview" src="" alt="Video önizlemesi" data-file-id="${fileInfo.id}">`;
     } else {
-        return `
-            <div class="file-preview-placeholder">
-                <i class="fas fa-file fa-3x text-secondary"></i>
-                <div class="mt-2">Dosya</div>
-            </div>
-        `;
+        return `<img class="file-preview" src="/static/img/placeholder-face.png" alt="Dosya önizlemesi">`;
     }
+}
+
+/**
+ * Video dosyası için gerçek thumbnail oluşturur (yedek main.js'teki logic)
+ * @param {Object} fileInfo - Video dosya bilgisi
+ * @param {HTMLImageElement} previewElement - Preview image element
+ */
+function createVideoThumbnail(fileInfo, previewElement) {
+    console.log(`🎬 Video thumbnail oluşturuluyor: ${fileInfo.name}`);
+    
+    const fileURL = URL.createObjectURL(fileInfo.file);
+    const video = document.createElement('video');
+    video.src = fileURL;
+    
+    video.onloadeddata = () => {
+        // Video yüklendikten sonra ilk kareyi al
+        video.currentTime = 0.1;
+    };
+    
+    video.onseeked = () => {
+        // Canvas oluştur ve ilk kareyi çiz
+        const canvas = document.createElement('canvas');
+        canvas.width = video.videoWidth || 320;
+        canvas.height = video.videoHeight || 240;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        
+        // Canvas'taki resmi önizleme olarak ayarla
+        previewElement.src = canvas.toDataURL();
+        console.log(`✅ Video thumbnail oluşturuldu: ${fileInfo.name}`);
+        
+        // Belleği temizle
+        URL.revokeObjectURL(fileURL);
+    };
+    
+    // Hata durumunda veya zaman aşımında blob URL'i temizle
+    video.onerror = () => {
+        console.log(`❌ Video thumbnail oluşturulamadı: ${fileInfo.name}`);
+        // Fallback placeholder kullan
+        previewElement.src = '/static/img/placeholder-face.png';
+        URL.revokeObjectURL(fileURL);
+    };
+    
+    // 5 saniye sonra hala işlenmemişse URL'i temizle (zaman aşımı güvenlik önlemi)
+    setTimeout(() => {
+        if (video.src) {
+            URL.revokeObjectURL(fileURL);
+        }
+    }, 5000);
 }
 
 /**
@@ -270,9 +335,9 @@ export function updateFileStatus(fileId, status, progress, message = null, error
     
     console.log(`[DEBUG] fileCard bulundu mu? ${!!fileCard}`);
     
-    // Status badge'i güncelle
-    const statusBadge = fileCard.querySelector('.status-badge');
-    const statusText = fileCard.querySelector('.status-text');
+    // 🎨 YENİ TEMPLATE STRUCTURE - eski design ile uyumlu selectors
+    const statusDiv = fileCard.querySelector('.file-status');  // status badge area
+    const statusText = fileCard.querySelector('.file-status-text');  // status text
     const progressBar = fileCard.querySelector('.progress-bar');
     
     if (statusText) {
@@ -280,18 +345,42 @@ export function updateFileStatus(fileId, status, progress, message = null, error
         console.log(`[DEBUG] statusText güncellendi: ${statusText.textContent}`);
     }
     
-    if (statusBadge) {
-        statusBadge.textContent = getStatusDisplayName(status);
-        statusBadge.className = `badge ${getStatusBadgeClass(status)} status-badge`;
-        console.log(`[DEBUG] statusBadge güncellendi: ${statusBadge.textContent}`);
+    if (statusDiv) {
+        statusDiv.textContent = getStatusDisplayName(status);
+        statusDiv.className = `file-status ${getStatusBadgeClass(status)}`;
+        console.log(`[DEBUG] statusBadge güncellendi: ${statusDiv.textContent}`);
     }
     
     if (progressBar) {
+        const safeProgress = Math.max(0, Math.min(100, progress));
         const oldWidth = progressBar.style.width;
-        progressBar.style.width = `${progress}%`;
+        
+        // 🎨 PROGRESS BAR VISUAL UPDATE (yedek main.js'teki logic)
+        progressBar.style.width = `${safeProgress}%`;
+        progressBar.setAttribute('aria-valuenow', safeProgress);
+        
+        // Progress bar text content (önemli!)
+        if (safeProgress > 0) {
+            progressBar.textContent = `${Math.round(safeProgress)}%`;
+        } else {
+            progressBar.textContent = '';
+        }
+        
+        // CSS classes for animation (processing status için)
+        if (status === 'processing') {
+            progressBar.classList.remove('bg-success', 'bg-danger');
+            progressBar.classList.add('bg-primary', 'progress-bar-striped', 'progress-bar-animated');
+        } else if (status === 'completed') {
+            progressBar.classList.remove('progress-bar-striped', 'progress-bar-animated');
+            progressBar.classList.add('bg-success');
+        } else if (status === 'failed' || status === 'error') {
+            progressBar.classList.remove('progress-bar-striped', 'progress-bar-animated');
+            progressBar.classList.add('bg-danger');
+        }
+        
         console.log(`[DEBUG] 🔥 Progress bar BEFORE - width: ${oldWidth} computed: ${getComputedStyle(progressBar).width}`);
         console.log(`[DEBUG] 🔥 Progress bar AFTER - width: ${progressBar.style.width} computed: ${getComputedStyle(progressBar).width}`);
-        console.log(`[DEBUG] Progress bar güncellendi: ${progress}%`);
+        console.log(`[DEBUG] Progress bar güncellendi: ${safeProgress}% (text: "${progressBar.textContent}")`);
     }
     
     // Global status tracking
@@ -395,6 +484,16 @@ export function removeFile(fileId) {
     }
     
     console.log(`Dosya tamamen kaldırıldı: ${fileId}`);
+    
+    // 🔘 HİÇ DOSYA KALMADIYSA ANALYZE BUTTON'I DISABLE ET
+    if (uploadedFiles.length === 0) {
+        const analyzeBtn = document.getElementById('analyzeBtn');
+        if (analyzeBtn) {
+            analyzeBtn.disabled = true;
+            analyzeBtn.classList.add('disabled');
+            console.log('🔘 Analyze button disabled - hiç dosya yok');
+        }
+    }
 }
 
 /**

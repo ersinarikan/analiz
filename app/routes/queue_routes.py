@@ -52,7 +52,7 @@ def get_queue_stats_route():
 def stop_queue_route():
     """Stop all analyses and clear queue and uploads"""
     try:
-        # Kuyruğu temizle
+        # YÖNTEM 1: Normal kuyruk temizleme (hafif durdurma)
         cleared_count = clear_queue()
         logger.info(f"Kuyruktan {cleared_count} analiz temizlendi")
         
@@ -94,4 +94,157 @@ def stop_queue_route():
         return jsonify({
             'status': 'error',
             'message': str(e)
+        }), 500
+
+@queue_bp.route('/force-stop', methods=['POST'])
+def force_stop_and_restart():
+    """
+    CTRL+C benzeri zorla durdurma + VT temizlik + restart
+    Aktif analizleri zorla durdurur, veritabanından siler ve uygulamayı restart eder
+    """
+    try:
+        import os
+        import signal
+        import sys
+        from app.models.analysis import Analysis
+        from app.models.file import File
+        from app import db
+        
+        logger.info("🚨 FORCE STOP başlatıldı - Tüm analizler zorla durduruluyor...")
+        
+        # 1. CTRL+C benzeri - Thread interrupt ve kaynak temizleme
+        logger.info("1️⃣ Thread'ler ve kaynaklar zorla temizleniyor...")
+        
+        # Global stop flag set et (eğer varsa)
+        try:
+            from app.services.queue_service import clear_queue
+            clear_queue()
+        except Exception as e:
+            logger.warning(f"Queue clear hatası: {e}")
+        
+        # 2. VERİTABANI TEMİZLİK - Aktif analizleri sil
+        logger.info("2️⃣ Veritabanından aktif analizler siliniyor...")
+        try:
+            # Processing veya pending durumundaki analizleri bul
+            active_analyses = Analysis.query.filter(
+                Analysis.status.in_(['processing', 'pending'])
+            ).all()
+            
+            analysis_ids = []
+            for analysis in active_analyses:
+                analysis_ids.append(analysis.id)
+                logger.info(f"Aktif analiz siliniyor: #{analysis.id} (status: {analysis.status})")
+                
+                # İlgili dosyaları da sil (isteğe bağlı)
+                if analysis.file_id:
+                    file_record = File.query.get(analysis.file_id)
+                    if file_record:
+                        logger.info(f"İlgili dosya kaydı siliniyor: {file_record.original_filename}")
+                        db.session.delete(file_record)
+                
+                db.session.delete(analysis)
+            
+            db.session.commit()
+            logger.info(f"✅ {len(analysis_ids)} aktif analiz veritabanından silindi")
+            
+        except Exception as db_err:
+            logger.error(f"Veritabanı temizlik hatası: {db_err}")
+            db.session.rollback()
+        
+        # 3. DOSYA SİSTEMİ TEMİZLİK
+        logger.info("3️⃣ Dosya sistemi temizleniyor...")
+        try:
+            # Upload klasörünü temizle
+            upload_path = os.path.join('storage', 'uploads')
+            if os.path.exists(upload_path):
+                for filename in os.listdir(upload_path):
+                    file_path = os.path.join(upload_path, filename)
+                    try:
+                        if os.path.isfile(file_path):
+                            os.unlink(file_path)
+                        elif os.path.isdir(file_path):
+                            import shutil
+                            shutil.rmtree(file_path)
+                    except Exception as e:
+                        logger.warning(f"Dosya silinemedi {file_path}: {e}")
+            
+            # Processed klasörünü temizle
+            processed_path = os.path.join('storage', 'processed')
+            if os.path.exists(processed_path):
+                for filename in os.listdir(processed_path):
+                    file_path = os.path.join(processed_path, filename)
+                    try:
+                        if os.path.isfile(file_path):
+                            os.unlink(file_path)
+                        elif os.path.isdir(file_path):
+                            import shutil
+                            shutil.rmtree(file_path)
+                    except Exception as e:
+                        logger.warning(f"Processed dosya silinemedi {file_path}: {e}")
+                        
+            logger.info("✅ Dosya sistemi temizlendi")
+            
+        except Exception as fs_err:
+            logger.error(f"Dosya sistemi temizlik hatası: {fs_err}")
+        
+        # 4. RESPONSE GÖNDER ve RESTART BAŞLAT
+        logger.info("4️⃣ Başarı mesajı gönderiliyor ve restart başlatılacak...")
+        
+        # Önce response'u gönder
+        response_data = {
+            'message': 'Tüm analizler zorla durduruldu, sistem restart ediliyor...',
+            'force_stopped': True,
+            'cleared_analyses': len(analysis_ids) if 'analysis_ids' in locals() else 0,
+            'restart_initiated': True
+        }
+        
+        # Response gönderildikten sonra restart için thread başlat
+        import threading
+        def delayed_restart():
+            import time
+            
+            # 1. Response gitmesi için kısa bekleme
+            time.sleep(3)  # 3 saniye response bekleme
+            logger.info("🔄 RESTART hazırlığı - aktif thread'ler kontrol ediliyor...")
+            
+            # 2. Aktif thread'leri zorla durdur (ThreadPoolExecutor)
+            try:
+                from app.services.analysis_service import _age_estimation_executor
+                if _age_estimation_executor:
+                    logger.info("🛑 ThreadPoolExecutor kapatılıyor...")
+                    _age_estimation_executor.shutdown(wait=False)  # Zorla kapat
+                    logger.info("✅ ThreadPoolExecutor kapatıldı")
+            except Exception as e:
+                logger.warning(f"ThreadPoolExecutor kapatma hatası: {e}")
+            
+            # 3. Kısa ek bekleme (thread cleanup için)
+            time.sleep(2)  # 2 saniye thread cleanup
+            
+            logger.info("🔄 RESTART başlatılıyor...")
+            
+            try:
+                # Windows için restart
+                if sys.platform == "win32":
+                    import subprocess
+                    subprocess.Popen([sys.executable] + sys.argv)
+                    os._exit(0)
+                else:
+                    # Linux/Mac için restart  
+                    os.execv(sys.executable, [sys.executable] + sys.argv)
+            except Exception as restart_err:
+                logger.error(f"Restart hatası: {restart_err}")
+                # Restart başarısız olursa en azından process'i kill et
+                os._exit(1)
+        
+        restart_thread = threading.Thread(target=delayed_restart)
+        restart_thread.daemon = True
+        restart_thread.start()
+        
+        return jsonify(response_data), 200
+        
+    except Exception as e:
+        logger.error(f"Force stop hatası: {str(e)}", exc_info=True)
+        return jsonify({
+            'status': 'error',
+            'message': f'Force stop hatası: {str(e)}'
         }), 500

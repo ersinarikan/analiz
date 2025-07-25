@@ -370,27 +370,44 @@ def serve_frame_file(frame_id, filename):
 def serve_processed_image(filename):
     """
     İşlenmiş bir görseli sunar.
+    Overlay dosyaları dahil tüm processed/ altındaki dosyalar için.
     
     Args:
-        filename: Görsel dosyasının adı
+        filename: Görsel dosyasının adı veya alt klasör/dosya yolu
         
     Returns:
         File: İstenen görsel
     """
     try:
-        # İşlenmiş klasöründe doğrudan ara
-        if os.path.exists(os.path.join(current_app.config['PROCESSED_FOLDER'], filename)):
-            return send_from_directory(current_app.config['PROCESSED_FOLDER'], filename, as_attachment=False)
+        processed_folder = current_app.config['PROCESSED_FOLDER']
+        
+        # Dosya adını temizle
+        clean_filename = filename.replace('\\', '/') 
+        
+        # Önce doğrudan processed klasöründe ara
+        direct_path = os.path.join(processed_folder, clean_filename)
+        if os.path.exists(direct_path):
+            logger.info(f"Processed dosya doğrudan bulundu: {clean_filename}")
+            return send_from_directory(processed_folder, clean_filename, as_attachment=False)
         
         # Tüm frames_X dizinlerini kontrol et
-        processed_folder = current_app.config['PROCESSED_FOLDER']
-        frame_dirs = [d for d in os.listdir(processed_folder) if d.startswith('frames_')]
+        if os.path.exists(processed_folder):
+            for item in os.listdir(processed_folder):
+                item_path = os.path.join(processed_folder, item)
+                if os.path.isdir(item_path) and item.startswith('frames_'):
+                    # frames_X/overlays/ klasöründe ara
+                    overlay_path = os.path.join(item_path, 'overlays', clean_filename)
+                    if os.path.exists(overlay_path):
+                        logger.info(f"Overlay dosya bulundu: {item}/overlays/{clean_filename}")
+                        return send_from_directory(os.path.join(item_path, 'overlays'), clean_filename, as_attachment=False)
+                    
+                    # frames_X/ ana klasöründe ara  
+                    frame_path = os.path.join(item_path, clean_filename)
+                    if os.path.exists(frame_path):
+                        logger.info(f"Frame dosya bulundu: {item}/{clean_filename}")
+                        return send_from_directory(item_path, clean_filename, as_attachment=False)
         
-        for frame_dir in frame_dirs:
-            frame_path = os.path.join(processed_folder, frame_dir, filename)
-            if os.path.exists(frame_path):
-                return send_from_directory(os.path.join(processed_folder, frame_dir), filename, as_attachment=False)
-        
+        logger.warning(f"Processed dosya bulunamadı: {filename}")
         return jsonify({'error': f'İşlenmiş görsel bulunamadı: {filename}'}), 404
         
     except Exception as e:
@@ -548,5 +565,43 @@ def get_processed_frame(frame_file):
     except Exception as e:
         current_app.logger.error(f"İşlenmiş kare dosyası servis edilirken hata: {str(e)}")
         return jsonify({'error': str(e)}), 500 
+
+# CRITICAL: /api/files/uploads/ endpoint'i eksikti - yaş tahminleri için gerekli
+@files_bp.route('/uploads/<path:filename>', methods=['GET'])
+def serve_uploaded_file(filename):
+    """
+    Orijinal yüklenen dosyaları (video/image) serve eder.
+    Video timeline player için orijinal videoya erişim sağlar.
+    
+    Args:
+        filename: Dosya adı
+        
+    Returns:
+        File: İstenen dosya
+    """
+    try:
+        upload_folder = current_app.config['UPLOAD_FOLDER']
+        
+        # Güvenlik kontrolü
+        try:
+            safe_path = validate_path(os.path.join(upload_folder, filename), upload_folder)
+        except PathSecurityError as e:
+            logger.error(f"Path security error for uploads: {str(e)}")
+            return jsonify({'error': 'Dosya erişim hatası'}), 403
+        
+        # Dosya varlığını kontrol et
+        if not os.path.exists(safe_path):
+            logger.warning(f"Upload dosya bulunamadı: {filename}")
+            return jsonify({'error': f'Dosya bulunamadı: {filename}'}), 404
+        
+        # MIME type kontrolü
+        mime_type, _ = mimetypes.guess_type(safe_path)
+        
+        logger.info(f"Serving uploaded file: {filename} (MIME: {mime_type})")
+        return send_from_directory(upload_folder, filename, as_attachment=False)
+        
+    except Exception as e:
+        logger.error(f"Upload dosya serve hatası: {str(e)}")
+        return jsonify({'error': f'Dosya serve hatası: {str(e)}'}), 500
 
 bp = files_bp 

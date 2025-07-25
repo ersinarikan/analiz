@@ -139,10 +139,20 @@ def update_config_file(params_to_update):
         return False, str(e)
 
 @bp.route('/get_analysis_params', methods=['GET'])
+@bp.route('/settings/analysis-params', methods=['GET'])  # Frontend compatibility alias
 def get_analysis_params():
     params = {}
     # Check if we should force reading from Config class defaults
     use_defaults = request.args.get('use_defaults', 'false').lower() == 'true'
+    return _get_analysis_params_logic(use_defaults)
+
+@bp.route('/settings/analysis-params/defaults', methods=['GET'])  # Defaults endpoint alias  
+def get_analysis_params_defaults():
+    """Always return factory defaults"""
+    return _get_analysis_params_logic(use_defaults=True)
+
+def _get_analysis_params_logic(use_defaults=False):
+    params = {}
 
     for key_config, param_type in UPDATABLE_PARAMS.items():
         value = None
@@ -185,6 +195,7 @@ def get_analysis_params():
     return jsonify(params)
 
 @bp.route('/set_analysis_params', methods=['POST'])
+@bp.route('/settings/analysis-params', methods=['POST'])  # Frontend compatibility alias
 def set_analysis_params():
     data = request.json
     if not data:
