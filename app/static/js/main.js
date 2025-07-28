@@ -902,39 +902,45 @@ function displayAgeModelVersions(versionData) {
 // 🎯 MODEL MANAGEMENT BUTTON FUNCTIONS
 function trainModelFromModal(modelType) {
     console.log(`🔄 ${modelType} model corrections yenileniyor...`);
-    
+    // Eğitim parametrelerini inputlardan oku
+    let epochs, batchSize, learningRate, patience;
     if (modelType === 'age') {
-        // Age model için corrections yenile
-        if (confirm('Yaş tahmin modeli için yeni feedback\'leri entegre etmek istediğinizden emin misiniz?')) {
-            fetch('/api/models/train/age', { method: 'POST' })
-                .then(response => response.json())
-                .then(data => {
-                    console.log('✅ Age model corrections başlatıldı:', data);
-                    alert('Yaş model corrections başarıyla başlatıldı!');
-                    // Modal'ı yenile
-                    initializeModelManagementModal();
-                })
-                .catch(error => {
-                    console.error('❌ Age model corrections hatası:', error);
-                    alert('Hata: ' + error.message);
-                });
-        }
+        epochs = parseInt(document.getElementById('age-epochs').value) || 20;
+        batchSize = parseInt(document.getElementById('age-batch-size').value) || 16;
+        learningRate = parseFloat(document.getElementById('age-learning-rate').value) || 0.001;
+        patience = parseInt(document.getElementById('age-patience').value) || 5;
     } else if (modelType === 'content') {
-        // Content model için corrections yenile
-        if (confirm('İçerik analiz modeli için yeni feedback\'leri entegre etmek istediğinizden emin misiniz?')) {
-            fetch('/api/models/train/content', { method: 'POST' })
-                .then(response => response.json())
-                .then(data => {
-                    console.log('✅ Content model corrections başlatıldı:', data);
-                    alert('İçerik model corrections başarıyla başlatıldı!');
-                    // Modal'ı yenile
-                    initializeModelManagementModal();
-                })
-                .catch(error => {
-                    console.error('❌ Content model corrections hatası:', error);
-                    alert('Hata: ' + error.message);
-                });
-        }
+        epochs = parseInt(document.getElementById('clip-epochs').value) || 20;
+        batchSize = parseInt(document.getElementById('clip-batch-size').value) || 16;
+        learningRate = parseFloat(document.getElementById('clip-learning-rate').value) || 0.001;
+        patience = parseInt(document.getElementById('clip-patience').value) || 5;
+    }
+    // Parametreleri JSON olarak hazırla
+    const payload = {
+        model_type: modelType,
+        epochs: epochs,
+        batch_size: batchSize,
+        learning_rate: learningRate,
+        patience: patience
+    };
+    if (confirm(`${modelType === 'age' ? 'Yaş tahmin' : 'İçerik analiz'} modeli için eğitimi başlatmak istediğinizden emin misiniz?`)) {
+        fetch('/api/models/train-web', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                if (window.showToast) window.showToast('Başarılı', 'Eğitim başarıyla başlatıldı!', 'success');
+                initializeModelManagementModal();
+            } else {
+                if (window.showToast) window.showToast('Hata', data.error || 'Eğitim başlatılamadı.', 'error');
+            }
+        })
+        .catch(error => {
+            if (window.showToast) window.showToast('Hata', 'Sunucuya bağlanırken hata oluştu: ' + error.message, 'error');
+        });
     }
 }
 

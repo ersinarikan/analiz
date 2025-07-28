@@ -238,33 +238,45 @@ class ClipTrainingService:
             return ', '.join(unsafe_terms) if unsafe_terms else "inappropriate harmful content"
     
     def _extract_labels(self, feedback: Feedback) -> Dict:
-        """Feedback'ten label bilgilerini çıkart"""
+        """Feedback'ten label bilgilerini çıkart (frontend ile tam uyumlu)"""
         labels = {
-            'violence': 0,
-            'adult_content': 0,
-            'harassment': 0,
-            'weapon': 0,
-            'drug': 0,
-            'safe': 1  # Default safe
+            'violence': 0.5,
+            'adult_content': 0.5,
+            'harassment': 0.5,
+            'weapon': 0.5,
+            'drug': 0.5,
+            'safe': 1.0  # Default safe
         }
-        
         try:
             if feedback.category_feedback:
                 category_data = feedback.category_feedback
                 if isinstance(category_data, str):
                     category_data = json.loads(category_data)
-                
-                for category, level in category_data.items():
+                for category, value in category_data.items():
                     if category in labels:
-                        if level == 'high':
-                            labels[category] = 1
-                            labels['safe'] = 0  # Unsafe content
-                        elif level == 'low':
-                            labels[category] = 0
-        
+                        # Modern frontend değerleri
+                        if value == 'accurate':
+                            labels[category] = 0.5
+                        elif value == 'false_positive':
+                            labels[category] = 0.0
+                            labels['safe'] = 0.0
+                        elif value == 'false_negative':
+                            labels[category] = 1.0
+                            labels['safe'] = 0.0
+                        elif value == 'over_estimated':
+                            labels[category] = 0.3
+                            labels['safe'] = 0.0
+                        elif value == 'under_estimated':
+                            labels[category] = 0.8
+                            labels['safe'] = 0.0
+                        # Eski backend değerleri (geriye dönük uyumluluk)
+                        elif value == 'high':
+                            labels[category] = 1.0
+                            labels['safe'] = 0.0
+                        elif value == 'low':
+                            labels[category] = 0.0
         except Exception as e:
             logger.warning(f"Label extraction hatası: {e}")
-        
         return labels
     
     def create_classification_head(self, num_classes: int = 6) -> nn.Module:

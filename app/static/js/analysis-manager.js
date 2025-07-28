@@ -1147,10 +1147,10 @@ function displayAnalysisResults(fileId, results) {
             }
         }
         
-        // 🎯 FEEDBACK TAB'ında yaş geri bildirimi göster  
+        // 🎯 FEEDBACK TAB'ında yaş ve içerik geri bildirimi göster
         const feedbackTab = resultCard.querySelector('.tab-content .tab-pane:nth-child(3)') || resultCard.querySelector('#feedback');
         if (feedbackTab) {
-            displayAgeFeedback(feedbackTab, results);
+            displayUnifiedFeedbackForm(feedbackTab, results);
         }
     } else if (results.include_age_analysis) {
         const detailsTab = resultCard.querySelector('.tab-content .tab-pane:nth-child(2)') || resultCard.querySelector('#details');
@@ -1616,14 +1616,38 @@ function displayAgeFeedback(feedbackTab, results) {
             submitButton.onclick = () => {
                 const correctedAge = parseInt(correctedAgeInput.value);
                 if (correctedAge && correctedAge > 0 && correctedAge <= 100) {
-                    console.log(`Yaş geri bildirimi: PersonID=${personId}, Gerçek Yaş=${correctedAge}`);
-                    // TODO: API call to submit feedback
-                    if (window.showToast) {
-                        window.showToast('Başarılı', 'Yaş geri bildirimi kaydedildi!', 'success');
-                    }
-                    correctedAgeInput.disabled = true;
-                    submitButton.disabled = true;
-                    submitButton.innerHTML = '<i class="fas fa-check me-1"></i> Gönderildi';
+                    // API'ye yaş feedback gönder
+                    const payload = {
+                        person_id: personId,
+                        corrected_age: correctedAge,
+                        analysis_id: analysisId,
+                        frame_path: face.frame_path || ''
+                    };
+                    fetch('/api/feedback/age', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.success) {
+                            if (window.showToast) {
+                                window.showToast('Başarılı', 'Yaş geri bildirimi kaydedildi!', 'success');
+                            }
+                            correctedAgeInput.disabled = true;
+                            submitButton.disabled = true;
+                            submitButton.innerHTML = '<i class="fas fa-check me-1"></i> Gönderildi';
+                        } else {
+                            if (window.showToast) {
+                                window.showToast('Hata', data.error || 'Yaş geri bildirimi kaydedilemedi.', 'error');
+                            }
+                        }
+                    })
+                    .catch(error => {
+                        if (window.showToast) {
+                            window.showToast('Hata', 'Sunucuya bağlanırken hata oluştu: ' + error.message, 'error');
+                        }
+                    });
                 } else {
                     if (window.showToast) {
                         window.showToast('Hata', 'Lütfen 1-100 arasında geçerli bir yaş girin.', 'error');
@@ -1890,3 +1914,189 @@ export function exposeAnalysisManagerToWindow() {
 
 // Initialize window exposure
 exposeAnalysisManagerToWindow(); 
+
+// 🎯 FEEDBACK TAB'ında yaş ve içerik geri bildirimi göster
+function displayUnifiedFeedbackForm(feedbackTab, results) {
+    if (!feedbackTab) return;
+    feedbackTab.innerHTML = '';
+
+    // Formu oluştur
+    const form = document.createElement('form');
+    form.className = 'unified-feedback-form';
+
+    // İçerik feedback alanları (örnek: kategori feedback)
+    const categories = [
+        { key: 'violence', label: 'Şiddet' },
+        { key: 'adult_content', label: 'Yetişkin İçeriği' },
+        { key: 'harassment', label: 'Taciz' },
+        { key: 'weapon', label: 'Silah' },
+        { key: 'drug', label: 'Madde Kullanımı' }
+    ];
+    const contentFeedbackSection = document.createElement('div');
+    contentFeedbackSection.innerHTML = `<h5>İçerik Geri Bildirimi</h5>`;
+    categories.forEach(cat => {
+        // Model skorunu ve tahminini al
+        let score = null;
+        let scoreText = '';
+        let badgeClass = 'bg-secondary';
+        if (results.overall_scores && results.overall_scores[cat.key] !== undefined) {
+            score = Math.round(results.overall_scores[cat.key] * 100);
+            scoreText = `Model: %${score}`;
+            if (score >= 70) badgeClass = 'bg-danger';
+            else if (score >= 40) badgeClass = 'bg-warning';
+            else badgeClass = 'bg-info';
+        }
+        // Model tahmini (var/yok) - 50 eşik örneği
+        let prediction = '';
+        let predictionClass = 'bg-info';
+        if (score !== null) {
+            if (score >= 50) { prediction = 'Var'; predictionClass = 'bg-success'; }
+            else { prediction = 'Yok'; predictionClass = 'bg-info'; }
+        }
+        // Flex row ile select ve rozetleri yan yana hizala
+        contentFeedbackSection.innerHTML += `
+            <div class="mb-3 d-flex align-items-center">
+                <div class="flex-grow-1">
+                    <label for="${cat.key}-feedback" class="form-label">${cat.label}</label>
+                    <select class="form-select" id="${cat.key}-feedback" name="${cat.key}">
+                        <option value="">Seçiniz</option>
+                        <option value="accurate">Model doğru tespit etti</option>
+                        <option value="false_negative">Model tespit etmedi, aslında VAR</option>
+                        <option value="false_positive">Model yanlış tespit etti, aslında YOK</option>
+                        <option value="over_estimated">Model fazla risk verdi</option>
+                        <option value="under_estimated">Model az risk verdi</option>
+                    </select>
+                </div>
+                <div class="ms-2 d-flex flex-column align-items-end">
+                    ${scoreText ? `<span class="badge ${badgeClass} mb-1">${scoreText}</span>` : ''}
+                    ${prediction ? `<span class="badge ${predictionClass}">Tahmin: ${prediction}</span>` : ''}
+                </div>
+            </div>
+        `;
+    });
+    form.appendChild(contentFeedbackSection);
+
+    // === YAN YANA GRID BAŞLANGIÇ ===
+    const feedbackGrid = document.createElement('div');
+    feedbackGrid.className = 'row g-4';
+
+    // İçerik geri bildirimi sol sütun
+    const contentCol = document.createElement('div');
+    contentCol.className = 'col-md-6';
+    contentCol.appendChild(contentFeedbackSection);
+    feedbackGrid.appendChild(contentCol);
+
+    // Yaş geri bildirimi sağ sütun
+    if (results.age_estimations && results.age_estimations.length > 0) {
+        const ageCol = document.createElement('div');
+        ageCol.className = 'col-md-6';
+        const ageFeedbackSection = document.createElement('div');
+        ageFeedbackSection.innerHTML = `<h5>Yaş Geri Bildirimi</h5>`;
+        const ageGrid = document.createElement('div');
+        ageGrid.className = 'row g-3';
+        results.age_estimations.forEach((item, idx) => {
+            const personId = item.person_id || `unknown-${idx}`;
+            const faceImg = item.processed_image_path || item.face_image_path || '/static/img/placeholder-face.png';
+            const card = document.createElement('div');
+            card.className = 'col-12';
+            card.innerHTML = `
+                <div class="card h-100 shadow-sm p-2">
+                    <div class="d-flex align-items-center">
+                        <img src="/api/files/${faceImg.startsWith('storage/') ? faceImg : 'processed/' + faceImg}" alt="Kişi ${idx + 1}" class="rounded me-3" style="width: 80px; height: 80px; object-fit: cover; border: 1px solid #ccc; cursor: pointer;" onclick="window.zoomImage && window.zoomImage(this.src, 'Kişi ${idx + 1}')">
+                        <div class="flex-grow-1">
+                            <div class="mb-1"><strong>Kişi ${idx + 1}</strong></div>
+                            <div class="mb-2 text-muted">Tahmini Yaş: <strong>${Math.round(item.estimated_age)}</strong></div>
+                            <input type="number" class="form-control age-feedback-input" name="age_${personId}" min="1" max="100" placeholder="Gerçek Yaş (1-100)" data-person-id="${personId}" data-analysis-id="${results.analysis_id}" data-frame-path="${item.processed_image_path || ''}">
+                        </div>
+                    </div>
+                </div>
+            `;
+            ageGrid.appendChild(card);
+        });
+        ageFeedbackSection.appendChild(ageGrid);
+        ageCol.appendChild(ageFeedbackSection);
+        feedbackGrid.appendChild(ageCol);
+    }
+    // === YAN YANA GRID SONU ===
+    form.appendChild(feedbackGrid);
+
+    // Tek bir gönderim butonu
+    const submitBtn = document.createElement('button');
+    submitBtn.type = 'submit';
+    submitBtn.className = 'btn btn-primary mt-3';
+    submitBtn.textContent = 'Geri Bildirim Gönder';
+    form.appendChild(submitBtn);
+
+    // Submit event
+    form.onsubmit = function(e) {
+        e.preventDefault();
+        // İçerik feedback'i hazırla
+        const categoryFeedback = {
+            violence: form.querySelector('#violence-feedback').value,
+            adult_content: form.querySelector('#adult-content-feedback').value,
+            harassment: form.querySelector('#harassment-feedback').value,
+            weapon: form.querySelector('#weapon-feedback').value,
+            drug: form.querySelector('#drug-feedback').value
+        };
+        const contentPayload = {
+            content_id: results.content_id || results.analysis_id,
+            analysis_id: results.analysis_id,
+            category_feedback: categoryFeedback
+        };
+        // Yaş feedback'lerini hazırla
+        const ageInputs = form.querySelectorAll('.age-feedback-input');
+        const ageFeedbacks = [];
+        ageInputs.forEach(input => {
+            const val = parseInt(input.value);
+            if (val && val > 0 && val <= 100) {
+                ageFeedbacks.push({
+                    person_id: input.dataset.personId,
+                    corrected_age: val,
+                    analysis_id: input.dataset.analysisId,
+                    frame_path: input.dataset.framePath || ''
+                });
+            }
+        });
+        // İçerik feedback gönder
+        fetch('/api/feedback/submit', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(contentPayload)
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.success) {
+                if (window.showToast) window.showToast('Başarılı', 'İçerik geri bildirimi kaydedildi!', 'success');
+            } else {
+                if (window.showToast) window.showToast('Hata', data.error || 'İçerik geri bildirimi kaydedilemedi.', 'error');
+            }
+        })
+        .catch(err => {
+            if (window.showToast) window.showToast('Hata', 'Sunucuya bağlanırken hata oluştu: ' + err.message, 'error');
+        });
+        // Yaş feedback'lerini gönder
+        ageFeedbacks.forEach(payload => {
+            fetch('/api/feedback/age', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    if (window.showToast) window.showToast('Başarılı', 'Yaş geri bildirimi kaydedildi!', 'success');
+                } else {
+                    if (window.showToast) window.showToast('Hata', data.error || 'Yaş geri bildirimi kaydedilemedi.', 'error');
+                }
+            })
+            .catch(err => {
+                if (window.showToast) window.showToast('Hata', 'Sunucuya bağlanırken hata oluştu: ' + err.message, 'error');
+            });
+        });
+        // Butonu disable et
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Gönderildi';
+    };
+
+    feedbackTab.appendChild(form);
+}
