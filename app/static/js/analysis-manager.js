@@ -2032,11 +2032,11 @@ function displayUnifiedFeedbackForm(feedbackTab, results) {
         e.preventDefault();
         // İçerik feedback'i hazırla
         const categoryFeedback = {
-            violence: form.querySelector('#violence-feedback').value,
-            adult_content: form.querySelector('#adult-content-feedback').value,
-            harassment: form.querySelector('#harassment-feedback').value,
-            weapon: form.querySelector('#weapon-feedback').value,
-            drug: form.querySelector('#drug-feedback').value
+            violence: (form.querySelector('#violence-feedback') ? form.querySelector('#violence-feedback').value : ''),
+            adult_content: (form.querySelector('#adult-content-feedback') ? form.querySelector('#adult-content-feedback').value : ''),
+            harassment: (form.querySelector('#harassment-feedback') ? form.querySelector('#harassment-feedback').value : ''),
+            weapon: (form.querySelector('#weapon-feedback') ? form.querySelector('#weapon-feedback').value : ''),
+            drug: (form.querySelector('#drug-feedback') ? form.querySelector('#drug-feedback').value : '')
         };
         const contentPayload = {
             content_id: results.content_id || results.analysis_id,
@@ -2047,7 +2047,7 @@ function displayUnifiedFeedbackForm(feedbackTab, results) {
         const ageInputs = form.querySelectorAll('.age-feedback-input');
         const ageFeedbacks = [];
         ageInputs.forEach(input => {
-            const val = parseInt(input.value);
+            const val = input ? parseInt(input.value) : null;
             if (val && val > 0 && val <= 100) {
                 ageFeedbacks.push({
                     person_id: input.dataset.personId,
@@ -2067,6 +2067,8 @@ function displayUnifiedFeedbackForm(feedbackTab, results) {
         .then(data => {
             if (data.success) {
                 if (window.showToast) window.showToast('Başarılı', 'İçerik geri bildirimi kaydedildi!', 'success');
+                // Başarıyla kaydedildiyse ana sayfaya yönlendir
+                setTimeout(() => { window.location.href = '/'; }, 1500);
             } else {
                 if (window.showToast) window.showToast('Hata', data.error || 'İçerik geri bildirimi kaydedilemedi.', 'error');
             }
