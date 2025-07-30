@@ -211,21 +211,33 @@ class ModelService:
             'metrics': {},
             'feedback_count': 0,
             'feedback_accuracy': {},
-            'age_distribution': {}
+            'age_distribution': {},
+            'ensemble_corrections': []
         }
 
-        # Model konfigürasyon dosyasını oku
-        config_path = os.path.join(current_app.config['MODELS_FOLDER'], 'age_model_config.json')
+        # Aktif modelin config.json dosyasını oku (varsa)
+        if active_version and active_version.file_path:
+            config_path = os.path.join(active_version.file_path, 'config.json')
+            if os.path.exists(config_path):
+                try:
+                    with open(config_path, 'r') as f:
+                        config = json.load(f)
+                        if 'metrics' in config:
+                            stats['metrics'] = config['metrics']
+                        if 'ensemble_corrections' in config:
+                            stats['ensemble_corrections'] = config['ensemble_corrections']
+                except Exception as e:
+                    current_app.logger.error(f"Aktif yaş modelinin config.json okuma hatası: {str(e)}")
 
+        # Eski zincir: age_model_config.json'u da oku (geriye dönük uyumluluk için)
+        config_path = os.path.join(current_app.config['MODELS_FOLDER'], 'age_model_config.json')
         if os.path.exists(config_path):
             try:
                 with open(config_path, 'r') as f:
                     config = json.load(f)
-
                     if 'training_history' in config:
                         stats['training_history'] = config['training_history']
-
-                    if 'metrics' in config:
+                    if 'metrics' in config and not stats['metrics']:
                         stats['metrics'] = config['metrics']
             except Exception as e:
                 current_app.logger.error(f"Model konfigürasyonu okuma hatası: {str(e)}")
@@ -239,7 +251,6 @@ class ModelService:
 
         if feedbacks:
             stats['feedback_count'] = len(feedbacks)
-
             # Yaş dağılımını hesapla (10'ar yıllık gruplar halinde)
             age_counts = {}
             for feedback in feedbacks:
@@ -247,9 +258,7 @@ class ModelService:
                 if age:
                     age_group = str(int(age) // 10 * 10) + 's'  # 0s, 10s, 20s, vb.
                     age_counts[age_group] = age_counts.get(age_group, 0) + 1
-
             stats['age_distribution'] = age_counts
-
             # Manuel vs pseudo feedback dağılımı
             manual_count = len([f for f in feedbacks if f.feedback_source == 'MANUAL_USER'])
             pseudo_count = len([f for f in feedbacks if f.feedback_source != 'MANUAL_USER'])
@@ -257,7 +266,6 @@ class ModelService:
                 'manual': manual_count,
                 'pseudo': pseudo_count
             }
-
         return stats
 
 

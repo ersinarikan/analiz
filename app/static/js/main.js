@@ -898,17 +898,12 @@ function displayAgeModelVersions(versionData) {
                                          onclick="deleteSpecificAgeVersion('${versionKey}')" 
                                          title="Bu versiyonu sil">
                                          <i class="fas fa-times"></i>
-                                  </button>` : ''}
+                                     </button>` : ''}
                 </div>
             `;
         });
     }
     versionsContainer.innerHTML = versionsHtml;
-    // Aktif versiyon label'ını da burada güncelle
-    const activeVersionElement = document.getElementById('modal-age-active-version');
-    if (activeVersionElement) {
-        activeVersionElement.textContent = activeVersionName;
-    }
 }
 window.switchAgeModelVersion = switchAgeModelVersion;
 window.deleteSpecificAgeVersion = deleteSpecificAgeVersion;
