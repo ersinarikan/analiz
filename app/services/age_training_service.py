@@ -358,13 +358,18 @@ class AgeTrainingService:
             'versions',
             version_name
         )
-        # Model ağırlıklarını ve metadata'yı kaydet
+        # Versiyon klasörünü oluştur
+        os.makedirs(version_dir, exist_ok=True)
+        
+        # Model dosyasını kaydet
+        model_path = os.path.join(version_dir, 'model.pth')
+        torch.save(model.state_dict(), model_path)
+        
+        # Model konfigürasyonunu kaydet
         config_dict = {
             'input_dim': model.network[0].in_features,
             'hidden_dims': [layer.out_features for layer in model.network if hasattr(layer, 'out_features')][:-1],
-            'output_dim': 1
-        }
-        extra_metadata = {
+            'output_dim': 1,
             'version': new_version_num,
             'version_name': version_name,
             'created_at': datetime.now().isoformat(),
@@ -374,7 +379,10 @@ class AgeTrainingService:
             'validation_samples': training_result['validation_samples'],
             'used_feedback_ids': training_result['used_feedback_ids']
         }
-        model_path = save_torch_model(model, version_dir, config_dict, extra_metadata)
+        config_path = os.path.join(version_dir, 'config.json')
+        with open(config_path, 'w') as f:
+            json.dump(config_dict, f, indent=4, default=str)
+            
         # Eğitim detaylarını kaydet
         details_path = os.path.join(version_dir, 'training_details.json')
         with open(details_path, 'w') as f:
@@ -440,61 +448,12 @@ class AgeTrainingService:
             version.is_active = True
             db.session.commit()
             
-            # Aktif model sembolik linkini güncelle
-            active_dir = os.path.join(
-                current_app.config['MODELS_FOLDER'],
-                'age',
-                'custom_age_head',
-                'active_model'
-            )
+            logger.info(f"Model version {version.version_name} activated successfully")
+            return True
             
-            # Eski sembolik linki kaldır
-            if os.path.exists(active_dir):
-                if os.path.islink(active_dir):
-                    os.unlink(active_dir)
-                else:
-                    import shutil
-                    shutil.rmtree(active_dir)
-            
-            # Yeni sembolik link oluştur veya kopyala
-            if not version.file_path or not os.path.exists(version.file_path):
-                logger.error(f"Aktif edilecek modelin dosya yolu bulunamadı veya mevcut değil: {version.file_path}")
-                return False
-            try:
-                os.symlink(version.file_path, active_dir)
-                logger.info(f"Sembolik link oluşturuldu: {active_dir} -> {version.file_path}")
-            except Exception as symlink_err:
-                import shutil
-                logger.warning(f"Sembolik link oluşturulamadı ({symlink_err}), klasör kopyalanacak...")
-                try:
-                    shutil.copytree(version.file_path, active_dir)
-                    logger.info(f"Model klasörü kopyalandı: {version.file_path} -> {active_dir}")
-                except Exception as copy_err:
-                    logger.error(f"Model klasörü kopyalanamadı: {copy_err}")
-                    return False
-            
-            # Aktif edilen versiyonun bilgisini version_info.json'a yaz
-            try:
-                import json
-                version_info = {'version_name': version.version_name}
-                # 1) Symlink/kopya olan active_model dizinine yaz
-                version_info_path = os.path.join(active_dir, 'version_info.json')
-                with open(version_info_path, 'w') as f:
-                    json.dump(version_info, f)
-                logger.info(f"Aktif versiyon bilgisi yazıldı: {version_info_path} -> {version.version_name}")
-                # 2) Hedef versiyon klasörüne de yaz (symlink ise zaten aynı yere yazar, kopya ise iki yerde de olur)
-                if version.file_path and os.path.exists(version.file_path):
-                    version_info_path_target = os.path.join(version.file_path, 'version_info.json')
-                    with open(version_info_path_target, 'w') as f:
-                        json.dump(version_info, f)
-                    logger.info(f"Aktif versiyon bilgisi hedef klasöre de yazıldı: {version_info_path_target} -> {version.version_name}")
-                # Ek kontrol: Dosyalar gerçekten oluştu mu?
-                if not os.path.exists(version_info_path):
-                    logger.error(f"version_info.json aktif_model dizininde bulunamadı: {version_info_path}")
-                if version.file_path and not os.path.exists(os.path.join(version.file_path, 'version_info.json')):
-                    logger.error(f"version_info.json hedef versiyon klasöründe bulunamadı: {version_info_path_target}")
-            except Exception as info_err:
-                logger.error(f"Aktif versiyon bilgisi yazılamadı: {info_err}")
+        except Exception as e:
+            logger.error(f"Error activating model version: {str(e)}")
+            return False
             
             logger.info(f"Activated model version: {version.version_name} (ID: {version_id})")
             

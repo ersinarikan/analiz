@@ -19,8 +19,8 @@ _model_lock = threading.Lock()
 
 MODEL_STATE = {
     'age': {
-        'active_version': 0,  # Base model'e dön
-        'last_activation': None
+        'active_version': 1,  # En son versiyon aktif
+        'last_activation': datetime.now().isoformat()
     },
     'content': {
         'active_version': None,

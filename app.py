@@ -118,8 +118,6 @@ if __name__ == "__main__":
             
             logger.info("Uygulama başarıyla başlatıldı!")
             logger.info("Erişim: http://localhost:5000")
-            logger.info("Model Yönetimi: http://localhost:5000/model-management")
-            logger.info("CLIP Monitoring: http://localhost:5000/clip-monitoring")
             logger.info("Durdurmak için: Ctrl+C")
             
             logger.info("SocketIO server başlatılıyor...")

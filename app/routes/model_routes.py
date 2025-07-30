@@ -935,4 +935,20 @@ def test_websocket_manual():
             'error': str(e)
         }), 500 
 
+@bp.route('/model/age/reset-ensemble', methods=['POST'])
+def reset_age_ensemble():
+    """
+    Yaş modeli için tüm özel versiyonları (base hariç) siler ve base modeli aktif yapar.
+    """
+    try:
+        from app.services.model_service import ModelService
+        service = ModelService()
+        result = service.delete_all_age_ensemble_versions()
+        if result['success']:
+            return jsonify({'success': True, 'message': result['message']}), 200
+        else:
+            return jsonify({'success': False, 'error': result['error']}), 500
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
  

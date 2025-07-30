@@ -197,9 +197,16 @@ class ModelService:
         """Yaş tahmin modelinin istatistiklerini döndürür.
         Bu fonksiyon yaş tahmini doğruluğu, geri bildirim dağılımı ve
         model performans metriklerini içeren kapsamlı istatistikler sağlar."""
+        # Aktif versiyon bilgisini al
+        active_version = ModelVersion.query.filter_by(
+            model_type='age',
+            is_active=True
+        ).first()
+
         stats = {
             'model_name': 'Age Estimation Model',
             'model_type': 'age',
+            'active_version': active_version.version_name if active_version else 'v1.0',
             'training_history': [],
             'metrics': {},
             'feedback_count': 0,
@@ -2001,7 +2008,7 @@ class ModelService:
                 # Version name'den exact match veya pattern match ara
                 version_obj = db.session.query(ModelVersion).filter_by(
                     model_type=model_type
-                ).filter(ModelVersion.filepath.contains(version_name)).first()
+                ).filter(ModelVersion.file_path.contains(version_name)).first()
                 
                 # Fallback: version string'den sayısal version çıkarma
                 if not version_obj:
@@ -2037,7 +2044,7 @@ class ModelService:
             # Version name'den exact match veya pattern match ara
             version_obj = db.session.query(ModelVersion).filter_by(
                 model_type=model_type
-            ).filter(ModelVersion.filepath.contains(version_name)).first()
+            ).filter(ModelVersion.file_path.contains(version_name)).first()
             
             # Fallback: version string'den sayısal version çıkarma
             if not version_obj:
@@ -2060,8 +2067,8 @@ class ModelService:
                 return False, "Aktif model versiyonu silinemez. Önce başka bir versiyona geçin."
             
             # Model dosyasını sil
-            if version_obj.filepath and os.path.exists(version_obj.filepath):
-                os.remove(version_obj.filepath)
+            if version_obj.file_path and os.path.exists(version_obj.file_path):
+                os.remove(version_obj.file_path)
             
             # Database'den sil
             db.session.delete(version_obj)
@@ -2072,3 +2079,26 @@ class ModelService:
         except Exception as e:
             logger.error(f"Specific version silme hatası: {str(e)}")
             return False, f"Versiyon silme hatası: {str(e)}"
+
+    def delete_all_age_ensemble_versions(self):
+        """
+        Base model hariç tüm yaş modeli versiyonlarını siler ve base modeli aktif yapar.
+        """
+        try:
+            all_versions = self.get_age_model_versions()
+            ensemble_versions = [v for v in all_versions if v['version_name'] != 'v1.0']
+            deleted_count = 0
+            for v in ensemble_versions:
+                self.delete_specific_model_version('age', v['version_name'])
+                deleted_count += 1
+            # Base modeli aktif yap
+            self.activate_model_version('base')
+            return {
+                'success': True,
+                'message': f'{deleted_count} ensemble versiyonu silindi, base model aktif yapıldı.'
+            }
+        except Exception as e:
+            return {
+                'success': False,
+                'error': str(e)
+            }

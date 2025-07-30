@@ -769,14 +769,14 @@
     </div>
     
     <!-- Model Yönetimi Modal -->
-    <div class="modal fade" id="modelManagementModal" tabindex="-1" aria-labelledby="modelManagementModalLabel" aria-hidden="true">
+    <div class="modal fade" id="modelManagementModal" tabindex="-1" aria-labelledby="modelManagementModalLabel" aria-hidden="true" data-bs-backdrop="static">
         <div class="modal-dialog modal-xl">
             <div class="modal-content">
                 <div class="modal-header">
                     <h5 class="modal-title" id="modelManagementModalLabel">
                         <i class="fas fa-cogs me-2"></i>Model Yönetimi
                     </h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close" onclick="initializeModelManagementModal();"></button>
                 </div>
                 <div class="modal-body">
                     <!-- Model Kartları -->
@@ -824,15 +824,15 @@
                                     </div>
 
                                     <div class="d-grid gap-2">
-                                        <button class="btn btn-success" onclick="trainModelFromModal('age')" 
+                                        <button class="btn btn-success" onclick="trainModelFromModal('age'); initializeModelManagementModal();" 
                                                 title="Yeni feedback'leri sisteme entegre eder (anında, yeniden eğitim olmadan)">
                                             <i class="fas fa-refresh me-2"></i>Corrections Yenile
                                         </button>
-                                        <button class="btn btn-warning" onclick="resetModelFromModal('age')" 
+                                        <button class="btn btn-warning" onclick="resetModelFromModal('age'); initializeModelManagementModal();" 
                                                 title="Tüm versiyonları silip temel modele (v0) döner">
                                             <i class="fas fa-undo me-2"></i>Ensemble Sıfırla
                                         </button>
-                                        <button class="btn btn-danger" onclick="deleteLatestModelVersion('age')" 
+                                        <button class="btn btn-danger" onclick="deleteLatestModelVersion('age'); initializeModelManagementModal();" 
                                                 title="En son model versiyonunu siler">
                                             <i class="fas fa-trash me-2"></i>Ensemble Düzeltmeleri Temizle
                                         </button>
@@ -871,6 +871,26 @@
                                         <div class="col-6">
                                             <small class="text-muted">Kategoriler:</small>
                                             <div class="fw-bold">5</div>
+                                        </div>
+                                    </div>
+
+                                    <!-- Eğitim Parametreleri (Sadece CLIP için) -->
+                                    <div class="row mb-3">
+                                        <div class="col-6 mb-2">
+                                            <label for="clip-epochs" class="form-label">Epoch:</label>
+                                            <input type="number" class="form-control" id="clip-epochs" min="1" max="200" value="20">
+                                        </div>
+                                        <div class="col-6 mb-2">
+                                            <label for="clip-batch-size" class="form-label">Batch Size:</label>
+                                            <input type="number" class="form-control" id="clip-batch-size" min="1" max="128" value="16">
+                                        </div>
+                                        <div class="col-6 mb-2">
+                                            <label for="clip-learning-rate" class="form-label">Learning Rate:</label>
+                                            <input type="number" class="form-control" id="clip-learning-rate" min="0.00001" max="1" step="0.00001" value="0.001">
+                                        </div>
+                                        <div class="col-6 mb-2">
+                                            <label for="clip-patience" class="form-label">Patience:</label>
+                                            <input type="number" class="form-control" id="clip-patience" min="1" max="50" value="5">
                                         </div>
                                     </div>
 

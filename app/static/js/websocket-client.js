@@ -486,7 +486,7 @@ class WebSocketClient {
 
     onTrainingCompleted(data) {
         // Training completion UI güncellemeleri
-        const { session_id, model_version, metrics } = data;
+        const { session_id, model_path, metrics } = data;
         
         // Modal progress'i 100% yap
         const modalProgressBar = document.getElementById('modal-progress-bar');
@@ -497,9 +497,14 @@ class WebSocketClient {
         }
 
         // Success mesajı göster
-        this.showModalTrainingStatus(`Eğitim tamamlandı! Model: ${model_version}`, 'success');
+        this.showModalTrainingStatus(`Eğitim tamamlandı! Model: ${model_path}`, 'success');
 
-        console.log(`[WebSocket] Training ${session_id} completed: ${model_version}`);
+        // Modal'ı yenile
+        if (window.initializeModelManagementModal) {
+            window.initializeModelManagementModal();
+        }
+
+        console.log(`[WebSocket] Training ${session_id} completed: ${model_path}`);
     }
 
     onTrainingError(data) {

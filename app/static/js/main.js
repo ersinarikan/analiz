@@ -693,11 +693,17 @@ async function loadModalModelStats() {
     console.log('📊 Modal model stats yükleniyor...');
     try {
         // Yaş modeli istatistikleri
-        const ageResponse = await fetch('/api/models/metrics/age');
+        const ageResponse = await fetch('/api/model/metrics/age');
         if (ageResponse.ok) {
             const ageStats = await ageResponse.json();
+            // Global state'e kaydet
+            window.ageStats = ageStats;
             console.log('✅ Age model stats yüklendi:', ageStats);
             console.log('🔍 DEBUG - Age API Response Full Structure:', JSON.stringify(ageStats, null, 2));
+            // Aktif versiyon bilgisini güncelle (düzeltildi)
+            if (ageStats.age && ageStats.age.active_version) {
+                window.activeAgeVersion = ageStats.age.active_version;
+            }
             updateModalModelStats('age', ageStats);
         } else {
             console.error('❌ Age model stats API hatası:', ageResponse.status);
@@ -780,41 +786,31 @@ function updateModalModelStats(modelType, stats) {
         // 🔍 DEBUG: API data structure'ını kontrol et (API direkt obje gönderiyor, nested değil)
         console.log('🔍 DEBUG - Age API Data Structure:', stats);
         
+        const ageData = stats.age || stats;
         if (activeVersionEl) {
-            // Global variable'dan alıyoruz (loadModalModelVersions'den)
-            let version = window.ageVersionData?.active_version;
-            
-            // 🎯 İçerik Analiz Model gibi v1.0 göster
-            if (!version || version === 'base_model' || !window.ageVersionData?.base_model_exists) {
+            // Sadece window.activeAgeVersion kullan
+            let version = window.activeAgeVersion;
+            if (!version || version === 'base_model') {
                 version = 'v1.0';
             }
-            
             activeVersionEl.textContent = version;
             console.log('✅ Age aktif versiyon güncellendi:', version);
         }
         
         if (statusEl) {
-            // 🎯 Age model durumu - API direkt obje gönderiyor (stats.age değil, direkt stats)
-            const hasMetrics = stats.metrics && Object.keys(stats.metrics).length > 0;
-            const hasFeedback = stats.feedback_count > 0;
-            const hasModelName = stats.model_name !== undefined;
-            const isActive = hasMetrics || hasFeedback || hasModelName;
-            
-            statusEl.innerHTML = isActive ? 
-                '<i class="fas fa-check-circle text-success"></i> Aktif' :
-                '<i class="fas fa-hourglass-half text-warning"></i> Kontrol ediliyor...';
-            console.log('✅ Age durum güncellendi:', isActive ? 'Aktif' : 'Kontrol ediliyor');
-            console.log('🔍 Age durum detay - hasMetrics:', hasMetrics, 'hasFeedback:', hasFeedback, 'hasModelName:', hasModelName);
+            // 🎯 Age model durumu - Her zaman aktif göster çünkü en azından base model var
+            statusEl.innerHTML = '<i class="fas fa-check-circle text-success"></i> Aktif';
+            console.log('✅ Age durum güncellendi: Aktif');
         }
         
-        if (trainingDataEl && stats.feedback_count !== undefined) {
-            trainingDataEl.textContent = stats.feedback_count.toLocaleString();
-            console.log('✅ Age feedback count güncellendi:', stats.feedback_count);
+        if (trainingDataEl && ageData.feedback_count !== undefined) {
+            trainingDataEl.textContent = ageData.feedback_count.toLocaleString();
+            console.log('✅ Age feedback count güncellendi:', ageData.feedback_count);
         }
         
-        if (maeEl && stats.metrics?.mae) {
-            maeEl.textContent = stats.metrics.mae.toFixed(2);
-            console.log('✅ Age MAE güncellendi:', stats.metrics.mae);
+        if (maeEl && ageData.metrics?.mae) {
+            maeEl.textContent = ageData.metrics.mae.toFixed(2);
+            console.log('✅ Age MAE güncellendi:', ageData.metrics.mae);
         }
         
     } else if (modelType === 'content') {
@@ -873,41 +869,25 @@ function displayAgeModelVersions(versionData) {
         console.error('❌ modal-age-versions container bulunamadı');
         return;
     }
-    
-    console.log('🎯 Age model versions display ediliyor:', versionData);
-    
-    // Aktif versiyon kontrolü
-    const activeVersion = versionData?.versions?.find(v => v.is_active);
-    const isBaseModelActive = !activeVersion;
-    console.log('🔍 Aktif versiyon:', activeVersion, 'Base model aktif:', isBaseModelActive);
-    
-    // Aktif versiyon göstergesini güncelle
-    const activeVersionElement = document.getElementById('modal-age-active-version');
-    if (activeVersionElement) {
-        if (isBaseModelActive) {
-            activeVersionElement.textContent = 'v1.0';
-        } else {
-            const versionName = activeVersion.version_name || `v${activeVersion.version}`;
-            activeVersionElement.textContent = versionName;
-        }
-    }
-    
-    // Base model görünümü
+    // Aktif versiyon adı backend'den gelen window.activeAgeVersion (case-sensitive, birebir karşılaştır)
+    let activeVersionName = window.activeAgeVersion;
+    if (!activeVersionName) activeVersionName = 'v1.0';
+    console.log('DEBUG: window.activeAgeVersion =', window.activeAgeVersion, 'activeVersionName =', activeVersionName);
+
     let versionsHtml = `
         <div class="d-flex align-items-center gap-2 mb-2">
-            <span class="badge ${isBaseModelActive ? 'bg-success' : 'bg-secondary'}" 
+            <span class="badge ${activeVersionName === 'v1.0' ? 'bg-success' : 'bg-secondary'}" 
                   style="cursor: pointer;" onclick="switchAgeModelVersion('base_model')"
-                  title="Bu versiyona geç">v1.0 ${isBaseModelActive ? '(Aktif)' : ''}</span>
+                  title="Bu versiyona geç">v1.0 ${activeVersionName === 'v1.0' ? '(Aktif)' : ''}</span>
             <small class="text-muted">Temel model</small>
         </div>
     `;
-    
-    // Özel versiyonları ekle
     if (versionData?.versions?.length > 0) {
-        versionData.versions.forEach((version, index) => {
+        versionData.versions.forEach((version) => {
             const versionName = version.version_name || `v${version.version}`;
             const versionKey = version.id;
-            const isActive = version.is_active;
+            const isActive = String(versionName) === String(activeVersionName);
+            console.log('DEBUG: versionName =', versionName, 'isActive =', isActive);
             versionsHtml += `
                 <div class="d-flex align-items-center gap-2 mb-1">
                     <span class="badge ${isActive ? 'bg-success' : 'bg-info'}" 
@@ -923,11 +903,15 @@ function displayAgeModelVersions(versionData) {
             `;
         });
     }
-    
     versionsContainer.innerHTML = versionsHtml;
-    console.log('✅ Age versions: Model versiyonları listelendi');
+    // Aktif versiyon label'ını da burada güncelle
+    const activeVersionElement = document.getElementById('modal-age-active-version');
+    if (activeVersionElement) {
+        activeVersionElement.textContent = activeVersionName;
+    }
 }
 window.switchAgeModelVersion = switchAgeModelVersion;
+window.deleteSpecificAgeVersion = deleteSpecificAgeVersion;
 
 // 🎯 MODEL MANAGEMENT BUTTON FUNCTIONS
 function trainModelFromModal(modelType) {
@@ -1038,18 +1022,33 @@ function deleteLatestModelVersion(modelType) {
     
     if (modelType === 'age') {
         if (confirm('Son yaş model versiyonunu silmek istediğinizden emin misiniz?')) {
-            fetch('/api/models/delete-latest/age', { method: 'DELETE' })
-                .then(response => response.json())
-                .then(data => {
-                    console.log('✅ Age model son versiyon silindi:', data);
-                    alert('Son versiyon başarıyla silindi!');
-                    // Modal'ı yenile
+            // Önce base model'i aktif yap
+            fetch('/api/model/age/activate/base', { 
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    // Base model aktifleştirildi, modal'ı yenile
                     initializeModelManagementModal();
-                })
-                .catch(error => {
-                    console.error('❌ Age model delete hatası:', error);
-                    alert('Hata: ' + error.message);
-                });
+                    // Şimdi son versiyonu sil
+                    return fetch('/api/models/delete-latest/age', { method: 'DELETE' });
+                } else {
+                    throw new Error('Base model aktifleştirilemedi: ' + data.error);
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                console.log('✅ Age model son versiyon silindi:', data);
+                alert('Son versiyon başarıyla silindi!');
+                // Modal'ı tekrar yenile
+                initializeModelManagementModal();
+            })
+            .catch(error => {
+                console.error('❌ Age model delete hatası:', error);
+                alert('Hata: ' + error.message);
+            });
         }
     } else if (modelType === 'content') {
         if (confirm('Son içerik model versiyonunu silmek istediğinizden emin misiniz?')) {
@@ -1068,6 +1067,7 @@ function deleteLatestModelVersion(modelType) {
         }
     }
 }
+window.deleteLatestModelVersion = deleteLatestModelVersion;
 
 // 🎯 CONTENT MODEL VERSIONS DISPLAY FUNCTION
 function displayContentModelVersions(versionData) {
@@ -1141,10 +1141,15 @@ function switchAgeModelVersion(version) {
         .then(response => response.json())
         .then(data => {
             console.log('✅ Age model versiyon değiştirildi:', data);
-            alert(`Yaş model "${version}" versiyonuna başarıyla geçirildi!`);
-            // Modal'ı ve metrikleri yenile
-            initializeModelManagementModal();
-            loadModalModelStats();
+            
+            // Önce metrikleri yükle
+            loadModalModelStats().then(() => {
+                // Sonra versiyonları yükle
+                loadModalModelVersions().then(() => {
+                    // En son başarı mesajını göster
+                    alert(`Yaş model "${version}" versiyonuna başarıyla geçirildi!`);
+                });
+            });
         })
         .catch(error => {
             console.error('❌ Age model versiyon değiştirme hatası:', error);
@@ -1219,6 +1224,25 @@ function deleteSpecificContentVersion(version) {
         });
     }
 }
+
+function resetAgeEnsemble() {
+    if (confirm('Tüm özel yaş modeli versiyonlarını silip temel modele dönmek istediğinizden emin misiniz?')) {
+        fetch('/api/model/age/reset-ensemble', { method: 'POST' })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    alert('Tüm ensemble versiyonları silindi, temel model aktif yapıldı.');
+                    initializeModelManagementModal();
+                } else {
+                    alert('Hata: ' + data.error);
+                }
+            })
+            .catch(error => {
+                alert('Hata: ' + error.message);
+            });
+    }
+}
+window.resetAgeEnsemble = resetAgeEnsemble;
 
 // Queue management
 window.startQueueStatusChecker = startQueueStatusChecker;

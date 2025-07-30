@@ -18,18 +18,4 @@ def metrics():
     """
     Model metrikleri sayfası.
     """
-    return render_template('metrics.html')
-
-@main_bp.route('/model-management')
-def model_management():
-    """
-    Model yönetimi sayfası.
-    """
-    return render_template('model_management.html') 
-
-@main_bp.route('/clip-monitoring')
-def clip_monitoring():
-    """
-    CLIP Training Monitoring Dashboard.
-    """
-    return render_template('clip_monitoring.html') 
+    return render_template('metrics.html') 
