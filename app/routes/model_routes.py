@@ -295,10 +295,11 @@ def get_age_model_versions():
         logger.error(f"Age model versiyonları alınırken hata: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
-@bp.route('/age/activate/<int:version_id>', methods=['POST'])
+@bp.route('/age/activate/<version_id>', methods=['POST'])
 def activate_age_model_version(version_id):
     """
-    Belirli bir Custom Age model versiyonunu aktif hale getirir
+    Belirli bir Custom Age model versiyonunu aktif hale getirir.
+    Base model için version_id='base' kullanılır.
     """
     try:
         from app.services.age_training_service import AgeTrainingService
@@ -427,7 +428,6 @@ def train_model_web():
             from app.services.ensemble_integration_service import get_ensemble_service
             
             # WebSocket session ID oluştur ve training başlama bildirimi
-            import uuid
             content_session_id = str(uuid.uuid4())
             
             try:
@@ -605,7 +605,11 @@ def _run_age_training(trainer, training_data, params, session_id, app):
             # Model versiyonunu kaydet
             logger.info("Model versiyonu kaydediliyor...")
             model_version = trainer.save_model_version(result['model'], result)
-            
+
+            # Eğitimde kullanılan verileri temizle
+            cleanup_report = trainer.cleanup_used_training_data(result['used_feedback_ids'], model_version.version_name)
+            logger.info(f"Eğitim sonrası temizlik raporu: {cleanup_report}")
+
             # SQLAlchemy objesinin attribute'larını serialize et
             version_name = model_version.version_name
             

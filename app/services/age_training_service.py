@@ -403,12 +403,23 @@ class AgeTrainingService:
         Belirli bir model versiyonunu aktif hale getirir
         
         Args:
-            version_id: Aktif edilecek ModelVersion ID'si
+            version_id: Aktif edilecek ModelVersion ID'si veya 'base' (base model için)
             
         Returns:
             bool: Başarılı olup olmadığı
         """
         try:
+            # Base model kontrolü
+            if version_id == 'base':
+                # Tüm versiyonları deaktive et
+                ModelVersion.query.filter_by(
+                    model_type='age',
+                    is_active=True
+                ).update({'is_active': False})
+                db.session.commit()
+                logger.info("Base model activated")
+                return True
+                
             # Versiyonu bul
             version = ModelVersion.query.filter_by(
                 id=version_id,
@@ -445,8 +456,45 @@ class AgeTrainingService:
                     import shutil
                     shutil.rmtree(active_dir)
             
-            # Yeni sembolik link oluştur
-            os.symlink(version.file_path, active_dir)
+            # Yeni sembolik link oluştur veya kopyala
+            if not version.file_path or not os.path.exists(version.file_path):
+                logger.error(f"Aktif edilecek modelin dosya yolu bulunamadı veya mevcut değil: {version.file_path}")
+                return False
+            try:
+                os.symlink(version.file_path, active_dir)
+                logger.info(f"Sembolik link oluşturuldu: {active_dir} -> {version.file_path}")
+            except Exception as symlink_err:
+                import shutil
+                logger.warning(f"Sembolik link oluşturulamadı ({symlink_err}), klasör kopyalanacak...")
+                try:
+                    shutil.copytree(version.file_path, active_dir)
+                    logger.info(f"Model klasörü kopyalandı: {version.file_path} -> {active_dir}")
+                except Exception as copy_err:
+                    logger.error(f"Model klasörü kopyalanamadı: {copy_err}")
+                    return False
+            
+            # Aktif edilen versiyonun bilgisini version_info.json'a yaz
+            try:
+                import json
+                version_info = {'version_name': version.version_name}
+                # 1) Symlink/kopya olan active_model dizinine yaz
+                version_info_path = os.path.join(active_dir, 'version_info.json')
+                with open(version_info_path, 'w') as f:
+                    json.dump(version_info, f)
+                logger.info(f"Aktif versiyon bilgisi yazıldı: {version_info_path} -> {version.version_name}")
+                # 2) Hedef versiyon klasörüne de yaz (symlink ise zaten aynı yere yazar, kopya ise iki yerde de olur)
+                if version.file_path and os.path.exists(version.file_path):
+                    version_info_path_target = os.path.join(version.file_path, 'version_info.json')
+                    with open(version_info_path_target, 'w') as f:
+                        json.dump(version_info, f)
+                    logger.info(f"Aktif versiyon bilgisi hedef klasöre de yazıldı: {version_info_path_target} -> {version.version_name}")
+                # Ek kontrol: Dosyalar gerçekten oluştu mu?
+                if not os.path.exists(version_info_path):
+                    logger.error(f"version_info.json aktif_model dizininde bulunamadı: {version_info_path}")
+                if version.file_path and not os.path.exists(os.path.join(version.file_path, 'version_info.json')):
+                    logger.error(f"version_info.json hedef versiyon klasöründe bulunamadı: {version_info_path_target}")
+            except Exception as info_err:
+                logger.error(f"Aktif versiyon bilgisi yazılamadı: {info_err}")
             
             logger.info(f"Activated model version: {version.version_name} (ID: {version_id})")
             
