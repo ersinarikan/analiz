@@ -146,49 +146,24 @@ class ModelService:
             'feedback_distribution': {}
         }
 
-        # Model konfigürasyon dosyasını oku
-        config_path = os.path.join(current_app.config['MODELS_FOLDER'], 'content_model_config.json')
-
-        if os.path.exists(config_path):
-            try:
-                with open(config_path, 'r') as f:
-                    config = json.load(f)
-
-                    if 'training_history' in config:
-                        stats['training_history'] = config['training_history']
-
-                    if 'metrics' in config:
-                        stats['metrics'] = config['metrics']
-            except Exception as e:
-                current_app.logger.error(f"Model konfigürasyonu okuma hatası: {str(e)}")
-
-        # İçerik kategorileri için geri bildirim sayısını hesapla
+        # İçerik analizi için sadece feedback_type='content' olanları al
         content_feedbacks = Feedback.query.filter(
-            Feedback.feedback_type.in_([
-                'violence', 'adult', 'harassment', 'weapon', 'drug', 'content_pseudo', 'manual'
-            ])
+            Feedback.feedback_type == 'content'
         ).all()
 
         if content_feedbacks:
             stats['feedback_count'] = len(content_feedbacks)
 
-            # Kategori dağılımını hesapla
-            category_counts = {}
-            for feedback in content_feedbacks:
-                category = feedback.feedback_type
-                if category not in category_counts:
-                    category_counts[category] = 0
-                category_counts[category] += 1
-
-            stats['feedback_distribution'] = category_counts
-
-            # Manuel vs pseudo feedback dağılımı
-            manual_count = len([f for f in content_feedbacks if f.feedback_source == 'MANUAL_USER'])
-            pseudo_count = len([f for f in content_feedbacks if f.feedback_source != 'MANUAL_USER'])
+            # Manuel ve pseudo feedback sayısı (tam eşleşme ile)
+            manual_count = len([f for f in content_feedbacks if f.feedback_source == 'MANUAL_USER_CONTENT_CORRECTION'])
+            pseudo_count = len([f for f in content_feedbacks if f.feedback_source == 'PSEUDO_USER_CONTENT_CORRECTION'])
             stats['feedback_sources'] = {
                 'manual': manual_count,
                 'pseudo': pseudo_count
             }
+
+            # Kategori dağılımı (isteğe bağlı, category_feedback alanına göre eklenebilir)
+            # ...
 
         return stats
 
@@ -494,31 +469,26 @@ class ModelService:
 
 
     def _prepare_content_training_data(self):
-        """İçerik analiz modeli için eğitim verilerini hazırlar.
-        Kullanıcı geri bildirimlerini kullanarak şiddet, yetişkin içerik, taciz,
-        silah ve uyuşturucu kategorileri için eğitim verisi oluşturur."""
-        # İçerik kategorileri için geri bildirimleri al
-        feedback_categories = ['violence_feedback', 'adult_content_feedback', 'harassment_feedback', 'weapon_feedback', 'drug_feedback']
+        """İçerik analiz modeli için eğitim verilerini hazırlar (yeni feedback yapısına uygun)."""
+        feedbacks = Feedback.query.filter(Feedback.feedback_type == 'content').all()
+        categories = ['violence', 'adult_content', 'harassment', 'weapon', 'drug']
         training_data = {}
-
-        for category in feedback_categories:
-            # Olumlu geri bildirimleri al (positive)
-            positive_feedbacks = Feedback.query.filter(getattr(Feedback, category) == 'positive').all()
-
-            for feedback in positive_feedbacks:
-                if feedback.frame_path not in training_data:
-                    training_data[feedback.frame_path] = {cat.replace('_feedback', ''): 0 for cat in feedback_categories}
-
-                training_data[feedback.frame_path][category.replace('_feedback', '')] = 1
-
-        # Eğitim verilerini liste formatına dönüştür
+        for feedback in feedbacks:
+            if not feedback.frame_path:
+                continue
+            if not feedback.category_feedback:
+                continue
+            for cat in categories:
+                value = feedback.category_feedback.get(cat) if isinstance(feedback.category_feedback, dict) else None
+                if value and value in ['over_estimated', 'false_positive', 'false_negative', 'under_estimated', 'accurate']:
+                    if feedback.frame_path not in training_data:
+                        training_data[feedback.frame_path] = {c: 0 for c in categories}
+                    # Label mapping: over_estimated, false_positive, false_negative, under_estimated = 1; accurate = 0
+                    training_data[feedback.frame_path][cat] = 1 if value in ['over_estimated', 'false_positive', 'false_negative', 'under_estimated'] else 0
+        # Listeye dönüştür
         training_list = []
         for frame_path, labels in training_data.items():
-            training_list.append({
-                'frame_path': frame_path,
-                'labels': labels
-            })
-
+            training_list.append({'frame_path': frame_path, 'labels': labels})
         return training_list, f"{len(training_list)} adet eğitim verisi hazırlandı"
 
 

@@ -18,63 +18,40 @@ logger = logging.getLogger(__name__)
 @feedback_bp.route('/submit', methods=['POST'])
 def submit_feedback():
     """
-    İçerik analizi için geri bildirim gönderir.
-    
-    Bu fonksiyon, kullanıcıdan gelen içerik analizi geri bildirimlerini işler ve veritabanına kaydeder.
-    Geri bildirimler, model eğitimi için kullanılabilir.
-    
+    İçerik analizi için geri bildirim gönderir (her kategori için ayrı kayıt).
     Post Body:
         {
             "content_id": "uuid",
             "analysis_id": "uuid",
-            "frame_path": "string",
-            "rating": 1-5,
-            "comment": "string",
-            "category_feedback": {
-                "violence": "accurate/under_estimated/over_estimated/false_positive/false_negative",
-                "adult_content": "...",
-                "harassment": "...",
-                "weapon": "...",
-                "drug": "..."
-            },
-            "category_correct_values": {
-                "violence": 0-100,
-                "adult_content": 0-100,
-                "harassment": 0-100,
-                "weapon": 0-100,
-                "drug": 0-100
-            }
+            "category": "violence|weapon|...",
+            "feedback": "over_estimated|accurate|...",
+            "frame_path": "string"
         }
     """
     try:
         data = request.json
-        
-        if not data or 'content_id' not in data or 'analysis_id' not in data:
-            return jsonify({'error': 'Geçersiz istek formatı. content_id ve analysis_id gereklidir.'}), 400
-        
+        # Zorunlu alanlar
+        required_fields = ['content_id', 'analysis_id', 'category', 'feedback', 'frame_path']
+        for field in required_fields:
+            if field not in data or not data[field]:
+                return jsonify({'error': f'{field} alanı gereklidir ve boş olamaz.'}), 400
         feedback = Feedback(
             content_id=data['content_id'],
             analysis_id=data['analysis_id'],
             frame_path=to_rel_path(data.get('frame_path')),
-            rating=data.get('rating'),
-            comment=data.get('comment'),
-            category_feedback=data.get('category_feedback', {}),
-            category_correct_values=data.get('category_correct_values', {}),
-            feedback_type='content',  # Content feedback olarak işaretle
-            feedback_source='MANUAL_USER_CONTENT_CORRECTION'  # Web arayüzünden gelen feedback
+            feedback_type='content',
+            feedback_source='MANUAL_USER_CONTENT_CORRECTION',
+            category_feedback={data['category']: data['feedback']},
+            # Eski toplu category_feedback yerine sadece ilgili kategori ve feedback
         )
-        
         db.session.add(feedback)
         db.session.commit()
-        
-        logger.info(f"İçerik geri bildirimi kaydedildi, ID: {feedback.id}, içerik ID: {data['content_id']}, analiz ID: {data['analysis_id']}")
-        
+        logger.info(f"İçerik geri bildirimi kaydedildi, ID: {feedback.id}, kategori: {data['category']}, analiz ID: {data['analysis_id']}")
         return jsonify({
-            'success': True, 
+            'success': True,
             'feedback_id': feedback.id,
             'message': 'Geri bildirim başarıyla kaydedildi'
         }), 201
-    
     except Exception as e:
         db.session.rollback()
         logger.error(f"Geri bildirim kaydedilirken hata: {str(e)}")
@@ -176,5 +153,30 @@ def get_content_feedback(content_id):
     except Exception as e:
         logger.error(f"Geri bildirim getirme hatası: {str(e)}")
         return jsonify({'error': f'Geri bildirimler getirilirken bir hata oluştu: {str(e)}'}), 500 
+
+@feedback_bp.route('/content/recent', methods=['GET'])
+def get_recent_content_feedback():
+    """
+    Son içerik analizi geri bildirimlerini ve kategori dağılımını döndürür.
+    """
+    try:
+        # Son 10 geri bildirimi çek
+        feedbacks = Feedback.query.filter_by(feedback_type='content').order_by(Feedback.created_at.desc()).limit(10).all()
+        feedback_list = [f.to_dict() for f in feedbacks]
+
+        # Kategori dağılımı
+        from collections import Counter
+        category_counter = Counter()
+        for f in feedbacks:
+            if f.category_feedback:
+                for k, v in f.category_feedback.items():
+                    category_counter[k + ':' + str(v)] += 1
+
+        return jsonify({
+            'recent_feedbacks': feedback_list,
+            'category_distribution': dict(category_counter)
+        }), 200
+    except Exception as e:
+        return jsonify({'error': f'Geri bildirimler getirilirken hata: {str(e)}'}), 500
 
 bp = feedback_bp 

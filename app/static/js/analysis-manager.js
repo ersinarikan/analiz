@@ -2030,20 +2030,43 @@ function displayUnifiedFeedbackForm(feedbackTab, results) {
     // Submit event
     form.onsubmit = function(e) {
         e.preventDefault();
-        // İçerik feedback'i hazırla
         const categoryFeedback = {
-            violence: (form.querySelector('#violence-feedback') ? form.querySelector('#violence-feedback').value : ''),
-            adult_content: (form.querySelector('#adult-content-feedback') ? form.querySelector('#adult-content-feedback').value : ''),
-            harassment: (form.querySelector('#harassment-feedback') ? form.querySelector('#harassment-feedback').value : ''),
-            weapon: (form.querySelector('#weapon-feedback') ? form.querySelector('#weapon-feedback').value : ''),
-            drug: (form.querySelector('#drug-feedback') ? form.querySelector('#drug-feedback').value : '')
+            violence: form.querySelector('#violence-feedback') ? form.querySelector('#violence-feedback').value : '',
+            adult_content: form.querySelector('#adult-content-feedback') ? form.querySelector('#adult-content-feedback').value : '',
+            harassment: form.querySelector('#harassment-feedback') ? form.querySelector('#harassment-feedback').value : '',
+            weapon: form.querySelector('#weapon-feedback') ? form.querySelector('#weapon-feedback').value : '',
+            drug: form.querySelector('#drug-feedback') ? form.querySelector('#drug-feedback').value : ''
         };
-        const contentPayload = {
-            content_id: results.content_id || results.analysis_id,
-            analysis_id: results.analysis_id,
-            category_feedback: categoryFeedback
-        };
-        // Yaş feedback'lerini hazırla
+        // Analizden kategoriye göre frame_path'leri al
+        let categoryFrames = {};
+        try {
+            categoryFrames = JSON.parse(results.category_specific_highest_risks_data || '{}');
+        } catch (e) { categoryFrames = {}; }
+
+        // Her kategori için ayrı feedback kaydı gönder
+        let feedbackPromises = [];
+        Object.keys(categoryFeedback).forEach(cat => {
+            const feedbackValue = categoryFeedback[cat];
+            if (feedbackValue) {
+                const framePath = categoryFrames[cat]?.frame_path || '';
+                const payload = {
+                    content_id: results.content_id || results.analysis_id,
+                    analysis_id: results.analysis_id,
+                    category: cat,
+                    feedback: feedbackValue,
+                    frame_path: framePath
+                };
+                feedbackPromises.push(
+                    fetch('/api/feedback/submit', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    })
+                    .then(res => res.json())
+                );
+            }
+        });
+        // Yaş feedback'lerini topla ve gönder (değiştirilmedi)
         const ageInputs = form.querySelectorAll('.age-feedback-input');
         const ageFeedbacks = [];
         ageInputs.forEach(input => {
@@ -2057,47 +2080,25 @@ function displayUnifiedFeedbackForm(feedbackTab, results) {
                 });
             }
         });
-        // İçerik feedback gönder
-        fetch('/api/feedback/submit', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(contentPayload)
-        })
-        .then(res => res.json())
-        .then(data => {
-            if (data.success) {
-                if (window.showToast) window.showToast('Başarılı', 'İçerik geri bildirimi kaydedildi!', 'success');
-                // Başarıyla kaydedildiyse ana sayfaya yönlendir
-                setTimeout(() => { window.location.href = '/'; }, 1500);
-            } else {
-                if (window.showToast) window.showToast('Hata', data.error || 'İçerik geri bildirimi kaydedilemedi.', 'error');
-            }
-        })
-        .catch(err => {
+        ageFeedbacks.forEach(payload => {
+            feedbackPromises.push(
+                fetch('/api/feedback/age', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                })
+                .then(res => res.json())
+            );
+        });
+        // Tüm feedbackler gönderildikten sonra kullanıcıya bilgi ver
+        Promise.all(feedbackPromises).then(results => {
+            if (window.showToast) window.showToast('Başarılı', 'Geri bildirim(ler) kaydedildi!', 'success');
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Gönderildi';
+            setTimeout(() => { window.location.href = '/'; }, 1500);
+        }).catch(err => {
             if (window.showToast) window.showToast('Hata', 'Sunucuya bağlanırken hata oluştu: ' + err.message, 'error');
         });
-        // Yaş feedback'lerini gönder
-        ageFeedbacks.forEach(payload => {
-            fetch('/api/feedback/age', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
-            })
-            .then(res => res.json())
-            .then(data => {
-                if (data.success) {
-                    if (window.showToast) window.showToast('Başarılı', 'Yaş geri bildirimi kaydedildi!', 'success');
-                } else {
-                    if (window.showToast) window.showToast('Hata', data.error || 'Yaş geri bildirimi kaydedilemedi.', 'error');
-                }
-            })
-            .catch(err => {
-                if (window.showToast) window.showToast('Hata', 'Sunucuya bağlanırken hata oluştu: ' + err.message, 'error');
-            });
-        });
-        // Butonu disable et
-        submitBtn.disabled = true;
-        submitBtn.textContent = 'Gönderildi';
     };
 
     feedbackTab.appendChild(form);
