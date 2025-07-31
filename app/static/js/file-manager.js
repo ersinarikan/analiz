@@ -395,11 +395,14 @@ export function updateFileStatus(fileId, status, progress, message = null, error
         }
     }
     
-    // 🎯 BUG FIX: File status değiştiğinde buton state'ini de güncelle
-    // Analysis manager'ın updateButtonStateBasedOnQueue fonksiyonunu çağır
-    if (window.analysisManager && window.analysisManager.updateButtonStateBasedOnQueue) {
+    // 🎯 BUG FIX: Sadece analiz ile ilgili status değişikliklerinde buton state'ini güncelle
+    // Dosya yükleme durumları (pending, uploading, uploaded) için buton güncellemesi yapma
+    const analysisStatuses = ['processing', 'queued', 'completed', 'failed', 'cancelled', 'error'];
+    if (analysisStatuses.includes(status.toLowerCase()) && 
+        window.analysisManager && window.analysisManager.updateButtonStateBasedOnQueue) {
         // Mevcut queue bilgisini alarak buton state'ini güncelle
         window.analysisManager.updateButtonStateBasedOnQueue(0, false);
+        console.log(`[DEBUG] 🎯 Analiz status değişikliği: ${status} - buton state güncellendi`);
     }
     
     console.log(`[DEBUG] updateFileStatus tamamlandı - fileId: ${fileId} status: ${status} global progress güncellendi`);
