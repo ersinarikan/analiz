@@ -1,6 +1,11 @@
 # ============================================================================
 # WS ANALIZ - MINIMAL PRODUCTION REQUIREMENTS
 # Based on actual code analysis - only used packages included
+#
+# Not: GPU desteği için torch ve torchvision'un CUDA versiyonlarını yükleyin:
+# pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+#
+# requirements.txt dosyası kod analizine göre günceldir. Eksik/fazla bağımlılık yoktur.
 # ============================================================================
 
 # ============================================================================

@@ -1395,3 +1395,51 @@ setTimeout(() => {
         window.checkModuleHealth();
     }
 }, 2000); 
+
+// İçerik analizi son geri bildirimleri ve kategori dağılımı yükleyici
+function loadRecentContentFeedbacks() {
+    fetch('/api/feedback/content/recent')
+        .then(res => res.json())
+        .then(data => {
+            // Son geri bildirimler
+            const container = document.getElementById('recentContentFeedbacks');
+            if (container) {
+                if (data.recent_feedbacks && data.recent_feedbacks.length > 0) {
+                    container.innerHTML = data.recent_feedbacks.map(fb => `
+                        <div class="mb-2 border-bottom pb-2">
+                            <b>${fb.created_at ? new Date(fb.created_at).toLocaleString() : ''}</b>
+                            <br>
+                            <span>Kategoriler: ${fb.category_feedback ? JSON.stringify(fb.category_feedback) : '-'}</span>
+                            <br>
+                            <span>Yorum: ${fb.comment || '-'}</span>
+                        </div>
+                    `).join('');
+                } else {
+                    container.innerHTML = '<div class="alert alert-secondary">Henüz içerik geri bildirimi yok.</div>';
+                }
+            }
+            // Kategori dağılımı
+            const distContainer = document.getElementById('contentFeedbackCategoryDist');
+            if (distContainer) {
+                if (data.category_distribution && Object.keys(data.category_distribution).length > 0) {
+                    distContainer.innerHTML = Object.entries(data.category_distribution).map(
+                        ([cat, count]) => `<span class="badge bg-info m-1">${cat}: ${count}</span>`
+                    ).join('');
+                } else {
+                    distContainer.innerHTML = '<div class="alert alert-secondary">Kategori dağılımı yok.</div>';
+                }
+            }
+        })
+        .catch(err => {
+            const container = document.getElementById('recentContentFeedbacks');
+            if (container) container.innerHTML = '<div class="alert alert-danger">Geri bildirimler yüklenemedi.</div>';
+            const distContainer = document.getElementById('contentFeedbackCategoryDist');
+            if (distContainer) distContainer.innerHTML = '<div class="alert alert-danger">Kategori dağılımı yüklenemedi.</div>';
+        });
+}
+
+// Modal açıldığında feedbackleri yükle
+const modelMetricsModalEl = document.getElementById('modelMetricsModal');
+if (modelMetricsModalEl) {
+    modelMetricsModalEl.addEventListener('show.bs.modal', loadRecentContentFeedbacks);
+} 

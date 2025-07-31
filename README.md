@@ -92,22 +92,26 @@ Analiz işlemini **anında durdurmak** istediğinizde kullanabileceğiniz güçl
 - **Otomatik Backup:** Base model hiçbir zaman silinmez
 - **Sistem Restart:** Model değişiklikleri sonrası otomatik yeniden başlatma
 
-## 🚀 **5 Dakikada Hızlı Başlangıç**
+## 🚀 5 Dakikada Hızlı Başlangıç
 
 ### Adım 1: Kurulum (Teknik Kullanıcılar İçin)
 ```bash
 # Repository'yi klonlayın
-git clone https://github.com/your-username/wsanaliz.git
-cd wsanaliz
+ git clone https://github.com/your-username/wsanaliz.git
+ cd wsanaliz
 
 # Virtual environment oluşturun
 python -m venv venv
-source venv/bin/activate  # Linux/Mac
-# veya
-venv\Scripts\activate     # Windows
+# Windows için:
+venv\Scripts\activate
+# Linux/Mac için:
+source venv/bin/activate
 
 # Bağımlılıkları yükleyin  
 pip install -r requirements.txt
+
+# (GPU kullanacaksanız) CUDA destekli torch kurun:
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
 
 # AI modellerini indirin
 python scripts/download_models.py
@@ -115,6 +119,17 @@ python scripts/download_models.py
 # Uygulamayı başlatın
 python app.py
 ```
+> **UYARI:** Virtual environment'ı aktif etmeden uygulamayı başlatırsanız bazı özellikler (AI modelleri, analiz, eğitim, WebSocket, vs.) çalışmayabilir veya eksik olabilir!
+
+### Kullanılan Ana AI Modelleri ve Versiyonları
+- **OpenCLIP (open-clip-torch==2.32.0)**: İçerik semantik analizi (ViT-H-14-378-quickgelu, dfn5b)
+- **InsightFace (insightface==0.7.3)**: Yüz tanıma ve yaş tahmini (Buffalo-L)
+- **YOLOv8 (ultralytics==8.3.68)**: Nesne tespiti
+- **DeepSORT (deep-sort-realtime==1.3.2)**: Video kişi takibi
+
+### Model ve Feedback Yönetimi (Yeni)
+- Model versiyonlarını yönetmek, ensemble düzeltmeleri sıfırlamak ve feedback ile eğitim başlatmak için arayüzdeki "Model Yönetimi" ve "Model Metrikleri" modallarını kullanın.
+- API endpointleri ve yeni işlevler için /api/model/ ve /api/feedback/ altındaki endpointleri kullanabilirsiniz.
 
 ### Adım 2: İlk Kullanım (Herkes İçin)
 1. **🌐 Tarayıcı Açın:** `http://localhost:5000` adresine gidin
