@@ -395,6 +395,13 @@ export function updateFileStatus(fileId, status, progress, message = null, error
         }
     }
     
+    // 🎯 BUG FIX: File status değiştiğinde buton state'ini de güncelle
+    // Analysis manager'ın updateButtonStateBasedOnQueue fonksiyonunu çağır
+    if (window.analysisManager && window.analysisManager.updateButtonStateBasedOnQueue) {
+        // Mevcut queue bilgisini alarak buton state'ini güncelle
+        window.analysisManager.updateButtonStateBasedOnQueue(0, false);
+    }
+    
     console.log(`[DEBUG] updateFileStatus tamamlandı - fileId: ${fileId} status: ${status} global progress güncellendi`);
 }
 

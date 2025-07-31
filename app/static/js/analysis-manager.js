@@ -631,7 +631,12 @@ function updateQueueDisplay(queueData) {
  * @param {boolean} isProcessing - İşlem devam ediyor mu
  */
 function updateButtonStateBasedOnQueue(queueSize, isProcessing) {
-    const hasActiveQueue = queueSize > 0 || isProcessing;
+    // Local olarak herhangi bir dosya halen işleniyor mu?
+    const hasActiveLocalProcessing = Array.from(fileStatuses.values()).some(
+        status => status === 'processing' || status === 'queued' || status === 'Sırada'
+    );
+    
+    const hasActiveQueue = queueSize > 0 || isProcessing || hasActiveLocalProcessing;
     
     // Mevcut buton durumunu kontrol et
     const analyzeBtn = document.getElementById('analyzeBtn');
@@ -639,14 +644,14 @@ function updateButtonStateBasedOnQueue(queueSize, isProcessing) {
     
     const isCurrentlyStopMode = analyzeBtn.innerHTML.includes('Analizi Durdur');
     
-    console.log(`🔄 Button state check: queueSize=${queueSize}, isProcessing=${isProcessing}, hasActiveQueue=${hasActiveQueue}, isCurrentlyStopMode=${isCurrentlyStopMode}`);
+    console.log(`🔄 Button state check: queueSize=${queueSize}, isProcessing=${isProcessing}, hasActiveLocalProcessing=${hasActiveLocalProcessing}, hasActiveQueue=${hasActiveQueue}, isCurrentlyStopMode=${isCurrentlyStopMode}`);
     
     // Queue aktifse ve buton henüz "Durdur" modunda değilse
     if (hasActiveQueue && !isCurrentlyStopMode) {
         console.log('📍 Queue aktif - butonu "Durdur" moduna çeviriliyor');
         changeButtonsToStopMode();
     }
-    // Queue boşsa ve buton "Durdur" modundaysa
+    // Hiçbir analiz yoksa "Analiz Et" moduna dön
     else if (!hasActiveQueue && isCurrentlyStopMode) {
         console.log('📍 Queue boş - butonu "Analiz Et" moduna çeviriliyor');
         resetAnalyzeButton();
@@ -1903,7 +1908,8 @@ export function exposeAnalysisManagerToWindow() {
         checkAllAnalysesCompleted: checkAllAnalysesCompleted,
         getAnalysisResults,  // Yeni eklenen
         updateOverallProgress,  // Overall progress fonksiyonu
-        updateQueueDisplay  // Queue display fonksiyonu
+        updateQueueDisplay,  // Queue display fonksiyonu
+        updateButtonStateBasedOnQueue  // BUG FIX: Buton state güncelleme fonksiyonu
     };
     
     // Global window fonksiyonları (backward compatibility)
@@ -2050,8 +2056,8 @@ function displayUnifiedFeedbackForm(feedbackTab, results) {
             if (feedbackValue) {
                 const framePath = categoryFrames[cat]?.frame_path || '';
                 const payload = {
-                    content_id: results.content_id || results.analysis_id,
-                    analysis_id: results.analysis_id,
+            content_id: results.content_id || results.analysis_id,
+            analysis_id: results.analysis_id,
                     category: cat,
                     feedback: feedbackValue,
                     frame_path: framePath
@@ -2082,19 +2088,19 @@ function displayUnifiedFeedbackForm(feedbackTab, results) {
         });
         ageFeedbacks.forEach(payload => {
             feedbackPromises.push(
-                fetch('/api/feedback/age', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
-                })
-                .then(res => res.json())
+            fetch('/api/feedback/age', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            })
+            .then(res => res.json())
             );
         });
         // Tüm feedbackler gönderildikten sonra kullanıcıya bilgi ver
         Promise.all(feedbackPromises).then(results => {
             if (window.showToast) window.showToast('Başarılı', 'Geri bildirim(ler) kaydedildi!', 'success');
-            submitBtn.disabled = true;
-            submitBtn.textContent = 'Gönderildi';
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Gönderildi';
             setTimeout(() => { window.location.href = '/'; }, 1500);
         }).catch(err => {
             if (window.showToast) window.showToast('Hata', 'Sunucuya bağlanırken hata oluştu: ' + err.message, 'error');
