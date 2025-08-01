@@ -612,3 +612,23 @@ class EnsembleClipService:
                     used_ids.append(feedback.id)
         
         return used_ids 
+
+    def cleanup_used_training_data(self, used_feedback_ids: list[int]) -> dict:
+        """
+        Eğitimde kullanılan feedback'leri 'used_in_training' olarak işaretler ve temizler.
+        """
+        cleanup_report = {
+            'updated_feedbacks': 0,
+            'errors': []
+        }
+        try:
+            feedbacks = db.session.query(Feedback).filter(Feedback.id.in_(used_feedback_ids)).all()
+            for feedback in feedbacks:
+                feedback.training_status = 'used_in_training'
+                db.session.add(feedback)
+                cleanup_report['updated_feedbacks'] += 1
+            db.session.commit()
+        except Exception as e:
+            db.session.rollback()
+            cleanup_report['errors'].append(str(e))
+        return cleanup_report 

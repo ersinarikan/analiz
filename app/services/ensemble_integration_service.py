@@ -290,9 +290,22 @@ class EnsembleIntegrationService:
             
             try:
                 if age_result > 0:  # Eğer yaş düzeltmeleri varsa
-                    logger.info("💾 Creating age ensemble model version...")
-                    age_version = self.age_ensemble.save_ensemble_corrections_as_version()
-                    logger.info(f"✅ Age ensemble version created: {age_version.version_name}")
+                    logger.info("💾 Creating age ensemble model version...");
+                    age_version = self.age_ensemble.save_ensemble_corrections_as_version();
+                    logger.info(f"✅ Age ensemble version created: {age_version.version_name}");
+                    # Correction sonrası yaş modeli eğitimi doğrudan zincir içinde başlat
+                    try:
+                        from app.services.age_training_service import AgeTrainingService
+                        trainer = AgeTrainingService()
+                        training_data = trainer.prepare_training_data(min_samples=10)
+                        if training_data:
+                            params = {'epochs': 20, 'batch_size': 16, 'learning_rate': 0.001, 'patience': 5}
+                            trainer.train_model(training_data, params)
+                            logger.info("Correction sonrası yaş modeli eğitimi zincir içinde başlatıldı.")
+                        else:
+                            logger.warning("Correction sonrası yaş modeli eğitimi için yeterli veri yok.")
+                    except Exception as e:
+                        logger.error(f"Correction sonrası yaş modeli eğitimi zincir içinde başlatılamadı: {e}")
             except Exception as e:
                 logger.error(f"❌ Error saving age ensemble version: {str(e)}")
             
@@ -301,6 +314,13 @@ class EnsembleIntegrationService:
                     logger.info("💾 Creating CLIP ensemble model version...")
                     clip_version = self.clip_ensemble.save_ensemble_corrections_as_version()
                     logger.info(f"✅ CLIP ensemble version created: {clip_version.version_name}")
+                    # Eğitimde kullanılan ve correction zincirine girmeyen feedback'leri de temizle
+                    try:
+                        used_feedback_ids = clip_version.used_feedback_ids if hasattr(clip_version, 'used_feedback_ids') else []
+                        cleanup_report = self.clip_ensemble.cleanup_used_training_data(used_feedback_ids)
+                        logger.info(f"CLIP eğitim sonrası temizlik raporu: {cleanup_report}")
+                    except Exception as e:
+                        logger.error(f"CLIP eğitim sonrası temizlik hatası: {e}")
             except Exception as e:
                 logger.error(f"❌ Error saving CLIP ensemble version: {str(e)}")
             

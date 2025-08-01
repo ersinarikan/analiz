@@ -2098,14 +2098,52 @@ function displayUnifiedFeedbackForm(feedbackTab, results) {
         });
         // Tüm feedbackler gönderildikten sonra kullanıcıya bilgi ver
         Promise.all(feedbackPromises).then(results => {
-            if (window.showToast) window.showToast('Başarılı', 'Geri bildirim(ler) kaydedildi!', 'success');
-        submitBtn.disabled = true;
-        submitBtn.textContent = 'Gönderildi';
-            setTimeout(() => { window.location.href = '/'; }, 1500);
+            if (window.showToast) window.showToast('Başarılı', 'Geri bildirim kaydedildi!', 'success');
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Gönderildi ✓';
+            // Otomatik yönlendirme kaldırıldı
         }).catch(err => {
             if (window.showToast) window.showToast('Hata', 'Sunucuya bağlanırken hata oluştu: ' + err.message, 'error');
         });
     };
 
     feedbackTab.appendChild(form);
+}
+
+/**
+ * 🎯 Otomatik yönlendirme: Bir sonraki bekleyen analiz sonucuna yönlendir
+ */
+function redirectToNextPendingAnalysis() {
+    fetch('/api/analysis/pending-feedback')
+        .then(response => response.json())
+        .then(data => {
+            if (data.success && data.pending_analyses && data.pending_analyses.length > 0) {
+                // Bir sonraki bekleyen analiz var
+                const nextAnalysis = data.pending_analyses[0];
+                if (window.showToast) {
+                    window.showToast('Bilgi', `${data.count} analiz daha feedback bekliyor. Bir sonrakine yönlendiriliyorsunuz...`, 'info');
+                }
+                
+                setTimeout(() => {
+                    // Bir sonraki analiz sonucuna git
+                    window.location.href = `/analysis-results?fileId=${nextAnalysis.file_id}&analysisId=${nextAnalysis.analysis_id}`;
+                }, 1000);
+            } else {
+                // Artık bekleyen analiz yok, anasayfaya dön
+                if (window.showToast) {
+                    window.showToast('Tamamlandı', 'Tüm analizler için feedback verildi! Anasayfaya yönlendiriliyorsunuz.', 'success');
+                }
+                
+                setTimeout(() => {
+                    window.location.href = '/';
+                }, 1000);
+            }
+        })
+        .catch(error => {
+            console.error('Bekleyen analizler alınırken hata:', error);
+            // Hata durumunda anasayfaya dön
+            setTimeout(() => {
+                window.location.href = '/';
+            }, 1000);
+        });
 }

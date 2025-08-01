@@ -473,4 +473,39 @@ def get_detailed_results(analysis_id):
         logger.error(f"Detaylı analiz sonuçları alınırken hata: {str(e)}")
         return jsonify({'error': f'Detaylı analiz sonuçları alınırken bir hata oluştu: {str(e)}'}), 500 
 
+
+@analysis_bp.route('/pending-feedback', methods=['GET'])
+def get_pending_feedback_analyses():
+    """
+    Feedback verilmemiş analiz sonuçlarını listeler.
+    Otomatik yönlendirme için kullanılır.
+    """
+    try:
+        # Tamamlanmış analizleri al
+        completed_analyses = Analysis.query.filter_by(status='completed').all()
+        
+        pending_analyses = []
+        for analysis in completed_analyses:
+            # Bu analiz için feedback verilmiş mi?
+            has_feedback = Feedback.query.filter_by(analysis_id=analysis.id).first() is not None
+            
+            if not has_feedback:
+                pending_analyses.append({
+                    'analysis_id': analysis.id,
+                    'file_id': analysis.file_id,
+                    'filename': analysis.file.filename if analysis.file else 'Unknown',
+                    'created_at': analysis.created_at.isoformat() if analysis.created_at else None
+                })
+        
+        return jsonify({
+            'success': True,
+            'pending_analyses': pending_analyses,
+            'count': len(pending_analyses)
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Bekleyen feedback analizleri alınırken hata: {str(e)}")
+        return jsonify({'error': f'Bekleyen analizler alınırken bir hata oluştu: {str(e)}'}), 500
+
+
 bp = analysis_bp 

@@ -733,6 +733,8 @@ def analyze_video(analysis):
                 
                 # Config'den takip parametrelerini oku
                 max_lost_frames_config = current_app.config.get('MAX_LOST_FRAMES', FACTORY_DEFAULTS['MAX_LOST_FRAMES'])
+                if max_lost_frames_config is None:
+                    max_lost_frames_config = 30  # Default değer
                 tracking_reliability_thresh_config = current_app.config.get('TRACKING_RELIABILITY_THRESHOLD', FACTORY_DEFAULTS['TRACKING_RELIABILITY_THRESHOLD'])
                 id_change_thresh_config = current_app.config.get('ID_CHANGE_THRESHOLD', FACTORY_DEFAULTS['ID_CHANGE_THRESHOLD'])
                 embedding_dist_thresh_config = current_app.config.get('EMBEDDING_DISTANCE_THRESHOLD', FACTORY_DEFAULTS['EMBEDDING_DISTANCE_THRESHOLD'])
@@ -889,6 +891,9 @@ def analyze_video(analysis):
                                 # Yüz özelliklerini çıkar
                                 face_features = extract_face_features(image, face, bbox)
                                 face_features_list.append(face_features)
+                                # LOG EKLE: bbox veya embedding_vector None ise
+                                if bbox is None or embedding_vector is None:
+                                    logger.error(f"[DEBUG][ANALYZE_VIDEO] Kare: {frame_path}, Yüz: {idx}, bbox: {bbox}, embedding_vector: {embedding_vector}, face: {face}")
                                 detections.append({
                                     'bbox': bbox,
                                     'embedding_vector': embedding_vector,  # float vektör (DeepSORT için)

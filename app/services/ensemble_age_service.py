@@ -25,6 +25,14 @@ class EnsembleAgeService:
         self.embedding_corrections = {}  # embedding_hash -> age_correction
         logger.info(f"EnsembleAgeService initialized")
     
+    def _mark_feedback_as_used(self, feedback):
+        """
+        Feedback kaydını correctionda kullanıldı olarak işaretler.
+        """
+        feedback.training_status = 'used_in_correction'
+        db.session.add(feedback)
+        db.session.commit()
+    
     def load_feedback_corrections(self) -> dict:
         """
         Veritabanından yaş düzeltmelerini yükle (Sadece embedding-based)

@@ -629,15 +629,19 @@ function setupAnalysisParamsModal(modalElement) {
  */
 function loadCurrentAnalysisParams() {
     fetch('/api/settings/analysis-params')
-    .then(response => response.json())
-    .then(data => {
-        if (data.success && data.params) {
-            populateAnalysisParamsForm(data.params);
-        }
-    })
-    .catch(error => {
-        console.error('Load params error:', error);
-    });
+        .then(response => response.json())
+        .then(data => {
+            populateAnalysisParamsForm(data);
+            // EK: max_lost_frames yoksa inputa 30 yaz
+            const el = document.getElementById('maxLostFrames');
+            if (el && (data.max_lost_frames === undefined || data.max_lost_frames === null || data.max_lost_frames === '')) {
+                el.value = 30;
+                console.log('✅ Max Lost Frames default (30) olarak atandı. [loadCurrentAnalysisParams]');
+            }
+        })
+        .catch(error => {
+            console.error('loadCurrentAnalysisParams error:', error);
+        });
 }
 
 /**
@@ -666,7 +670,10 @@ function populateAnalysisParamsForm(params) {
     for (const [key, value] of Object.entries(params)) {
         const element = document.getElementById(key);
         if (element) {
-            if (element.type === 'range') {
+            if (key === 'max_lost_frames' && (value === undefined || value === null || value === '')) {
+                element.value = 30;
+                console.log('✅ Max Lost Frames default (30) olarak atandı.');
+            } else if (element.type === 'range') {
                 element.value = value;
                 // Value display'ini de güncelle
                 const valueDisplay = document.getElementById(key + 'Value');
@@ -760,11 +767,18 @@ function populateFormWithParams(data) {
         }
     }
     
-    if (data.max_lost_frames !== undefined) {
+    if (data.max_lost_frames !== undefined && data.max_lost_frames !== null && data.max_lost_frames !== '') {
         const el = document.getElementById('maxLostFrames');
         if (el) {
             el.value = data.max_lost_frames;
             console.log('✅ Max Lost Frames güncellendi:', el.value);
+        }
+    } else {
+        // Eğer değer yoksa default olarak 30 ata
+        const el = document.getElementById('maxLostFrames');
+        if (el) {
+            el.value = 30;
+            console.log('✅ Max Lost Frames default (30) olarak atandı.');
         }
     }
 }

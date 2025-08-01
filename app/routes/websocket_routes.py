@@ -243,6 +243,29 @@ def emit_training_progress(session_id, progress, message="Eğitim devam ediyor..
         logger.error(f"emit_training_progress error: {e}")
         return False
 
+def emit_training_started(session_id, model_type=None, sample_count=None, message="Eğitim başlatıldı"):
+    """Training started event'ini emit eder"""
+    try:
+        room_name = f"training_{session_id}"
+        data = {
+            'session_id': session_id,
+            'status': 'started',
+            'model_type': model_type,
+            'sample_count': sample_count,
+            'message': message,
+            'timestamp': datetime.now().isoformat()
+        }
+        running_socketio = get_socketio()
+        # Broadcast emit
+        running_socketio.emit('training_started', data)
+        # Room-specific emit
+        running_socketio.emit('training_started', data, room=room_name)
+        logger.info(f"Training started emit successful: {data}")
+        return True
+    except Exception as e:
+        logger.error(f"emit_training_started error: {e}")
+        return False
+
 def emit_training_completed(session_id, model_path=None, metrics=None, message="Eğitim tamamlandı"):
     """Training completed event'ini emit eder"""
     try:

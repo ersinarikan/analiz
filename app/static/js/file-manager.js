@@ -278,7 +278,7 @@ export function uploadFilesSequentially(index) {
             fileInfo.status = 'uploaded';
             
             // File status'ını güncelle
-            updateFileStatus(fileInfo.id, 'Sırada', 100);
+            updateFileStatus(fileInfo.id, 'uploaded', 100);
             
             console.log(`Dosya yüklendi: ${fileInfo.name}, ID: ${data.file_id}`);
             
@@ -360,11 +360,7 @@ export function updateFileStatus(fileId, status, progress, message = null, error
         progressBar.setAttribute('aria-valuenow', safeProgress);
         
         // Progress bar text content (önemli!)
-        if (safeProgress > 0) {
-            progressBar.textContent = `${Math.round(safeProgress)}%`;
-        } else {
-            progressBar.textContent = '';
-        }
+        // progressBar.textContent = `${safeProgress}%`; // Removed as per edit hint
         
         // CSS classes for animation (processing status için)
         if (status === 'processing') {
@@ -413,15 +409,16 @@ export function updateFileStatus(fileId, status, progress, message = null, error
  */
 function getStatusDisplayName(status) {
     const statusMap = {
-        'pending': 'Bekleniyor',
-        'uploading': 'Yükleniyor',
         'uploaded': 'Yüklendi',
         'queued': 'Sırada',
         'processing': 'Analiz Ediliyor',
         'completed': 'Tamamlandı',
-        'failed': 'Başarısız',
+        'failed': 'Hata',
         'cancelled': 'İptal Edildi',
-        'error': 'Hata'
+        'error': 'Hata',
+        'pending': 'Bekliyor',
+        'yükleniyor': 'Yükleniyor',
+        'hazır': 'Hazır'
     };
     return statusMap[status.toLowerCase()] || status;
 }
@@ -431,15 +428,16 @@ function getStatusDisplayName(status) {
  */
 function getStatusBadgeClass(status) {
     const classMap = {
-        'pending': 'bg-secondary',
-        'uploading': 'bg-info',
         'uploaded': 'bg-success',
         'queued': 'bg-warning',
         'processing': 'bg-primary',
         'completed': 'bg-success',
         'failed': 'bg-danger',
         'cancelled': 'bg-secondary',
-        'error': 'bg-danger'
+        'error': 'bg-danger',
+        'pending': 'bg-secondary',
+        'yükleniyor': 'bg-info',
+        'hazır': 'bg-info'
     };
     return classMap[status.toLowerCase()] || 'bg-secondary';
 }
@@ -449,15 +447,16 @@ function getStatusBadgeClass(status) {
  */
 function getStatusMessage(status) {
     const messageMap = {
-        'pending': 'Yükleme bekleniyor...',
-        'uploading': 'Dosya yükleniyor...',
-        'uploaded': 'Yükleme tamamlandı',
+        'uploaded': 'Yüklendi, analiz için hazır',
         'queued': 'Analiz sırasında bekliyor',
         'processing': 'Analiz yapılıyor...',
         'completed': 'Analiz tamamlandı',
         'failed': 'Analiz başarısız',
         'cancelled': 'Analiz iptal edildi',
-        'error': 'Hata oluştu'
+        'error': 'Hata oluştu',
+        'pending': 'Bekliyor',
+        'yükleniyor': 'Yükleniyor',
+        'hazır': 'Hazır'
     };
     return messageMap[status.toLowerCase()] || status;
 }
