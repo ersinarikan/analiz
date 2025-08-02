@@ -132,6 +132,13 @@ def process_queue():
                             logger.error(f"Analiz bulunamadı: {analysis_id}")
                             analysis_queue.task_done()
                             continue
+                        
+                        # İptal kontrolü - kuyruktan alırken
+                        if analysis.is_cancelled:
+                            logger.info(f"🚫 Analiz #{analysis_id} iptal edilmiş, atlanıyor")
+                            analysis_queue.task_done()
+                            continue
+                            
                         logger.info(f"Analiz #{analysis_id} kuyruğa alındı, status: {analysis.status}")
                     # Session bitti, şimdi analizi gerçekleştir (ayrı session'da)
                     start_time = time.time()
@@ -229,6 +236,54 @@ def _emit_analysis_completion(analysis_id, file_id, success, elapsed_time, messa
         
     except Exception as e:
         logger.warning(f"Analiz tamamlanma WebSocket bildirimi hatası: {str(e)}")
+
+def remove_cancelled_from_queue():
+    """
+    Kuyruktaki iptal edilmiş analizleri temizler
+    
+    Returns:
+        int: Temizlenen analiz sayısı
+    """
+    try:
+        from app import global_flask_app
+        from app.models.analysis import Analysis
+        
+        removed_count = 0
+        temp_queue = queue.Queue()
+        
+        # Kuyruktaki tüm analizleri kontrol et
+        with global_flask_app.app_context():
+            while not analysis_queue.empty():
+                try:
+                    analysis_id = analysis_queue.get_nowait()
+                    
+                    # Analizin iptal edilip edilmediğini kontrol et
+                    analysis = Analysis.query.get(analysis_id)
+                    if analysis and analysis.is_cancelled:
+                        logger.info(f"🗑️ Kuyruktan iptal edilmiş analiz temizlendi: #{analysis_id}")
+                        removed_count += 1
+                    else:
+                        # İptal edilmemişse geri kuyruğa koy
+                        temp_queue.put(analysis_id)
+                        
+                except queue.Empty:
+                    break
+                except Exception as e:
+                    logger.error(f"Kuyruk temizleme hatası: {str(e)}")
+                    break
+            
+            # Temizlenmiş kuyruğu geri yükle
+            while not temp_queue.empty():
+                analysis_queue.put(temp_queue.get())
+        
+        if removed_count > 0:
+            logger.info(f"✅ Kuyruktan {removed_count} iptal edilmiş analiz temizlendi")
+            
+        return removed_count
+        
+    except Exception as e:
+        logger.error(f"❌ Kuyruk temizleme hatası: {str(e)}")
+        return 0
 
 def get_queue_status():
     """

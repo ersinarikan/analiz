@@ -53,6 +53,18 @@ def _async_age_estimation(age_estimator, image, face, face_idx, analysis_id, per
             logger.info(f"[ASYNC_AGE] Thread başlatıldı: Yüz #{face_idx} (person_id={person_id})")
             start_time = time.time()
             
+            # İptal kontrolü - Thread başlangıcında
+            from app.models.analysis import Analysis
+            analysis = Analysis.query.get(analysis_id)
+            if analysis and analysis.check_if_cancelled():
+                logger.info(f"[ASYNC_AGE] Analiz #{analysis_id} iptal edilmiş, yaş tahmini thread'i durduruluyor")
+                return {
+                    'face_idx': face_idx,
+                    'person_id': person_id,
+                    'cancelled': True,
+                    'processing_time': 0
+                }
+            
             # Age estimation işlemini yap (bu kısım 11-12 saniye sürebilir)
             estimated_age, confidence, pseudo_data = age_estimator.estimate_age(image, face)
             
@@ -86,7 +98,7 @@ class AnalysisService:
     - Kuyruk ve arka plan işleyişini koordine eder.
     """
     
-    def start_analysis(self, file_id, frames_per_second=None, include_age_analysis=False):
+    def start_analysis(self, file_id, frames_per_second=None, include_age_analysis=False, websocket_session_id=None):
         """
         Verilen dosya ID'si için analiz işlemini başlatır.
         
@@ -94,6 +106,7 @@ class AnalysisService:
             file_id: Analiz edilecek dosyanın veritabanı ID'si
             frames_per_second: Video analizi için saniyede işlenecek kare sayısı
             include_age_analysis: Yaş analizi yapılsın mı?
+            websocket_session_id: WebSocket session ID (bağlantı kesilince analizi iptal etmek için)
             
         Returns:
             Analysis: Oluşturulan analiz nesnesi veya None
@@ -117,7 +130,8 @@ class AnalysisService:
             analysis = Analysis(
                 file_id=file_id,
                 frames_per_second=frames_per_second,
-                include_age_analysis=include_age_analysis
+                include_age_analysis=include_age_analysis,
+                websocket_session_id=websocket_session_id
             )
             
             # Başlangıç durumunu ayarla
@@ -248,6 +262,11 @@ def analyze_file(analysis_id):
                 logger.error(f"Analiz bulunamadı: {analysis_id}")
                 return False, "Analiz bulunamadı"
             
+            # İptal edilip edilmediğini kontrol et
+            if analysis.check_if_cancelled():
+                logger.info(f"Analiz #{analysis_id} zaten iptal edilmiş, işlem durduruluyor")
+                return False, "Analiz iptal edildi"
+            
             # Analiz başlıyor
             analysis.start_analysis()
             db.session.commit()
@@ -358,6 +377,11 @@ def analyze_image(analysis):
         
         logger.info(f"[SVC_LOG][ANALYZE_IMAGE] Resim başarıyla yüklendi. Analiz ID: {analysis.id}") # YENİ LOG
         
+        # İptal kontrolü
+        if analysis.check_if_cancelled():
+            logger.info(f"Analiz #{analysis.id} iptal edilmiş, işlem durduruluyor")
+            return False, "Analiz iptal edildi"
+        
         # İçerik analizi
         analysis.update_progress(25, "İçerik analizi yapılıyor...")
         
@@ -400,6 +424,11 @@ def analyze_image(analysis):
         
         # Eğer yaş analizi isteniyorsa, yüzleri tespit et ve yaşları tahmin et
         if analysis.include_age_analysis:
+            # İptal kontrolü - yaş analizi öncesi
+            if analysis.check_if_cancelled():
+                logger.info(f"Analiz #{analysis.id} iptal edilmiş, yaş analizi atlanıyor")
+                return False, "Analiz iptal edildi"
+                
             # Yaş analizi başlatılıyor
             analysis.update_progress(60, "Yüz tespiti ve yaş analizi yapılıyor...")
             db.session.commit()
@@ -432,6 +461,12 @@ def analyze_image(analysis):
                     # Longer timeout for image analysis - bekle ki yaş tahmini tamamlansın
                     try:
                         result = future.result(timeout=5.0)  # 5 saniye bekle - image analysis için yeterli
+                        
+                        # İptal edilmiş thread kontrolü
+                        if result.get('cancelled', False):
+                            logger.info(f"[SVC_LOG] Yüz #{i} için age thread iptal edildi, atlanıyor")
+                            continue
+                            
                         estimated_age = result['estimated_age']
                         confidence = result['confidence'] 
                         pseudo_data = result['pseudo_data']
@@ -562,7 +597,9 @@ def analyze_image(analysis):
                             cv2.rectangle(image_with_overlay, (x1, y1), (x2, y2), (0, 255, 0), 2)
                             
                             # Metin için arka plan oluştur
-                            text = f"ID: {person_id.split('_')[-1]}  YAS: {round(age)}"
+                            # Kişi ID'sini 1'den başlatmak için +1 ekle
+                            person_id_num = int(person_id.split('_')[-1]) + 1
+                            text = f"Kişi {person_id_num}  Yaş: {round(age)}"
                             text_size = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.7, 2)[0]
                             text_y = y1 - 10 if y1 > 20 else y1 + h + 25
                             
@@ -768,6 +805,12 @@ def analyze_video(analysis):
         # Video'yu baştan sonra kadar işle
         for i, frame_idx in enumerate(frame_indices):
             try: # ADDED MAIN TRY FOR FRAME PROCESSING
+                # İptal kontrolü - her kare öncesi
+                analysis = Analysis.query.get(analysis.id)  # En güncel durumu al
+                if analysis.check_if_cancelled():
+                    logger.info(f"Analiz #{analysis.id} iptal edilmiş, video analizi durduruluyor (kare {i+1}/{total_frames_to_process})")
+                    return False, "Analiz iptal edildi"
+                
                 progress = min(100, int((i / total_frames_to_process) * 100))
                 analysis.update_progress(progress)  # Bu metot zaten commit yapıyor
                 timestamp = frame_idx / fps
@@ -958,6 +1001,12 @@ def analyze_video(analysis):
                                 # Video için makul timeout - yaş tahmini tamamlansın
                                 try:
                                     result = future.result(timeout=2.0)  # 2 saniye bekle - video frame için makul
+                                    
+                                    # İptal edilmiş thread kontrolü
+                                    if result.get('cancelled', False):
+                                        logger.info(f"[SVC_LOG][VID] Kare #{i}: Track ID={track.track_id} age thread iptal edildi, atlanıyor")
+                                        continue
+                                        
                                     estimated_age = result['estimated_age']
                                     confidence = result['confidence']
                                     pseudo_data = result['pseudo_data']
@@ -1128,9 +1177,10 @@ def analyze_video(analysis):
                     
                     # Overlay çizimi (yaş ve kutu)
                     image_with_overlay = image_source_for_overlay.copy()
-                    # person_id_str'den ID numarasını çıkar
-                    person_number = person_id_str.split('_person_')[-1] if '_person_' in person_id_str else person_id_str
-                    label = f"ID: {person_number}  YAS: {age_to_display}"
+                    # person_id_str'den ID numarasını çıkar ve 1'den başlatmak için +1 ekle
+                    person_number_raw = person_id_str.split('_person_')[-1] if '_person_' in person_id_str else person_id_str
+                    person_number = int(person_number_raw) + 1 if person_number_raw.isdigit() else person_number_raw
+                    label = f"Kişi {person_number}  Yaş: {age_to_display}"
                     cv2.rectangle(image_with_overlay, (x1_bbox, y1_bbox), (x1_bbox + w_bbox, y1_bbox + h_bbox), (0, 255, 0), 2)
                     
                     # Metin için arka plan oluştur (görüntü analizindeki gibi)

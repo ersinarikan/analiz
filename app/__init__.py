@@ -109,7 +109,42 @@ def create_app(config_name='default'):
     @minimal_socketio.on('disconnect')  
     def handle_disconnect():
         from flask import request
-        print(f"❌❌❌ MİNİMAL DISCONNECT! Session: {request.sid}")
+        from app.models.analysis import Analysis
+        from app import db
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        session_id = request.sid
+        print(f"❌❌❌ MİNİMAL DISCONNECT! Session: {session_id}")
+        
+        # Bu WebSocket session'ı ile ilişkili çalışan analizleri bul ve iptal et
+        try:
+            # 1. Veritabanındaki ilişkili analizleri bul
+            active_analyses = Analysis.query.filter(
+                Analysis.websocket_session_id == session_id,
+                Analysis.status.in_(['pending', 'processing'])
+            ).all()
+            
+            cancelled_count = 0
+            for analysis in active_analyses:
+                logger.info(f"🚫 WebSocket session {session_id} kesildi - Analiz #{analysis.id} iptal ediliyor")
+                analysis.cancel_analysis("WebSocket bağlantısı kesildi")
+                cancelled_count += 1
+            
+            # 2. Kuyruktaki analizleri de kontrol et
+            from app.services.queue_service import remove_cancelled_from_queue
+            queue_removed = remove_cancelled_from_queue()
+            
+            if cancelled_count > 0 or queue_removed > 0:
+                db.session.commit()
+                total_cancelled = cancelled_count + queue_removed
+                logger.info(f"✅ WebSocket disconnect: {total_cancelled} analiz iptal edildi (DB: {cancelled_count}, Queue: {queue_removed}) (session: {session_id})")
+            else:
+                logger.info(f"ℹ️ WebSocket disconnect: Bu session ile ilişkili aktif analiz yok (session: {session_id})")
+                
+        except Exception as e:
+            logger.error(f"❌ WebSocket disconnect cleanup hatası: {str(e)}")
+            db.session.rollback()
         
     @minimal_socketio.on('ping')
     def handle_ping(data):
@@ -250,6 +285,8 @@ def initialize_app(app):
         else:
             logger.info("Mevcut veritabanı kullanılıyor.")
             db.create_all()
+            # Mevcut veritabanı için migration kontrolü yap
+            check_and_run_migrations()
         
         # Klasörlerin oluşturulması ve temizlenmesi
         os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
@@ -303,6 +340,57 @@ def clean_folder(folder_path):
                     logger.warning(f"Klasör silinirken hata (atlanıyor): {file_path}, Hata: {e}", exc_info=True)
     else:
         os.makedirs(folder_path, exist_ok=True)
+
+def check_and_run_migrations():
+    """
+    Veritabanı migration kontrolü yapar ve gerekli kolumları ekler.
+    """
+    try:
+        import sqlite3
+        from flask import current_app
+        
+        db_path = current_app.config.get('SQLALCHEMY_DATABASE_URI', '').replace('sqlite:///', '')
+        if not os.path.isabs(db_path):
+            db_path = os.path.join(current_app.root_path, db_path)
+        
+        logger.info("🔄 Veritabanı migration kontrolü yapılıyor...")
+        
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        
+        # analyses tablosundaki kolonları kontrol et
+        cursor.execute("PRAGMA table_info(analyses)")
+        columns = [column[1] for column in cursor.fetchall()]
+        
+        migrations_needed = []
+        
+        # websocket_session_id kolonu var mı?
+        if 'websocket_session_id' not in columns:
+            migrations_needed.append(('websocket_session_id', 'TEXT'))
+        
+        # is_cancelled kolonu var mı?
+        if 'is_cancelled' not in columns:
+            migrations_needed.append(('is_cancelled', 'BOOLEAN DEFAULT 0'))
+        
+        # Migration'ları uygula
+        for column_name, column_def in migrations_needed:
+            try:
+                sql = f"ALTER TABLE analyses ADD COLUMN {column_name} {column_def}"
+                cursor.execute(sql)
+                logger.info(f"✅ Migration: {column_name} kolonu eklendi")
+            except Exception as e:
+                logger.error(f"❌ Migration hatası ({column_name}): {str(e)}")
+        
+        conn.commit()
+        conn.close()
+        
+        if migrations_needed:
+            logger.info(f"🎉 {len(migrations_needed)} migration başarıyla uygulandı!")
+        else:
+            logger.info("✅ Veritabanı şeması güncel, migration gerekmiyor")
+            
+    except Exception as e:
+        logger.error(f"❌ Migration kontrolü hatası: {str(e)}", exc_info=True)
 
 def cleanup_old_analysis_results(days_old=7):
     """

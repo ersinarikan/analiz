@@ -403,7 +403,7 @@ class WebSocketClient {
         if (progressBar) {
             progressBar.style.width = `${progress}%`;
             progressBar.setAttribute('aria-valuenow', progress);
-            progressBar.textContent = `${progress}%`;
+            // textContent kaldırıldı - sadece visual bar yeterli
         }
 
         // Status message güncelle

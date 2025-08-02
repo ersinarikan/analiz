@@ -37,6 +37,10 @@ class Analysis(db.Model):
     
     include_age_analysis = db.Column(db.Boolean, default=False)  # Yaş tahmini yapılsın mı?
     
+    # WebSocket session tracking
+    websocket_session_id = db.Column(db.String(255), nullable=True)  # WebSocket session ID
+    is_cancelled = db.Column(db.Boolean, default=False)  # Analiz iptal edildi mi?
+    
     # Genel kategorik skorlar (0-1 arası)
     overall_violence_score = db.Column(db.Float, default=0)
     overall_adult_content_score = db.Column(db.Float, default=0)
@@ -67,6 +71,18 @@ class Analysis(db.Model):
         """Analiz sürecini başlatır ve durumu 'processing' olarak günceller."""
         self.status = 'processing'
         db.session.commit()
+    
+    def cancel_analysis(self, reason="WebSocket bağlantısı kesildi"):
+        """Analizi iptal eder ve durumu günceller."""
+        self.is_cancelled = True
+        self.status = 'cancelled'
+        self.error_message = reason
+        self.end_time = datetime.now()
+        db.session.commit()
+    
+    def check_if_cancelled(self):
+        """Analizin iptal edilip edilmediğini kontrol eder."""
+        return self.is_cancelled
     
     def update_progress(self, progress: int, message: str = None):
         """
@@ -132,6 +148,8 @@ class Analysis(db.Model):
             'status': self.status,
             'frames_per_second': self.frames_per_second,
             'include_age_analysis': self.include_age_analysis,
+            'websocket_session_id': self.websocket_session_id,
+            'is_cancelled': self.is_cancelled,
             'overall_violence_score': self.overall_violence_score,
             'overall_adult_content_score': self.overall_adult_content_score,
             'overall_harassment_score': self.overall_harassment_score,

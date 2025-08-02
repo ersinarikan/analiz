@@ -69,10 +69,11 @@ def start_analysis():
         # Analiz parametrelerini güvenli şekilde al
         frames_per_second = params.get('frames_per_second')
         include_age_analysis = params.get('include_age_analysis', False)
+        websocket_session_id = request.headers.get('X-WebSocket-Session-ID')  # Header'dan WebSocket session ID'yi al
         
         # AnalysisService ile analizi başlat
         analysis_service = AnalysisService()
-        analysis = analysis_service.start_analysis(file_id, frames_per_second, include_age_analysis)
+        analysis = analysis_service.start_analysis(file_id, frames_per_second, include_age_analysis, websocket_session_id)
         
         if not analysis:
             return jsonify({'error': 'Analiz başlatılamadı'}), 500

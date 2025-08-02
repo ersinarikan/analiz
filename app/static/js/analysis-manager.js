@@ -89,7 +89,8 @@ export function startAnalysis(fileId, serverFileId, framesPerSecond, includeAgeA
     fetch(`${API_URL}/analysis/start`, {
         method: 'POST',
         headers: {
-            'Content-Type': 'application/json'
+            'Content-Type': 'application/json',
+            'X-WebSocket-Session-ID': window.socketioClient?.socket?.id || null
         },
         body: JSON.stringify(analysisParams)
     })
@@ -976,7 +977,7 @@ function displayAnalysisResults(fileId, results) {
             scoreElement.className = 'mb-2';
             scoreElement.innerHTML = `
                 <div class="d-flex justify-content-between align-items-center mb-1">
-                    <span class="fw-bold">${category.charAt(0).toUpperCase() + category.slice(1).replace('_', ' ')}</span>
+                    <span class="fw-bold">${getCategoryNameTurkish(category)}</span>
                     <span class="badge ${badgeClass}">${scorePercentage}%</span>
                 </div>
                 <div class="progress" style="height: 8px;">
@@ -1285,7 +1286,10 @@ function displayMainHighestRiskFrame(resultCard, results, file) {
             case 'safe': badgeClass = 'bg-success'; break;
         }
         
-        badgeElement.textContent = `${categoryName}: ${(results.highest_risk.score * 100).toFixed(0)}%`;
+        // Güç dönüşümü uygula (backend ile tutarlılık için)
+        const powerValue = 1.5;
+        const transformedScore = Math.pow(results.highest_risk.score, powerValue);
+        badgeElement.textContent = `${categoryName}: ${(transformedScore * 100).toFixed(0)}%`;
         badgeElement.className = `position-absolute bottom-0 end-0 m-2 badge ${badgeClass}`;
     }
 }
@@ -1331,7 +1335,7 @@ function displayHighestRiskFrame(detailsTab, results, file) {
                  onerror="this.onerror=null;this.src='/static/img/image-not-found.svg';">
             ${results.highest_risk.category ? `
                 <span class="position-absolute top-0 end-0 m-2 badge bg-danger">
-                    ${getCategoryDisplayName(results.highest_risk.category)}: ${Math.round(results.highest_risk.score * 100)}%
+                    ${getCategoryDisplayName(results.highest_risk.category)}: ${Math.round(Math.pow(results.highest_risk.score, 1.5) * 100)}%
                 </span>
             ` : ''}
         </div>
@@ -1379,7 +1383,7 @@ function displayHighRiskFramesByCategory(detailsTab, results, file) {
                      onerror="this.onerror=null;this.src='/static/img/image-not-found.svg';">
                 <div class="card-body p-2">
                     <h6 class="card-title mb-1">${getCategoryDisplayName(category)}</h6>
-                    <small class="text-muted d-block">Risk: ${Math.round(data.score * 100)}%</small>
+                    <small class="text-muted d-block">Risk: ${Math.round(Math.pow(data.score, 1.5) * 100)}%</small>
                     ${formatVideoFrameInfo(data.frame_path) && window.currentVideoFilename ? 
                         `<small class="text-secondary timestamp-clickable" style="cursor: pointer;" 
                                onclick="handleTimestampClick(event, '${data.frame_path}', window.currentVideoFilename, '${formatVideoFrameInfo(data.frame_path)}')" 
