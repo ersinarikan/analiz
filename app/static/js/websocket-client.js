@@ -530,10 +530,13 @@ class WebSocketClient {
             this.updateClipEnsembleStats(metrics);
         }
 
-        // Modal'ı yenile
-        if (window.initializeModelManagementModal) {
-            window.initializeModelManagementModal();
-        }
+        // Modal'ı yenile (küçük delay ile database commit işlemini bekle)
+        setTimeout(() => {
+            if (window.initializeModelManagementModal) {
+                console.log('🔄 Modal yenileniyor (CLIP training completed)...');
+                window.initializeModelManagementModal();
+            }
+        }, 1000); // 1 saniye bekle
 
         console.log(`[WebSocket] Training ${session_id} completed: ${model_path}`, metrics);
     }

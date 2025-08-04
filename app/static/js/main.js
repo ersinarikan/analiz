@@ -752,10 +752,19 @@ async function loadModalModelVersions() {
         if (contentResponse.ok) {
             const contentData = await contentResponse.json();
             console.log('✅ Content model versions yüklendi:', contentData);
+            console.log('🔍 DEBUG - Content versions count:', contentData.versions?.length || 0);
+            
             // Global variable'a kaydet
             window.contentVersionData = contentData;
             // UI'ı güncelle
             displayContentModelVersions(contentData);
+            
+            // Versiyon listesi debug log
+            if (contentData.versions) {
+                contentData.versions.forEach((v, index) => {
+                    console.log(`   📦 Version ${index + 1}: ${v.version_name} (active: ${v.is_active})`);
+                });
+            }
         } else {
             console.log('⚠️ Content model versions API 404 - normal (henüz eğitim yapılmamış)');
             // Default görünüm
@@ -1076,6 +1085,8 @@ function displayContentModelVersions(versionData) {
     }
     
     console.log('🎯 Content model versions display ediliyor:', versionData);
+    console.log('🔍 DEBUG - versionData.versions length:', versionData?.versions?.length || 0);
+    console.log('🔍 DEBUG - versionData.base_model_exists:', versionData?.base_model_exists);
     
     if (!versionData || !versionData.base_model_exists) {
         // Henüz model yoksa
@@ -1101,15 +1112,24 @@ function displayContentModelVersions(versionData) {
         `;
         
         // Database versiyonları (versions array) kullan, physical_versions değil
+        console.log('🔍 DEBUG - Processing versions for display...');
         if (versionData.versions && versionData.versions.length > 1) { // Base model hariç
-            versionData.versions.forEach((versionInfo) => {
+            console.log('🔍 DEBUG - Found', versionData.versions.length, 'total versions');
+            versionData.versions.forEach((versionInfo, index) => {
+                console.log(`🔍 DEBUG - Version ${index}: ${versionInfo.version_name} (active: ${versionInfo.is_active})`);
+                
                 // Base model'i atla (version_name: 'base_openclip')
-                if (versionInfo.version_name === 'base_openclip') return;
+                if (versionInfo.version_name === 'base_openclip') {
+                    console.log('   ⏭️ Skipping base model');
+                    return;
+                }
                 
                 const isActive = versionInfo.is_active;
                 const displayName = versionInfo.version_name.includes('ensemble_clip') 
                     ? `CLIP-v${versionInfo.version}` 
                     : versionInfo.version_name;
+                
+                console.log(`   ✅ Rendering: ${displayName} (active: ${isActive})`);
                 
                 versionsHtml += `
                     <div class="d-flex align-items-center gap-2 mb-1">
@@ -1125,6 +1145,8 @@ function displayContentModelVersions(versionData) {
                     </div>
                 `;
             });
+        } else {
+            console.log('🔍 DEBUG - No additional versions to display (only base model)');
         }
         
         versionsContainer.innerHTML = versionsHtml;
