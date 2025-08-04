@@ -440,16 +440,33 @@ def train_model_web():
             clip_ensemble = EnsembleClipService()
             clip_result = clip_ensemble.load_content_corrections()
             
-            logger.info(f"📊 CLIP corrections loaded: {clip_result}")
+            # Parse the result (now returns dict with count and IDs)
+            corrections_count = clip_result['corrections_count']
+            used_feedback_ids = clip_result['used_feedback_ids']
+            
+            logger.info(f"📊 CLIP corrections loaded: {corrections_count}")
+            logger.info(f"📊 Used feedback IDs for cleanup: {len(used_feedback_ids)}")
             
             # CLIP ensemble versiyonu oluştur (eğer düzeltme varsa)
             clip_version = None
             clip_stats = clip_ensemble.get_statistics()
             
-            if clip_result > 0:
+            if corrections_count > 0:
                 logger.info("💾 Creating CLIP ensemble model version...")
                 clip_version = clip_ensemble.save_ensemble_corrections_as_version()
                 logger.info(f"✅ CLIP ensemble version created: {clip_version.version_name}")
+                
+                # ✅ CLEANUP: Kullanılan eğitim verilerini temizle
+                if used_feedback_ids:
+                    logger.info("🧹 Cleaning up used training data...")
+                    cleanup_report = clip_ensemble.cleanup_used_training_data(
+                        used_feedback_ids, 
+                        clip_version.version_name
+                    )
+                    logger.info(f"✅ Content cleanup completed: {cleanup_report}")
+                else:
+                    logger.info("ℹ️ No feedback IDs to cleanup")
+                    
             else:
                 logger.info("ℹ️ No CLIP corrections found, no version created")
             
@@ -465,7 +482,8 @@ def train_model_web():
                 'message': 'İçerik modeli ensemble düzeltmeleri başarıyla yenilendi',
                 'session_id': content_session_id,
                 'ensemble_stats': clip_stats,
-                'content_corrections': clip_result,
+                'content_corrections': corrections_count,
+                'used_feedback_ids': len(used_feedback_ids),
                 'version_created': clip_version.version_name if clip_version else None
             })
             

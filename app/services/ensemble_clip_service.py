@@ -44,6 +44,7 @@ class EnsembleClipService:
         content_corrections = {}
         embedding_corrections = {}
         confidence_adjustments = {}
+        used_feedback_ids = []  # Track which feedbacks are used for cleanup
         
         for feedback in feedbacks:
             try:
@@ -141,11 +142,12 @@ class EnsembleClipService:
         self.embedding_corrections = embedding_corrections
         self.confidence_adjustments = confidence_adjustments
         
-        # Mark all used feedbacks as used_in_ensemble
+        # Mark all used feedbacks as used_in_ensemble and collect IDs for cleanup
         try:
             for feedback in feedbacks:
                 if (feedback.category_feedback or feedback.comment or feedback.rating is not None):
                     self._mark_feedback_as_used(feedback)
+                    used_feedback_ids.append(feedback.id)  # Track for cleanup
             
             db.session.commit()
             logger.info(f"✅ Marked {len(feedbacks)} feedbacks as used_in_ensemble")
@@ -157,8 +159,13 @@ class EnsembleClipService:
         logger.info(f"✅ Loaded content corrections: {len(content_corrections)}")
         logger.info(f"✅ Loaded confidence adjustments: {len(confidence_adjustments)}")
         logger.info(f"✅ Loaded embedding corrections: {len(embedding_corrections)}")
+        logger.info(f"✅ Tracked {len(used_feedback_ids)} feedback IDs for cleanup")
         
-        return len(content_corrections)
+        # Return both count and IDs for cleanup
+        return {
+            'corrections_count': len(content_corrections),
+            'used_feedback_ids': used_feedback_ids
+        }
     
     def load_feedback_corrections(self) -> dict:
         """
@@ -672,22 +679,92 @@ class EnsembleClipService:
         
         return used_ids 
 
-    def cleanup_used_training_data(self, used_feedback_ids: list[int]) -> dict:
+    def cleanup_used_training_data(self, used_feedback_ids: list[int], model_version_name: str = None) -> dict:
         """
-        Eğitimde kullanılan feedback'leri 'used_in_training' olarak işaretler ve temizler.
+        Eğitimde kullanılan content feedback'leri tamamen temizler (VT + dosyalar)
+        
+        Args:
+            used_feedback_ids: Kullanılan feedback ID'leri  
+            model_version_name: Model versiyon adı (opsiyonel)
+            
+        Returns:
+            dict: Temizlik raporu
         """
+        from flask import current_app
+        import os
+        
+        logger.info(f"Cleaning up CLIP content training data for model {model_version_name}")
+        
         cleanup_report = {
-            'updated_feedbacks': 0,
+            'deleted_feedbacks': 0,
+            'deleted_files': 0,
+            'deleted_directories': 0,
             'errors': []
         }
+        
         try:
-            feedbacks = db.session.query(Feedback).filter(Feedback.id.in_(used_feedback_ids)).all()
-            for feedback in feedbacks:
-                feedback.training_status = 'used_in_training'
-                db.session.add(feedback)
-                cleanup_report['updated_feedbacks'] += 1
+            # 1. Önce feedback'leri al (dosya yollarını almak için)
+            feedbacks_to_delete = Feedback.query.filter(
+                Feedback.id.in_(used_feedback_ids),
+                Feedback.feedback_type == 'content'
+            ).all()
+            
+            # 2. İlgili dosya yollarını topla
+            frame_paths = set()
+            content_ids = set()
+            
+            for feedback in feedbacks_to_delete:
+                if feedback.frame_path:
+                    frame_paths.add(feedback.frame_path)
+                if feedback.content_id:
+                    content_ids.add(feedback.content_id)
+            
+            logger.info(f"Found {len(frame_paths)} frame paths and {len(content_ids)} content IDs to clean")
+            
+            # 3. Processed klasöründeki ilgili dosyaları sil
+            processed_dir = current_app.config.get('PROCESSED_FOLDER', 'storage/processed')
+            
+            # Frame klasörlerini kontrol et ve sil
+            if os.path.exists(processed_dir):
+                for item in os.listdir(processed_dir):
+                    item_path = os.path.join(processed_dir, item)
+                    
+                    if os.path.isdir(item_path) and item.startswith('frames_'):
+                        # Bu frame klasöründe silinecek content_id'ler var mı kontrol et
+                        try:
+                            # Analysis ID'yi klasör adından çıkar
+                            analysis_id = item.replace('frames_', '')
+                            
+                            # Eğer bu analysis_id silinecek content_id'ler arasındaysa
+                            if int(analysis_id) in content_ids:
+                                import shutil
+                                shutil.rmtree(item_path)
+                                cleanup_report['deleted_directories'] += 1
+                                logger.info(f"Deleted directory: {item_path}")
+                                
+                        except (ValueError, OSError) as e:
+                            cleanup_report['errors'].append(f"Error deleting directory {item_path}: {str(e)}")
+                            logger.warning(f"Error deleting directory {item_path}: {str(e)}")
+            
+            # 4. VT'den feedback'leri sil
+            for feedback in feedbacks_to_delete:
+                try:
+                    db.session.delete(feedback)
+                    cleanup_report['deleted_feedbacks'] += 1
+                    logger.info(f"Deleted content feedback: {feedback.id}")
+                except Exception as e:
+                    cleanup_report['errors'].append(f"Error deleting feedback {feedback.id}: {str(e)}")
+                    logger.warning(f"Error deleting feedback {feedback.id}: {str(e)}")
+            
+            # 5. Değişiklikleri commit et
             db.session.commit()
+            
+            logger.info(f"Content cleanup completed. Deleted {cleanup_report['deleted_feedbacks']} feedbacks, "
+                       f"{cleanup_report['deleted_files']} files, {cleanup_report['deleted_directories']} directories")
+                       
         except Exception as e:
             db.session.rollback()
-            cleanup_report['errors'].append(str(e))
+            cleanup_report['errors'].append(f"General cleanup error: {str(e)}")
+            logger.error(f"Content cleanup error: {str(e)}")
+            
         return cleanup_report 
