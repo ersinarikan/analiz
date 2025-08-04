@@ -1236,6 +1236,9 @@ function switchContentModelVersion(version) {
     }
 }
 
+// Global scope'a ekle (HTML onclick için)
+window.switchContentModelVersion = switchContentModelVersion;
+
 function deleteSpecificContentVersion(version) {
     console.log(`🗑️ Content model specific versiyon siliniyor: ${version}`);
     
@@ -1249,13 +1252,19 @@ function deleteSpecificContentVersion(version) {
             alert(`"${version}" versiyonu başarıyla silindi!`);
             // Modal'ı yenile
             initializeModelManagementModal();
-    })
-    .catch(error => {
+        })
+        .catch(error => {
             console.error('❌ Content model specific versiyon silme hatası:', error);
             alert('Hata: ' + error.message);
         });
     }
 }
+
+// Global scope'a ekle (HTML onclick için)
+window.deleteSpecificContentVersion = deleteSpecificContentVersion;
+
+// Age model fonksiyonlarını da global scope'a ekle
+window.switchAgeModelVersion = switchAgeModelVersion;
 
 function resetAgeEnsemble() {
     if (confirm('Tüm özel yaş modeli versiyonlarını silip temel modele dönmek istediğinizden emin misiniz?')) {
