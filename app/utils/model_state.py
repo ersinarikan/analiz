@@ -211,3 +211,34 @@ def get_cache_stats():
             }
             
         return stats
+
+def set_age_model_version(version_id):
+    """
+    Yaş modeli aktif versiyonunu ayarla
+    
+    Args:
+        version_id: Versiyon ID'si (int, 0 = base model)
+    """
+    update_model_state('age', version_id)
+    logger.info(f"Age model version set to: {version_id}")
+
+def set_content_model_version(version_id):
+    """
+    İçerik modeli aktif versiyonunu ayarla
+    
+    Args:
+        version_id: Versiyon ID'si (int, 0 = base model) 
+    """
+    update_model_state('content', version_id)
+    logger.info(f"Content model version set to: {version_id}")
+
+def update_model_state_file(model_type, version_id):
+    """
+    Model state dosyasını güncelle (backward compatibility için)
+    
+    Args:
+        model_type (str): Model tipi ('age' veya 'content')
+        version_id: Versiyon ID'si
+    """
+    update_model_state(model_type, version_id)
+    logger.info(f"Model state file updated: {model_type} -> version {version_id}")

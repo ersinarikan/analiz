@@ -320,19 +320,41 @@ class ModelService:
                 from app.services.age_training_service import AgeTrainingService
                 trainer = AgeTrainingService()
 
-                # Tüm versiyonları pasif yap
+                # TÜM ENSEMBLE VERSİYONLARINI SİL (Database + Filesystem)
                 from app.models.content import ModelVersion
-                db.session.query(ModelVersion).filter_by(
-                    model_type='age',
-                    is_active=True
-                ).update({'is_active': False})
+                
+                # 1. Database'den tüm age model versiyonlarını sil
+                age_versions = db.session.query(ModelVersion).filter_by(model_type='age').all()
+                for version in age_versions:
+                    logger.info(f"Deleting age model version: {version.version_name}")
+                    
+                    # Filesystem'den version klasörünü sil
+                    version_path = os.path.join(
+                        current_app.config['MODELS_FOLDER'],
+                        'age',
+                        'custom_age_head', 
+                        'versions',
+                        version.version_name
+                    )
+                    if os.path.exists(version_path):
+                        try:
+                            import shutil
+                            shutil.rmtree(version_path)
+                            logger.info(f"Deleted age version filesystem: {version_path}")
+                        except Exception as e:
+                            logger.warning(f"Could not delete age version filesystem {version_path}: {e}")
+                    
+                    # Database'den version kaydını sil
+                    db.session.delete(version)
+                
                 db.session.commit()
+                logger.info("All age model versions deleted from database")
 
-                # Base modeli tekrar aktif et
+                # 2. Base modeli tekrar aktif et
                 success = trainer.reset_to_base_model()
 
                 if success:
-                    return True, "Yaş tahmin modeli başarıyla sıfırlandı"
+                    return True, "Yaş tahmin modeli başarıyla sıfırlandı ve tüm ensemble versiyonları silindi"
                 else:
                     return False, "Yaş tahmin modeli sıfırlanırken hata oluştu"
 
@@ -341,14 +363,42 @@ class ModelService:
                 from app.models.clip_training import CLIPTrainingSession
                 from app.models.content import ModelVersion
 
-                # Tüm content model versiyonlarını pasif yap
-                db.session.query(ModelVersion).filter_by(
-                    model_type='content',
-                    is_active=True
-                ).update({'is_active': False})
-
-                # Tüm CLIP training sessions'ları pasif yap
-                db.session.query(CLIPTrainingSession).update({'is_active': False})
+                # TÜM CONTENT ENSEMBLE VERSİYONLARINI SİL (Database + Filesystem)
+                
+                # 1. Database'den tüm content model versiyonlarını sil
+                content_versions = db.session.query(ModelVersion).filter_by(model_type='content').all()
+                for version in content_versions:
+                    logger.info(f"Deleting content model version: {version.version_name}")
+                    
+                    # Filesystem'den version klasörünü sil  
+                    version_path = os.path.join(
+                        current_app.config['MODELS_FOLDER'],
+                        'clip',
+                        'ViT-H-14-378-quickgelu_dfn5b',
+                        'versions',
+                        version.version_name
+                    )
+                    if os.path.exists(version_path):
+                        try:
+                            import shutil
+                            shutil.rmtree(version_path)
+                            logger.info(f"Deleted content version filesystem: {version_path}")
+                        except Exception as e:
+                            logger.warning(f"Could not delete content version filesystem {version_path}: {e}")
+                    
+                    # Database'den version kaydını sil
+                    db.session.delete(version)
+                
+                # 2. Database'den tüm CLIP training sessions'ları sil (base hariç)
+                clip_sessions = db.session.query(CLIPTrainingSession).filter(
+                    CLIPTrainingSession.version_name != 'base_openclip'
+                ).all()
+                for session in clip_sessions:
+                    logger.info(f"Deleting CLIP training session: {session.version_name}")
+                    db.session.delete(session)
+                
+                db.session.commit()
+                logger.info("All content model versions and CLIP sessions deleted from database")
 
                 # Base OpenCLIP modelini aktif yap
                 base_session = CLIPTrainingSession.query.filter_by(
@@ -417,7 +467,15 @@ class ModelService:
                 metadata_path = os.path.join(active_model_path, 'version_info.json')
                 write_json(metadata_path, metadata)
 
-                return True, "İçerik analiz modeli başarıyla base OpenCLIP modeline sıfırlandı"
+                # Model state'i base model'e set et (version 0)
+                try:
+                    from app.utils.model_state import set_content_model_version
+                    set_content_model_version(0)  # 0 = base model
+                    logger.info("Content model state updated to base model (version 0)")
+                except Exception as state_error:
+                    logger.warning(f"Could not update content model state: {state_error}")
+
+                return True, "İçerik analiz modeli başarıyla base OpenCLIP modeline sıfırlandı ve tüm ensemble versiyonları silindi"
             else:
                 # Diğer model tipleri için standart reset işlemi
                 model_folder = os.path.join(current_app.config['MODELS_FOLDER'], f"{model_type}_model")
@@ -1022,9 +1080,16 @@ class ModelService:
             # Versiyonları hazırla
             versions_list = []
 
-            # Eğer hiç eğitilmiş model yoksa veya aktif versiyon belirlenmemişse, base model aktiftir
-            has_active_custom_version = any(v.is_active for v in db_versions)
-            base_is_active = not has_active_custom_version and active_version is None
+            # Database'den aktif versiyonu bulalım (filesystem değil)
+            active_custom_version = None
+            for v in db_versions:
+                if getattr(v, 'is_active', False):
+                    active_custom_version = getattr(v, 'version_name', None)
+                    break
+            
+            # Eğer hiç aktif custom versiyon yoksa, base model aktiftir
+            has_active_custom_version = active_custom_version is not None
+            base_is_active = not has_active_custom_version
 
             # Base model'i her zaman ilk versiyon olarak ekle
             if base_model_exists:
@@ -1052,7 +1117,7 @@ class ModelService:
                     'version': getattr(v, 'version', 0),
                     'version_name': getattr(v, 'version_name', 'unknown'),
                     'created_at': getattr(v, 'created_at', None).isoformat() if getattr(v, 'created_at', None) else None,
-                    'is_active': getattr(v, 'is_active', False) or (getattr(v, 'version_name', '') == active_version),
+                    'is_active': getattr(v, 'is_active', False),
                     'training_samples': getattr(v, 'training_samples', 0),
                     'validation_samples': getattr(v, 'validation_samples', 0),
                     'epochs': getattr(v, 'epochs', 0),
@@ -1064,7 +1129,7 @@ class ModelService:
                 'success': True,
                 'versions': versions_list,
                 'physical_versions': physical_versions,
-                'active_version': active_version if active_version else ('base_model' if base_is_active else None),
+                'active_version': active_custom_version if active_custom_version else ('base_model' if base_is_active else None),
                 'base_model_exists': base_model_exists,
                 'versions_path': versions_path,
                 'active_path': active_model_path,
@@ -1132,14 +1197,19 @@ class ModelService:
             # Versiyonları hazırla
             versions_list = []
 
-            # Eğer hiç eğitilmiş model yoksa veya aktif versiyon belirlenmemişse, base model aktiftir
-            has_active_custom_version = any(v.is_active for v in db_versions)
-            base_is_active = not has_active_custom_version and active_version is None
+            # Database'den aktif versiyonu bulalım (filesystem değil)
+            active_custom_version = None
+            for v in db_versions:
+                if getattr(v, 'is_active', False):
+                    active_custom_version = getattr(v, 'version_name', None)
+                    break
+            
+            # Eğer hiç aktif custom versiyon yoksa, base model aktiftir
+            has_active_custom_version = active_custom_version is not None
+            base_is_active = not has_active_custom_version
 
             # Base OpenCLIP modelini her zaman ilk versiyon olarak ekle
             if base_model_exists:
-                # Base model aktif mi kontrol et - eğer custom aktif versiyon varsa base pasif
-                base_is_active = not any(v.is_active for v in db_versions) and (active_version is None or active_version == 'base_openclip')
                 
                 versions_list.append({
                     'id': 0,  # Base model için özel ID
@@ -1159,15 +1229,12 @@ class ModelService:
 
             # Veritabanındaki custom versiyonları ekle
             for v in db_versions:
-                # Aktif durumu doğru belirle
-                is_version_active = getattr(v, 'is_active', False) or (getattr(v, 'version_name', '') == active_version)
-                
                 versions_list.append({
                     'id': getattr(v, 'id', 0),
                     'version': getattr(v, 'version', 0),
                     'version_name': getattr(v, 'version_name', 'unknown'),
                     'created_at': getattr(v, 'created_at', None).isoformat() if getattr(v, 'created_at', None) else None,
-                    'is_active': is_version_active,
+                    'is_active': getattr(v, 'is_active', False),
                     'training_samples': getattr(v, 'training_samples', 0),
                     'validation_samples': getattr(v, 'validation_samples', 0),
                     'epochs': getattr(v, 'epochs', 0),
@@ -1179,7 +1246,7 @@ class ModelService:
                 'success': True,
                 'versions': versions_list,
                 'physical_versions': physical_versions,
-                'active_version': active_version if active_version else ('base_openclip' if base_is_active else None),
+                'active_version': active_custom_version if active_custom_version else ('base_openclip' if base_is_active else None),
                 'base_model_exists': base_model_exists,
                 'versions_path': versions_path,
                 'active_path': active_model_path,

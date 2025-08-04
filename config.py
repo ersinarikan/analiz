@@ -70,7 +70,7 @@ class Config:
     # OpenCLIP Model (ViT-H-14-378-quickgelu, pretrained: dfn5b)
     OPENCLIP_MODEL_TYPE = 'clip'
     OPENCLIP_MODEL_NAME = 'ViT-H-14-378-quickgelu_dfn5b' # model_name ve pretrained birleştirildi
-    OPENCLIP_MODEL_BASE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'temp_model')
+    OPENCLIP_MODEL_BASE_PATH = os.path.join(MODELS_FOLDER, OPENCLIP_MODEL_TYPE, OPENCLIP_MODEL_NAME, 'base_model')
     OPENCLIP_MODEL_VERSIONS_PATH = os.path.join(MODELS_FOLDER, OPENCLIP_MODEL_TYPE, OPENCLIP_MODEL_NAME, 'versions')
     OPENCLIP_MODEL_ACTIVE_PATH = os.path.join(MODELS_FOLDER, OPENCLIP_MODEL_TYPE, OPENCLIP_MODEL_NAME, 'active_model') # Başlangıçta base_model'i işaret edebilir
 

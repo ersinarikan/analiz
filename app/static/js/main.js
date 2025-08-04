@@ -1004,7 +1004,7 @@ function resetModelFromModal(modelType) {
     
     if (modelType === 'age') {
         if (confirm('UYARI: Tüm yaş model versiyonları silinecek ve temel modele dönülecek. Emin misiniz?')) {
-            fetch('/api/models/reset/age', { method: 'POST' })
+            fetch('/api/model/reset/age', { method: 'POST' })
                 .then(response => response.json())
                 .then(data => {
                     console.log('✅ Age model reset tamamlandı:', data);
@@ -1019,7 +1019,7 @@ function resetModelFromModal(modelType) {
         }
     } else if (modelType === 'content') {
         if (confirm('UYARI: Tüm içerik model versiyonları silinecek ve temel modele dönülecek. Emin misiniz?')) {
-            fetch('/api/models/reset/content', { method: 'POST' })
+            fetch('/api/model/reset/content', { method: 'POST' })
                 .then(response => response.json())
                 .then(data => {
                     console.log('✅ Content model reset tamamlandı:', data);
@@ -1311,6 +1311,9 @@ window.stopQueueStatusChecker = stopQueueStatusChecker;
 // Training state setters (modals için)
 window.setCurrentTrainingSessionId = setCurrentTrainingSessionId;
 window.setIsModalTraining = setIsModalTraining;
+
+// Model Management Modal
+window.initializeModelManagementModal = initializeModelManagementModal;
 
 // =====================================
 // OVERALL PROGRESS BAR SYSTEM

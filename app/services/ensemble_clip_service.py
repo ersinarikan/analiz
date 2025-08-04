@@ -600,6 +600,13 @@ class EnsembleClipService:
                 is_active=True
             ).update({ModelVersion.is_active: False})
             
+            # Base OpenCLIP session'ını da deaktive et
+            from app.models.clip_training import CLIPTrainingSession
+            db.session.query(CLIPTrainingSession).filter_by(
+                version_name='base_openclip',
+                is_active=True
+            ).update({CLIPTrainingSession.is_active: False})
+            
             # Veritabanında yeni versiyon oluştur
             model_version = ModelVersion(
                 model_type='content',
@@ -711,15 +718,15 @@ class EnsembleClipService:
             
             # 2. İlgili dosya yollarını topla
             frame_paths = set()
-            content_ids = set()
+            analysis_ids = set()
             
             for feedback in feedbacks_to_delete:
                 if feedback.frame_path:
                     frame_paths.add(feedback.frame_path)
-                if feedback.content_id:
-                    content_ids.add(feedback.content_id)
+                if feedback.analysis_id:
+                    analysis_ids.add(feedback.analysis_id)
             
-            logger.info(f"Found {len(frame_paths)} frame paths and {len(content_ids)} content IDs to clean")
+            logger.info(f"Found {len(frame_paths)} frame paths and {len(analysis_ids)} analysis IDs to clean")
             
             # 3. Processed klasöründeki ilgili dosyaları sil
             processed_dir = current_app.config.get('PROCESSED_FOLDER', 'storage/processed')
@@ -730,19 +737,19 @@ class EnsembleClipService:
                     item_path = os.path.join(processed_dir, item)
                     
                     if os.path.isdir(item_path) and item.startswith('frames_'):
-                        # Bu frame klasöründe silinecek content_id'ler var mı kontrol et
+                        # Bu frame klasöründe silinecek analysis_id'ler var mı kontrol et
                         try:
-                            # Analysis ID'yi klasör adından çıkar
+                            # Analysis ID'yi klasör adından çıkar (UUID formatında)
                             analysis_id = item.replace('frames_', '')
                             
-                            # Eğer bu analysis_id silinecek content_id'ler arasındaysa
-                            if int(analysis_id) in content_ids:
+                            # Eğer bu analysis_id silinecek analysis_id'ler arasındaysa
+                            if analysis_id in analysis_ids:
                                 import shutil
                                 shutil.rmtree(item_path)
                                 cleanup_report['deleted_directories'] += 1
                                 logger.info(f"Deleted directory: {item_path}")
                                 
-                        except (ValueError, OSError) as e:
+                        except OSError as e:
                             cleanup_report['errors'].append(f"Error deleting directory {item_path}: {str(e)}")
                             logger.warning(f"Error deleting directory {item_path}: {str(e)}")
             

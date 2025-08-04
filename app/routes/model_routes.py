@@ -111,7 +111,7 @@ def reset_model_by_type(model_type):
                 logger.info(f"{model_type} modeli sıfırlandı")
                 
                 # Model state dosyasını güncelle
-                from app.services.model_service import update_model_state_file
+                from app.utils.model_state import update_model_state_file
                 update_model_state_file(model_type, 0)  # 0 = base model
                 
                 response_data['restart_required'] = True
@@ -529,13 +529,14 @@ def train_model_web():
             
             trainer = AgeTrainingService()
             
-            # Veriyi hazırla
-            training_data = trainer.prepare_training_data(min_samples=10)
+            # Veriyi hazırla (API'den gelen min_samples parametresini kullan)
+            min_samples = params.get('min_samples', 10)
+            training_data = trainer.prepare_training_data(min_samples=min_samples)
             
             if training_data is None:
                 return jsonify({
                     'success': False,
-                    'error': 'Yeterli yaş eğitim verisi bulunamadı. En az 10 geri bildirim gerekli.'
+                    'error': f'Yeterli yaş eğitim verisi bulunamadı. En az {min_samples} geri bildirim gerekli.'
                 }), 400
             
             # WebSocket ile progress tracking için session ID oluştur
@@ -668,6 +669,19 @@ def _run_age_training(trainer, training_data, params, session_id, app):
             # Model versiyonunu kaydet
             logger.info("Model versiyonu kaydediliyor...")
             model_version = trainer.save_model_version(result['model'], result)
+
+            # 🎯 YENİ MODELİ OTOMATİK AKTİVE ET
+            logger.info(f"Yeni model versiyonu otomatik aktive ediliyor: {model_version.version_name}")
+            activation_success = trainer.activate_model_version(model_version.id)
+            if activation_success:
+                logger.info(f"✅ Model versiyonu başarıyla aktive edildi: {model_version.version_name}")
+                
+                # Model state dosyasını güncelle
+                from app.utils.model_state import set_age_model_version
+                set_age_model_version(model_version.version)
+                logger.info(f"Model state güncellendi: version {model_version.version}")
+            else:
+                logger.warning(f"❌ Model versiyonu aktive edilemedi: {model_version.version_name}")
 
             # Eğitimde kullanılan verileri temizle
             cleanup_report = trainer.cleanup_used_training_data(result['used_feedback_ids'], model_version.version_name)

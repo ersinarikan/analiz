@@ -675,16 +675,67 @@ class AgeTrainingService:
                     logger.error(f"Error deleting file {frame_path}: {str(e)}")
                     cleanup_report['errors'].append(f"File deletion error: {str(e)}")
             
-            # 5. Veritabanından feedback kayıtlarını sil
-            deleted_feedbacks = Feedback.query.filter(
+            # 5. Veritabanından kullanılan feedback kayıtlarını sil
+            deleted_used_feedbacks = Feedback.query.filter(
                 Feedback.id.in_(used_feedback_ids)
             ).delete(synchronize_session=False)
             
-            cleanup_report['deleted_feedbacks'] = deleted_feedbacks
-            logger.info(f"Deleted {deleted_feedbacks} feedback records from database")
+            cleanup_report['deleted_feedbacks'] = deleted_used_feedbacks
+            logger.info(f"Deleted {deleted_used_feedbacks} used feedback records from database")
+            
+            # 6. DUPLICATE/UNUSED AGE FEEDBACK'LERİ TEMİZLE 🧹
+            logger.info("Cleaning up duplicate/unused age feedback records...")
+            
+            # Kalan yaş feedback'lerini person_id bazında grupla
+            remaining_age_feedbacks = Feedback.query.filter(
+                Feedback.feedback_type.in_(['age', 'age_pseudo'])
+            ).all()
+            
+            person_groups = {}
+            for feedback in remaining_age_feedbacks:
+                if feedback.person_id:
+                    if feedback.person_id not in person_groups:
+                        person_groups[feedback.person_id] = []
+                    person_groups[feedback.person_id].append(feedback)
+            
+            # Her person için en son/en iyi feedback'i bırak, gerisini sil
+            duplicate_ids_to_delete = []
+            
+            for person_id, feedbacks in person_groups.items():
+                if len(feedbacks) > 1:
+                    # Manuel feedback'i öncelikle, sonra en son olanı
+                    best_feedback = None
+                    
+                    # Önce manuel feedback'leri kontrol et
+                    manual_feedbacks = [f for f in feedbacks if f.feedback_source == 'MANUAL_USER']
+                    if manual_feedbacks:
+                        # En son manuel feedback'i al
+                        best_feedback = max(manual_feedbacks, key=lambda x: x.created_at)
+                    else:
+                        # Manuel yoksa en son pseudo feedback'i al
+                        best_feedback = max(feedbacks, key=lambda x: x.created_at)
+                    
+                    # Diğerlerini silmek üzere işaretle
+                    for feedback in feedbacks:
+                        if feedback.id != best_feedback.id:
+                            duplicate_ids_to_delete.append(feedback.id)
+                            logger.debug(f"Marking duplicate feedback {feedback.id} for deletion (person: {person_id})")
+            
+            # Duplicate feedback'leri sil
+            deleted_duplicates = 0
+            if duplicate_ids_to_delete:
+                deleted_duplicates = Feedback.query.filter(
+                    Feedback.id.in_(duplicate_ids_to_delete)
+                ).delete(synchronize_session=False)
+                
+                logger.info(f"Deleted {deleted_duplicates} duplicate age feedback records")
+            
+            cleanup_report['deleted_feedbacks'] += deleted_duplicates
+            cleanup_report['deleted_duplicates'] = deleted_duplicates
             
             db.session.commit()
             logger.info(f"Training data cleanup completed for model {model_version_name}")
+            logger.info(f"Total deleted: {deleted_used_feedbacks} used + {deleted_duplicates} duplicates = {deleted_used_feedbacks + deleted_duplicates}")
             
         except Exception as e:
             logger.error(f"Error during training data cleanup: {str(e)}")
@@ -766,21 +817,155 @@ class AgeTrainingService:
                     os.unlink(active_dir)
                     logger.info("Removed existing symbolic link")
                 else:
-                    # Dizin ise, tüm dizini yedekle
+                    # Dizin ise, güvenli şekilde yedekle ve kaldır
                     import shutil
+                    import time
                     os.makedirs(os.path.dirname(backup_dir), exist_ok=True)
-                    shutil.move(active_dir, backup_dir)
-                    logger.info(f"Backed up active model directory to: {backup_dir}")
+                    
+                    # Windows'ta safe backup ve removal
+                    max_retries = 5
+                    for attempt in range(max_retries):
+                        try:
+                            # İlk önce kopyala
+                            shutil.copytree(active_dir, backup_dir)
+                            logger.info(f"Backed up active model directory to: {backup_dir}")
+                            
+                            # Sonra güvenli şekilde sil
+                            break  # Backup başarılı, döngüden çık
+                        except Exception as backup_error:
+                            logger.warning(f"Backup attempt {attempt + 1} failed: {backup_error}")
+                            if attempt == max_retries - 1:
+                                # Son deneme, yedekleme olmadan devam et
+                                logger.error(f"Could not backup, proceeding without backup: {backup_error}")
+                                break
+                            time.sleep(1)  # 1 saniye bekle ve tekrar dene
             
             # Base modeli aktif model olarak ayarla
             if os.name == 'nt':  # Windows
                 # Windows'ta sembolik link yerine dizini kopyala
                 import shutil
-                shutil.copytree(base_dir, active_dir)
-                logger.info(f"Copied base model to active model (Windows)")
+                import time
+                import random
+                
+                # Hedef dizinin tamamen silindiğinden emin ol
+                if os.path.exists(active_dir):
+                    removal_success = False
+                    max_removal_attempts = 10
+                    
+                    for removal_attempt in range(max_removal_attempts):
+                        try:
+                            # Method 1: Direct removal
+                            shutil.rmtree(active_dir)
+                            logger.info(f"Successfully removed active_dir: {active_dir}")
+                            removal_success = True
+                            break
+                        except PermissionError as pe:
+                            logger.warning(f"Permission error on removal attempt {removal_attempt + 1}: {pe}")
+                        except FileNotFoundError:
+                            # Dosya zaten yok, başarılı sayalım
+                            logger.info(f"active_dir already removed: {active_dir}")
+                            removal_success = True
+                            break
+                        except Exception as e:
+                            logger.warning(f"Removal attempt {removal_attempt + 1} failed: {e}")
+                        
+                        # Method 2: Rename and then remove
+                        try:
+                            temp_name = f"{active_dir}_temp_{int(time.time())}_{random.randint(1000, 9999)}"
+                            os.rename(active_dir, temp_name)
+                            logger.info(f"Renamed {active_dir} to {temp_name}")
+                            
+                            # Try to remove renamed directory
+                            try:
+                                shutil.rmtree(temp_name)
+                                logger.info(f"Successfully removed renamed directory: {temp_name}")
+                                removal_success = True
+                                break
+                            except Exception as remove_error:
+                                logger.warning(f"Could not remove renamed directory: {remove_error}")
+                                # Directory renamed but not removed, continue with next attempt
+                        except Exception as rename_error:
+                            logger.warning(f"Could not rename directory: {rename_error}")
+                        
+                        # Wait before next attempt
+                        wait_time = 0.5 + (removal_attempt * 0.2)  # Increasing wait time
+                        logger.info(f"Waiting {wait_time}s before next removal attempt...")
+                        time.sleep(wait_time)
+                    
+                    if not removal_success:
+                        logger.error(f"Failed to remove active_dir after {max_removal_attempts} attempts")
+                        return False, "Aktif model dizini silinemedi, dosya kullanımda olabilir"
+                
+                # Now copy base model to active location
+                copy_success = False
+                max_copy_attempts = 5
+                
+                for copy_attempt in range(max_copy_attempts):
+                    try:
+                        # Ensure target directory doesn't exist before copying
+                        if os.path.exists(active_dir):
+                            logger.warning(f"Active dir still exists before copy attempt {copy_attempt + 1}, trying to remove...")
+                            try:
+                                shutil.rmtree(active_dir, ignore_errors=True)
+                                time.sleep(0.2)  # Short wait
+                            except:
+                                pass
+                        
+                        # Attempt to copy
+                        shutil.copytree(base_dir, active_dir)
+                        logger.info(f"Successfully copied base model to active model (Windows) on attempt {copy_attempt + 1}")
+                        copy_success = True
+                        break
+                        
+                    except FileExistsError as fee:
+                        logger.warning(f"Copy attempt {copy_attempt + 1}: FileExistsError - {fee}")
+                        # Try alternative approach: copy contents instead of directory
+                        try:
+                            if not os.path.exists(active_dir):
+                                os.makedirs(active_dir, exist_ok=True)
+                            
+                            # Copy all files and subdirectories
+                            for item in os.listdir(base_dir):
+                                source_path = os.path.join(base_dir, item)
+                                dest_path = os.path.join(active_dir, item)
+                                
+                                if os.path.isdir(source_path):
+                                    if os.path.exists(dest_path):
+                                        shutil.rmtree(dest_path, ignore_errors=True)
+                                    shutil.copytree(source_path, dest_path)
+                                else:
+                                    shutil.copy2(source_path, dest_path)
+                            
+                            logger.info(f"Successfully copied base model contents on attempt {copy_attempt + 1}")
+                            copy_success = True
+                            break
+                            
+                        except Exception as alt_error:
+                            logger.warning(f"Alternative copy method failed: {alt_error}")
+                        
+                    except Exception as copy_error:
+                        logger.warning(f"Copy attempt {copy_attempt + 1} failed: {copy_error}")
+                    
+                    # Wait before next attempt
+                    if copy_attempt < max_copy_attempts - 1:
+                        wait_time = 1.0 + (copy_attempt * 0.5)
+                        logger.info(f"Waiting {wait_time}s before next copy attempt...")
+                        time.sleep(wait_time)
+                
+                if not copy_success:
+                    logger.error(f"Failed to copy base model after {max_copy_attempts} attempts")
+                    return False, f"Base model {max_copy_attempts} deneme sonrası kopyalanamadı"
             else:  # Linux/Mac
                 os.symlink(base_dir, active_dir)
                 logger.info(f"Created symbolic link from base model to active model")
+            
+            # Model state'i base model'e set et (version 0)
+            try:
+                from app.utils.model_state import set_age_model_version
+                set_age_model_version(0)  # 0 = base model
+                logger.info("Model state updated to base model (version 0)")
+            except Exception as state_error:
+                logger.warning(f"Could not update model state: {state_error}")
             
             logger.info("Age model successfully reset to base model")
             return True
