@@ -28,13 +28,14 @@ class EnsembleClipService:
         """Load all content feedback corrections as lookup tables"""
         logger.info("Loading CLIP content corrections...")
         
-        # Get all content feedback (using available fields)
+        # Get all content feedback (using category_feedback JSON field)
         feedbacks = Feedback.query.filter(
             Feedback.feedback_type == 'content'
         ).filter(
             db.or_(
-                Feedback.comment.isnot(None),  # Use comment as corrected description
-                Feedback.rating.isnot(None)    # Use rating for confidence adjustment
+                Feedback.category_feedback.isnot(None),  # Primary: category-based feedback
+                Feedback.comment.isnot(None),           # Fallback: comment as corrected description
+                Feedback.rating.isnot(None)             # Fallback: rating for confidence adjustment
             )
         ).all()
         
@@ -49,7 +50,52 @@ class EnsembleClipService:
                 # Content hash for exact matching
                 content_hash = self._hash_content(feedback)
                 
-                # Description correction (using comment field)
+                # PRIMARY: Category-based feedback (JSON field)
+                if feedback.category_feedback:
+                    try:
+                        if isinstance(feedback.category_feedback, str):
+                            category_data = json.loads(feedback.category_feedback)
+                        else:
+                            category_data = feedback.category_feedback
+                        
+                        for category, feedback_value in category_data.items():
+                            # Convert category feedback to corrections
+                            category_hash = f"{content_hash}_{category}"
+                            
+                            # Map feedback values to confidence adjustments
+                            adjustment_map = {
+                                'over_estimated': -0.3,   # Reduce confidence if over-estimated
+                                'under_estimated': 0.3,   # Increase confidence if under-estimated  
+                                'accurate': 0.0,          # No change if accurate
+                                'wrong_category': -0.5    # Heavy penalty for wrong category
+                            }
+                            
+                            adjustment = adjustment_map.get(feedback_value, 0.0)
+                            
+                            confidence_adjustments[category_hash] = {
+                                'category': category,
+                                'feedback_value': feedback_value,
+                                'adjustment': adjustment,
+                                'original_confidence': 0.5,  # Placeholder
+                                'source': feedback.feedback_source,
+                                'content_id': feedback.content_id,
+                                'frame_path': feedback.frame_path
+                            }
+                            
+                            # Also create content correction entry
+                            content_corrections[category_hash] = {
+                                'category': category,
+                                'feedback_value': feedback_value,
+                                'confidence': 1.0 if feedback.feedback_source == 'MANUAL_USER_CONTENT_CORRECTION' else 0.8,
+                                'source': feedback.feedback_source,
+                                'content_id': feedback.content_id,
+                                'frame_path': feedback.frame_path
+                            }
+                            
+                    except Exception as json_err:
+                        logger.error(f"Error parsing category_feedback JSON for feedback {feedback.id}: {str(json_err)}")
+                
+                # FALLBACK: Description correction (using comment field)
                 if feedback.comment:
                     content_corrections[content_hash] = {
                         'original_description': 'Original content description',  # Placeholder
@@ -60,7 +106,7 @@ class EnsembleClipService:
                         'person_id': feedback.person_id
                     }
                 
-                # Confidence adjustment (using rating field as adjustment)
+                # FALLBACK: Confidence adjustment (using rating field as adjustment)
                 if feedback.rating is not None:
                     # Convert rating (1-5) to confidence adjustment (-0.4 to +0.4)
                     adjustment = (feedback.rating - 3) * 0.2  # Rating 3 = no change, 1 = -0.4, 5 = +0.4
@@ -94,6 +140,19 @@ class EnsembleClipService:
         self.content_corrections = content_corrections
         self.embedding_corrections = embedding_corrections
         self.confidence_adjustments = confidence_adjustments
+        
+        # Mark all used feedbacks as used_in_ensemble
+        try:
+            for feedback in feedbacks:
+                if (feedback.category_feedback or feedback.comment or feedback.rating is not None):
+                    self._mark_feedback_as_used(feedback)
+            
+            db.session.commit()
+            logger.info(f"✅ Marked {len(feedbacks)} feedbacks as used_in_ensemble")
+            
+        except Exception as mark_err:
+            logger.error(f"Error marking feedbacks as used: {str(mark_err)}")
+            db.session.rollback()
         
         logger.info(f"✅ Loaded content corrections: {len(content_corrections)}")
         logger.info(f"✅ Loaded confidence adjustments: {len(confidence_adjustments)}")
