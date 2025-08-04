@@ -322,6 +322,42 @@ def activate_age_model_version(version_id):
         logger.error(f"Model versiyonu aktifleştirme hatası: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
+@bp.route('/content/activate/<version_id>', methods=['POST'])
+def activate_content_model_version(version_id):
+    """
+    Belirli bir Content model versiyonunu aktif hale getirir.
+    Base model için version_id='base_openclip' kullanılır.
+    """
+    try:
+        from app.services.model_service import ModelService
+        
+        model_service = ModelService()
+        
+        if version_id == 'base_openclip' or version_id == 'base':
+            # Base OpenCLIP model'e geç
+            success = model_service.activate_base_content_model()
+            activated_version = 'base_openclip'
+        else:
+            # Custom ensemble version'a geç
+            success = model_service.activate_content_model_version(version_id)
+            activated_version = version_id
+        
+        if success:
+            return jsonify({
+                'success': True,
+                'message': f'Content model version {activated_version} activated successfully',
+                'activated_version': activated_version
+            }), 200
+        else:
+            return jsonify({
+                'success': False,
+                'message': f'Failed to activate content model version {version_id}'
+            }), 400
+            
+    except Exception as e:
+        logger.error(f"Content model versiyonu aktifleştirme hatası: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
 @bp.route('/age/training-data-stats', methods=['GET'])
 def get_age_training_data_stats():
     """

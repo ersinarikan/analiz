@@ -1215,19 +1215,24 @@ function switchContentModelVersion(version) {
     console.log(`🔄 Content model versiyon değiştiriliyor: ${version}`);
     
     if (confirm(`İçerik analiz modelini "${version}" versiyonuna geçirmek istediğinizden emin misiniz?`)) {
-        fetch('/api/models/switch/content', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ version: version })
-    })
-    .then(response => response.json())
-    .then(data => {
+        fetch(`/api/model/content/activate/${version === 'base_openclip' ? 'base' : version}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
             console.log('✅ Content model versiyon değiştirildi:', data);
-            alert(`İçerik model "${version}" versiyonuna başarıyla geçirildi!`);
-            // Modal'ı yenile
-            initializeModelManagementModal();
+            
+            // Önce metrikleri yükle
+            loadModalModelStats().then(() => {
+                // Sonra versiyonları yükle
+                loadModalModelVersions().then(() => {
+                    // En son başarı mesajını göster
+                    alert(`İçerik model "${version}" versiyonuna başarıyla geçirildi!`);
+                });
+            });
         })
         .catch(error => {
             console.error('❌ Content model versiyon değiştirme hatası:', error);
@@ -1265,6 +1270,9 @@ window.deleteSpecificContentVersion = deleteSpecificContentVersion;
 
 // Age model fonksiyonlarını da global scope'a ekle
 window.switchAgeModelVersion = switchAgeModelVersion;
+
+// Reset fonksiyonunu da global scope'a ekle
+window.resetModelFromModal = resetModelFromModal;
 
 function resetAgeEnsemble() {
     if (confirm('Tüm özel yaş modeli versiyonlarını silip temel modele dönmek istediğinizden emin misiniz?')) {

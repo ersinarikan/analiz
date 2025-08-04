@@ -2080,3 +2080,73 @@ class ModelService:
                 'success': False,
                 'error': str(e)
             }
+    
+    def activate_content_model_version(self, version_id):
+        """
+        Belirli bir content model versiyonunu aktif hale getirir
+        
+        Args:
+            version_id: Aktif edilecek ModelVersion version_name'i
+            
+        Returns:
+            bool: Başarılı olup olmadığı
+        """
+        try:
+            # Version name ile version'ı bul
+            version = ModelVersion.query.filter_by(
+                version_name=version_id,
+                model_type='content'
+            ).first()
+            
+            if not version:
+                logger.error(f"Content model version not found: {version_id}")
+                return False
+            
+            # Mevcut aktif versiyonu devre dışı bırak
+            ModelVersion.query.filter_by(
+                model_type='content',
+                is_active=True
+            ).update({'is_active': False})
+            
+            # Yeni versiyonu aktif et
+            version.is_active = True
+            db.session.commit()
+            
+            # Model state'i güncelle
+            from app.utils.model_state import set_content_model_version
+            set_content_model_version(version.version)
+            
+            logger.info(f"Content model version {version_id} activated successfully")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Content model versiyonu aktifleştirme hatası: {str(e)}")
+            db.session.rollback()
+            return False
+    
+    def activate_base_content_model(self):
+        """
+        Base OpenCLIP model'i aktif hale getirir
+        
+        Returns:
+            bool: Başarılı olup olmadığı
+        """
+        try:
+            # Tüm content versiyonlarını deaktive et
+            ModelVersion.query.filter_by(
+                model_type='content',
+                is_active=True
+            ).update({'is_active': False})
+            db.session.commit()
+            
+            # Model state'i base'e ayarla
+            from app.utils.model_state import set_content_model_version
+            set_content_model_version(0)  # 0 = base model
+            
+            logger.info("Base OpenCLIP model activated")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Base content model aktifleştirme hatası: {str(e)}")
+            db.session.rollback()
+            return False
