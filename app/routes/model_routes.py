@@ -424,8 +424,8 @@ def train_model_web():
         }
         
         if model_type == 'content':
-            # Content model training - Ensemble sistemi kullan
-            from app.services.ensemble_integration_service import get_ensemble_service
+            # Content model training - Sadece CLIP ensemble sistemi kullan
+            from app.services.ensemble_clip_service import EnsembleClipService
             
             # WebSocket session ID oluştur ve training başlama bildirimi
             content_session_id = str(uuid.uuid4())
@@ -436,28 +436,37 @@ def train_model_web():
             except Exception as ws_err:
                 logger.warning(f"WebSocket content training started event hatası: {str(ws_err)}")
             
-            ensemble_service = get_ensemble_service()
-            result = ensemble_service.refresh_corrections()
+            # Sadece CLIP ensemble servisini kullan (Age sistem karışmasın)
+            clip_ensemble = EnsembleClipService()
+            clip_result = clip_ensemble.load_content_corrections()
             
-            if not result['success']:
-                return jsonify({
-                    'success': False,
-                    'error': f'Ensemble yenileme hatası: {result.get("error", "Bilinmeyen hata")}'
-                }), 400
+            logger.info(f"📊 CLIP corrections loaded: {clip_result}")
+            
+            # CLIP ensemble versiyonu oluştur (eğer düzeltme varsa)
+            clip_version = None
+            clip_stats = clip_ensemble.get_statistics()
+            
+            if clip_result > 0:
+                logger.info("💾 Creating CLIP ensemble model version...")
+                clip_version = clip_ensemble.save_ensemble_corrections_as_version()
+                logger.info(f"✅ CLIP ensemble version created: {clip_version.version_name}")
+            else:
+                logger.info("ℹ️ No CLIP corrections found, no version created")
             
             # WebSocket ile content training tamamlanma bildirimi
             try:
                 from app.routes.websocket_routes import emit_training_completed
-                emit_training_completed(content_session_id, 'Content Model', result.get('clip_stats', {}))
+                emit_training_completed(content_session_id, 'Content Model', clip_stats)
             except Exception as ws_err:
                 logger.warning(f"WebSocket content training completed event hatası: {str(ws_err)}")
             
             return jsonify({
                 'success': True,
                 'message': 'İçerik modeli ensemble düzeltmeleri başarıyla yenilendi',
-                'session_id': content_session_id,  # Session ID'yi de döndür
-                'ensemble_stats': result['clip_stats'],
-                'content_corrections': result['clip_corrections']
+                'session_id': content_session_id,
+                'ensemble_stats': clip_stats,
+                'content_corrections': clip_result,
+                'version_created': clip_version.version_name if clip_version else None
             })
             
         elif model_type == 'age':
