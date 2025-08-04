@@ -20,6 +20,27 @@ import { updateFileStatus } from './file-manager.js';
 import { emitSocketEvent, isSocketConnected } from './websocket-manager.js';
 
 // =====================================
+// UTILITY FUNCTIONS
+// =====================================
+
+/**
+ * Kategori adlarını Türkçe'ye çevirir
+ * @param {string} category - İngilizce kategori adı
+ * @returns {string} Türkçe kategori adı
+ */
+function getCategoryNameTurkish(category) {
+    const names = {
+        'violence': 'Şiddet',
+        'adult_content': 'Yetişkin İçeriği',
+        'harassment': 'Taciz',
+        'weapon': 'Silah',
+        'drug': 'Madde Kullanımı',
+        'safe': 'Güvenli'
+    };
+    return names[category] || category;
+}
+
+// =====================================
 // ANALYSIS MANAGEMENT
 // =====================================
 
