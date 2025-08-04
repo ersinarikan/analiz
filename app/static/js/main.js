@@ -1088,32 +1088,28 @@ function displayContentModelVersions(versionData) {
     console.log('🔍 DEBUG - versionData.versions length:', versionData?.versions?.length || 0);
     console.log('🔍 DEBUG - versionData.base_model_exists:', versionData?.base_model_exists);
     
-    if (!versionData || !versionData.base_model_exists) {
-        // Henüz model yoksa
-        versionsContainer.innerHTML = `
-            <div class="d-flex align-items-center gap-2">
-                <span class="badge bg-primary" style="cursor: pointer;" onclick="switchContentModelVersion('base_openclip')" 
-                      title="Bu versiyona geç">CLIP-v1.0 (Aktif)</span>
-                <small class="text-muted">Temel model</small>
-            </div>
-        `;
-        console.log('✅ Content versions: Temel model görünümü ayarlandı');
-    } else {
+    // Eğer versions array'i varsa ve en az 1 model varsa, versiyonları göster
+    if (versionData && versionData.versions && versionData.versions.length > 0) {
         // Model varsa versiyonları göster
         const activeVersion = versionData.active_version || 'base_openclip';
         
-        let versionsHtml = `
-            <div class="d-flex align-items-center gap-2 mb-2">
-                <span class="badge ${activeVersion === 'base_openclip' ? 'bg-success' : 'bg-secondary'}" 
-                      style="cursor: pointer;" onclick="switchContentModelVersion('base_openclip')"
-                      title="Bu versiyona geç">CLIP-v1.0 ${activeVersion === 'base_openclip' ? '(Aktif)' : ''}</span>
-                <small class="text-muted">Temel model</small>
-            </div>
-        `;
+        let versionsHtml = '';
+        
+        // Base model'i de göster (eğer base_model_exists varsa)
+        if (versionData.base_model_exists) {
+            versionsHtml += `
+                <div class="d-flex align-items-center gap-2 mb-2">
+                    <span class="badge ${activeVersion === 'base_openclip' ? 'bg-success' : 'bg-secondary'}" 
+                          style="cursor: pointer;" onclick="switchContentModelVersion('base_openclip')"
+                          title="Bu versiyona geç">CLIP-v1.0 ${activeVersion === 'base_openclip' ? '(Aktif)' : ''}</span>
+                    <small class="text-muted">Temel model</small>
+                </div>
+            `;
+        }
         
         // Database versiyonları (versions array) kullan, physical_versions değil
         console.log('🔍 DEBUG - Processing versions for display...');
-        if (versionData.versions && versionData.versions.length > 1) { // Base model hariç
+        if (versionData.versions && versionData.versions.length > 0) {
             console.log('🔍 DEBUG - Found', versionData.versions.length, 'total versions');
             versionData.versions.forEach((versionInfo, index) => {
                 console.log(`🔍 DEBUG - Version ${index}: ${versionInfo.version_name} (active: ${versionInfo.is_active})`);
@@ -1151,6 +1147,15 @@ function displayContentModelVersions(versionData) {
         
         versionsContainer.innerHTML = versionsHtml;
         console.log('✅ Content versions: Model versiyonları listelendi');
+    } else {
+        // Hiç model yoksa
+        versionsContainer.innerHTML = `
+            <div class="d-flex align-items-center gap-2">
+                <span class="badge bg-secondary" title="Henüz eğitim yapılmamış">CLIP-v1.0 (Temel)</span>
+                <small class="text-muted">Henüz custom versiyon yok</small>
+            </div>
+        `;
+        console.log('⚠️ Content versions: Henüz custom versiyon yok, placeholder gösteriliyor');
     }
 }
 
