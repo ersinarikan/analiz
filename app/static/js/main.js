@@ -841,12 +841,23 @@ function updateModalModelStats(modelType, stats) {
         const contentData = stats.content || stats;
         
         if (activeVersionEl) {
-            // Global variable'dan alıyoruz (loadModalModelVersions'den)
-            let version = window.contentVersionData?.active_version;
+            // 🎯 Versions array'den gerçek aktif versiyonu bul
+            let version = 'CLIP-v1.0'; // Default
+            const versionData = window.contentVersionData;
             
-            // 🎯 Content için default gösterim
-            if (!version || version === 'base_openclip') {
-                version = 'CLIP-v1.0';
+            if (versionData && versionData.versions) {
+                // Database'den aktif versiyonu bul
+                const activeVersion = versionData.versions.find(v => v.is_active);
+                if (activeVersion) {
+                    // ensemble_clip_v1_... -> CLIP-v1 formatına çevir
+                    if (activeVersion.version_name.includes('ensemble_clip')) {
+                        version = `CLIP-v${activeVersion.version}`;
+                    } else {
+                        version = activeVersion.version_name;
+                    }
+                } else if (versionData.base_model_exists) {
+                    version = 'CLIP-v1.0'; // Base model
+                }
             }
             
             activeVersionEl.textContent = version;
