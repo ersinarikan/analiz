@@ -456,7 +456,33 @@ class WebSocketClient {
             modalProgressDiv.style.display = 'block';
         }
 
+        // Training istatistiklerini temizle (özellikle CLIP ensemble için)
+        this.clearTrainingStats();
+
         console.log(`[WebSocket] Training started: ${model_type} model with ${total_samples} samples`);
+    }
+
+    clearTrainingStats() {
+        // Training istatistiklerini "-" ile sıfırla
+        const epochEl = document.getElementById('modal-current-epoch');
+        const lossEl = document.getElementById('modal-current-loss');
+        const maeEl = document.getElementById('modal-current-mae');
+        const durationEl = document.getElementById('modal-training-duration');
+        
+        if (epochEl) epochEl.textContent = '-';
+        if (lossEl) lossEl.textContent = '-';
+        if (maeEl) maeEl.textContent = '-';
+        if (durationEl) durationEl.textContent = '-';
+        
+        // Progress bar'ı da sıfırla
+        const modalProgressBar = document.getElementById('modal-progress-bar');
+        if (modalProgressBar) {
+            modalProgressBar.style.width = '0%';
+            modalProgressBar.setAttribute('aria-valuenow', 0);
+            modalProgressBar.classList.remove('bg-success');
+        }
+        
+        console.log('🧹 Training stats temizlendi');
     }
 
     onTrainingProgress(data) {
@@ -499,12 +525,45 @@ class WebSocketClient {
         // Success mesajı göster
         this.showModalTrainingStatus(`Eğitim tamamlandı! Model: ${model_path}`, 'success');
 
+        // CLIP Ensemble metrics varsa istatistikleri güncelle
+        if (metrics && model_path.includes('Content')) {
+            this.updateClipEnsembleStats(metrics);
+        }
+
         // Modal'ı yenile
         if (window.initializeModelManagementModal) {
             window.initializeModelManagementModal();
         }
 
-        console.log(`[WebSocket] Training ${session_id} completed: ${model_path}`);
+        console.log(`[WebSocket] Training ${session_id} completed: ${model_path}`, metrics);
+    }
+
+    updateClipEnsembleStats(metrics) {
+        // CLIP Ensemble için özel istatistik gösterimi
+        console.log('🎯 CLIP Ensemble stats güncelleniyor:', metrics);
+        
+        const epochEl = document.getElementById('modal-current-epoch');
+        const lossEl = document.getElementById('modal-current-loss');
+        const maeEl = document.getElementById('modal-current-mae');
+        const durationEl = document.getElementById('modal-training-duration');
+        
+        if (epochEl && metrics.total_content_corrections !== undefined) {
+            epochEl.textContent = `${metrics.total_content_corrections} Düzeltme`;
+        }
+        
+        if (lossEl && metrics.avg_confidence_adjustment !== undefined) {
+            lossEl.textContent = `${parseFloat(metrics.avg_confidence_adjustment).toFixed(3)}`;
+        }
+        
+        if (maeEl && metrics.total_confidence_adjustments !== undefined) {
+            maeEl.textContent = `${metrics.total_confidence_adjustments} Ayar`;
+        }
+        
+        if (durationEl && metrics.manual_corrections !== undefined && metrics.auto_corrections !== undefined) {
+            durationEl.textContent = `${metrics.manual_corrections}M/${metrics.auto_corrections}A`;
+        }
+        
+        console.log('✅ CLIP Ensemble stats güncellendi');
     }
 
     onTrainingError(data) {

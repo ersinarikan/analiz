@@ -1100,18 +1100,25 @@ function displayContentModelVersions(versionData) {
             </div>
         `;
         
-        if (versionData.physical_versions && versionData.physical_versions.length > 0) {
-            versionData.physical_versions.forEach((version, index) => {
-                const versionName = `CLIP-v1.${index + 1}`;
-                const isActive = activeVersion === version;
+        // Database versiyonları (versions array) kullan, physical_versions değil
+        if (versionData.versions && versionData.versions.length > 1) { // Base model hariç
+            versionData.versions.forEach((versionInfo) => {
+                // Base model'i atla (version_name: 'base_openclip')
+                if (versionInfo.version_name === 'base_openclip') return;
+                
+                const isActive = versionInfo.is_active;
+                const displayName = versionInfo.version_name.includes('ensemble_clip') 
+                    ? `CLIP-v${versionInfo.version}` 
+                    : versionInfo.version_name;
+                
                 versionsHtml += `
                     <div class="d-flex align-items-center gap-2 mb-1">
                         <span class="badge ${isActive ? 'bg-success' : 'bg-info'}" 
-                              style="cursor: pointer;" onclick="switchContentModelVersion('${version}')"
-                              title="Bu versiyona geç">${versionName} ${isActive ? '(Aktif)' : ''}</span>
-                        <small class="text-muted">${version}</small>
+                              style="cursor: pointer;" onclick="switchContentModelVersion('${versionInfo.version_name}')"
+                              title="Bu versiyona geç">${displayName} ${isActive ? '(Aktif)' : ''}</span>
+                        <small class="text-muted">${versionInfo.version_name}</small>
                         ${!isActive ? `<button class="btn btn-xs btn-outline-danger ms-auto" 
-                                             onclick="deleteSpecificContentVersion('${version}')" 
+                                             onclick="deleteSpecificContentVersion('${versionInfo.version_name}')" 
                                              title="Bu versiyonu sil">
                                              <i class="fas fa-times"></i>
                                       </button>` : ''}
