@@ -710,7 +710,7 @@ async function loadModalModelStats() {
         }
 
         // İçerik modeli istatistikleri
-        const contentResponse = await fetch('/api/models/metrics/content');
+        const contentResponse = await fetch('/api/model/metrics/content');
         if (contentResponse.ok) {
             const contentStats = await contentResponse.json();
             console.log('✅ Content model stats yüklendi:', contentStats);
@@ -748,7 +748,7 @@ async function loadModalModelVersions() {
         }
 
         // İçerik modeli versiyonları  
-        const contentResponse = await fetch('/api/models/versions/content');
+        const contentResponse = await fetch('/api/model/versions/content');
         if (contentResponse.ok) {
             const contentData = await contentResponse.json();
             console.log('✅ Content model versions yüklendi:', contentData);
