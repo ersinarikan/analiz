@@ -825,8 +825,11 @@ function updateModalModelStats(modelType, stats) {
         console.log('modal-content-status element:', statusEl);
         console.log('modal-content-training-data element:', trainingDataEl);
         
-        // 🔍 DEBUG: API data structure'ını kontrol et (API direkt obje gönderiyor, nested değil)
+        // 🔍 DEBUG: API data structure'ını kontrol et (API content wrapper içinde döndürüyor)
         console.log('🔍 DEBUG - Content API Data Structure:', stats);
+        
+        // API response'ından content data'yı al
+        const contentData = stats.content || stats;
         
         if (activeVersionEl) {
             // Global variable'dan alıyoruz (loadModalModelVersions'den)
@@ -842,10 +845,10 @@ function updateModalModelStats(modelType, stats) {
         }
         
         if (statusEl) {
-            // 🎯 Content model durumu - API direkt obje gönderiyor (stats.content değil, direkt stats)
-            const hasMetrics = stats.metrics && Object.keys(stats.metrics).length > 0;
-            const hasModelName = stats.model_name !== undefined;
-            const hasFeedbackCount = stats.feedback_count !== undefined;
+            // 🎯 Content model durumu
+            const hasMetrics = contentData.metrics && Object.keys(contentData.metrics).length > 0;
+            const hasModelName = contentData.model_name !== undefined;
+            const hasFeedbackCount = contentData.feedback_count !== undefined;
             const isActive = hasMetrics || hasModelName || hasFeedbackCount;
             
             statusEl.innerHTML = isActive ? 
@@ -855,9 +858,9 @@ function updateModalModelStats(modelType, stats) {
             console.log('🔍 Content durum detay - hasMetrics:', hasMetrics, 'hasModelName:', hasModelName, 'hasFeedbackCount:', hasFeedbackCount);
         }
         
-        if (trainingDataEl && stats.feedback_count !== undefined) {
-            trainingDataEl.textContent = stats.feedback_count.toLocaleString();
-            console.log('✅ Content feedback count güncellendi:', stats.feedback_count);
+        if (trainingDataEl && contentData.feedback_count !== undefined) {
+            trainingDataEl.textContent = contentData.feedback_count.toLocaleString();
+            console.log('✅ Content feedback count güncellendi:', contentData.feedback_count);
         }
     }
 }
