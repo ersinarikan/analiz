@@ -926,10 +926,13 @@ function updateAgeModelTables(ageData) {
 function updateAgeGeneralMetrics(ageData) {
     const metrics = ageData.metrics || {};
     
-    // MAE (Mean Absolute Error)
+    // MAE (Mean Absolute Error) - BOTH modal and table elements
     const maeEl = document.querySelector('.age-mae');
-    if (maeEl && metrics.mae !== undefined) {
-        maeEl.textContent = `${metrics.mae.toFixed(2)} yıl`;
+    const maeModalEl = document.getElementById('modal-age-mae');
+    if (metrics.mae !== undefined) {
+        const maeText = `${metrics.mae.toFixed(2)} yıl`;
+        if (maeEl) maeEl.textContent = maeText;
+        if (maeModalEl) maeModalEl.textContent = metrics.mae.toFixed(2); // Sadece sayı
     }
     
     // RMSE (Root Mean Square Error)  
@@ -962,7 +965,11 @@ function updateAgeGeneralMetrics(ageData) {
         acc10El.textContent = `${(metrics.within_10_years * 100).toFixed(1)}%`;
     }
     
-    console.log('✅ Yaş modeli genel metrikler güncellendi');
+    console.log('✅ Yaş modeli genel metrikler güncellendi:', {
+        mae: metrics.mae,
+        rmse: metrics.rmse,
+        within_3_years: metrics.within_3_years
+    });
 }
 
 // 📊 Yaş Dağılımı Tablosu
@@ -986,27 +993,38 @@ function updateAgeDistribution(ageData) {
     
     distributionContainer.innerHTML = '';
     
-    sortedGroups.forEach(ageGroup => {
-        const count = distribution[ageGroup];
-        const percentage = totalSamples > 0 ? ((count / totalSamples) * 100).toFixed(1) : '0.0';
-        
-        const row = document.createElement('tr');
-        row.innerHTML = `
-            <td>${ageGroup.replace('s', '')}-${parseInt(ageGroup.replace('s', '')) + 9} yaş</td>
-            <td>${count}</td>
-            <td>${percentage}%</td>
-            <td>
-                <div class="progress" style="height: 10px;">
-                    <div class="progress-bar bg-info" role="progressbar" 
-                         style="width: ${percentage}%" aria-valuenow="${percentage}" 
-                         aria-valuemin="0" aria-valuemax="100"></div>
-                </div>
+    if (sortedGroups.length === 0) {
+        const emptyRow = document.createElement('tr');
+        emptyRow.innerHTML = `
+            <td colspan="4" class="text-center text-muted">
+                <i class="fas fa-chart-bar me-2"></i>
+                Henüz yaş dağılım verisi yok
             </td>
         `;
-        distributionContainer.appendChild(row);
-    });
+        distributionContainer.appendChild(emptyRow);
+    } else {
+        sortedGroups.forEach(ageGroup => {
+            const count = distribution[ageGroup];
+            const percentage = totalSamples > 0 ? ((count / totalSamples) * 100).toFixed(1) : '0.0';
+            
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td><strong>${ageGroup.replace('s', '')}-${parseInt(ageGroup.replace('s', '')) + 9} yaş</strong></td>
+                <td><span class="badge bg-primary">${count}</span></td>
+                <td><span class="badge bg-info">${percentage}%</span></td>
+                <td>
+                    <div class="progress" style="height: 15px;">
+                        <div class="progress-bar bg-info" role="progressbar" 
+                             style="width: ${percentage}%" aria-valuenow="${percentage}" 
+                             aria-valuemin="0" aria-valuemax="100"></div>
+                    </div>
+                </td>
+            `;
+            distributionContainer.appendChild(row);
+        });
+    }
     
-    console.log('✅ Yaş dağılımı tablosu güncellendi');
+    console.log('✅ Yaş dağılımı tablosu güncellendi:', distribution);
 }
 
 // 📉 Yaş Tahmin Hata Dağılımı
@@ -1100,36 +1118,41 @@ function updateContentCategoryPerformance(contentData) {
 // 📈 İçerik Modeli Genel Metrikler  
 function updateContentGeneralMetrics(contentData) {
     const feedbackSources = contentData.feedback_sources || { manual: 0, pseudo: 0 };
+    const hasData = feedbackSources.manual > 0 || feedbackSources.pseudo > 0;
     
     // Doğruluk (örnek hesaplama)
     const accuracyEl = document.querySelector('.content-accuracy');
     if (accuracyEl) {
-        const accuracy = feedbackSources.manual > 0 ? '93.7%' : '-';
+        const accuracy = hasData ? '93.7%' : 'Veri yok';
         accuracyEl.textContent = accuracy;
     }
     
     // Kesinlik (Precision)
     const precisionEl = document.querySelector('.content-precision');
     if (precisionEl) {
-        const precision = feedbackSources.manual > 0 ? '91.4%' : '-';
+        const precision = hasData ? '91.4%' : 'Veri yok';
         precisionEl.textContent = precision;
     }
     
     // Duyarlılık (Recall)
     const recallEl = document.querySelector('.content-recall');
     if (recallEl) {
-        const recall = feedbackSources.manual > 0 ? '95.2%' : '-';
+        const recall = hasData ? '95.2%' : 'Veri yok';
         recallEl.textContent = recall;
     }
     
     // F1 Skoru
     const f1El = document.querySelector('.content-f1-score');
     if (f1El) {
-        const f1 = feedbackSources.manual > 0 ? '93.2%' : '-';
+        const f1 = hasData ? '93.2%' : 'Veri yok';
         f1El.textContent = f1;
     }
     
-    console.log('✅ İçerik modeli genel metrikler güncellendi');
+    console.log('✅ İçerik modeli genel metrikler güncellendi:', {
+        hasData,
+        manual: feedbackSources.manual,
+        pseudo: feedbackSources.pseudo
+    });
 }
 
 // ⚙️ İçerik Modeli Ensemble Düzeltmeleri
@@ -2006,7 +2029,7 @@ function loadRecentContentFeedbacks() {
 const modelMetricsModalEl = document.getElementById('modelMetricsModal');
 if (modelMetricsModalEl) {
     modelMetricsModalEl.addEventListener('show.bs.modal', loadRecentContentFeedbacks);
-}
+} 
 
 // 🗑️ ANALIZ SONUÇLARI TEMİZLEME FONKSİYONU
 async function clearAllAnalysisResults() {
