@@ -920,6 +920,9 @@ function updateAgeModelTables(ageData) {
     
     // 3. Hata Dağılımı Tablosu
     updateAgeErrorDistribution(ageData);
+    
+    // 4. Ensemble Düzeltmeleri
+    updateAgeEnsembleCorrections(ageData);
 }
 
 // 📈 Yaş Modeli Genel Metrikler
@@ -1206,6 +1209,38 @@ function updateContentEnsembleCorrections(contentData) {
     
     console.log('✅ İçerik ensemble düzeltmeleri tablosu güncellendi');
     }, 100); // setTimeout kapanışı
+}
+
+// ⚙️ Yaş Modeli Ensemble Düzeltmeleri
+function updateAgeEnsembleCorrections(ageData) {
+    const ensembleContainer = document.querySelector('.age-ensemble-corrections');
+    
+    if (!ensembleContainer) {
+        console.warn('⚠️ Age ensemble corrections table container bulunamadı');
+        return;
+    }
+    
+    ensembleContainer.innerHTML = ''; // Önceki verileri temizle
+    
+    const corrections = ageData.ensemble_corrections || [];
+    if (corrections.length === 0) {
+        ensembleContainer.innerHTML = '<tr><td colspan="5" class="text-center text-muted">Henüz ensemble düzeltmesi yapılmadı</td></tr>';
+        return;
+    }
+    
+    corrections.forEach(correction => {
+        const row = document.createElement('tr');
+        row.innerHTML = `
+            <td><strong>${correction.age_range}</strong></td>
+            <td><span class="badge bg-warning">${correction.original_mae.toFixed(1)} yıl</span></td>
+            <td><span class="badge bg-success">${correction.corrected_mae.toFixed(1)} yıl</span></td>
+            <td><span class="badge bg-info">${correction.improvement}</span></td>
+            <td><span class="badge bg-secondary">${correction.sample_count}</span></td>
+        `;
+        ensembleContainer.appendChild(row);
+    });
+    
+    console.log('✅ Yaş ensemble düzeltmeleri tablosu güncellendi');
 }
 
 // 🎯 AGE MODEL VERSIONS DISPLAY FUNCTION
