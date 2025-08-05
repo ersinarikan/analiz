@@ -1029,7 +1029,7 @@
                                                 </div>
                                                 <div class="col-md-6 mb-3">
                                                     <label class="form-label">F1 Skoru</label>
-                                                    <h4 class="content-f1">-</h4>
+                                                    <h4 class="content-f1-score">-</h4>
                                                 </div>
                                             </div>
                                         </div>
@@ -1051,9 +1051,12 @@
                                                             <th>F1</th>
                                                         </tr>
                                                     </thead>
-                                                    <tbody id="contentCategoryMetrics">
+                                                    <tbody class="content-category-performance">
                                                         <tr>
-                                                            <td colspan="5" class="text-center">Veri yükleniyor...</td>
+                                                            <td colspan="5" class="text-center text-muted">
+                                                                <i class="fas fa-chart-bar me-2"></i>
+                                                                Veri yükleniyor...
+                                                            </td>
                                                         </tr>
                                                     </tbody>
                                                 </table>
@@ -1068,13 +1071,24 @@
                             <h5 class="mb-0">Ensemble Düzeltmeleri</h5>
                         </div>
                         <div class="card-body">
-                            <div id="contentTrainingHistory">
-                                <div class="d-flex justify-content-center">
-                                    <div class="spinner-border text-primary" role="status">
-                                        <span class="visually-hidden">Yükleniyor...</span>
-                                    </div>
-                                </div>
-                            </div>
+                            <table class="table table-sm">
+                                <thead>
+                                    <tr>
+                                        <th>Kategori</th>
+                                        <th>Orijinal</th>
+                                        <th>Düzeltilen</th>
+                                        <th>Güven</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="content-ensemble-corrections">
+                                    <tr>
+                                        <td colspan="4" class="text-center text-muted">
+                                            <i class="fas fa-cogs me-2"></i>
+                                            Veri yükleniyor...
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
                         </div>
                     </div>
                                     
@@ -1117,16 +1131,30 @@
                                         <div class="card-body">
                                             <div class="row">
                                                 <div class="col-md-4 mb-3">
-                                                    <label class="form-label">Ortalama Mutlak Hata</label>
+                                                    <label class="form-label">MAE (Ortalama Mutlak Hata)</label>
                                                     <h4 class="age-mae">-</h4>
                                                 </div>
                                                 <div class="col-md-4 mb-3">
-                                                    <label class="form-label">±3 Yaş Doğruluğu</label>
-                                                    <h4 class="age-accuracy">-</h4>
+                                                    <label class="form-label">RMSE (Kök Ortalama Kare Hata)</label>
+                                                    <h4 class="age-rmse">-</h4>
                                                 </div>
                                                 <div class="col-md-4 mb-3">
-                                                    <label class="form-label">Veri Sayısı</label>
-                                                    <h4 class="age-count">-</h4>
+                                                    <label class="form-label">MSE (Ortalama Kare Hata)</label>
+                                                    <h4 class="age-mse">-</h4>
+                                                </div>
+                                            </div>
+                                            <div class="row">
+                                                <div class="col-md-4 mb-3">
+                                                    <label class="form-label">±3 Yıl Doğruluğu</label>
+                                                    <h4 class="age-within-3-years">-</h4>
+                                                </div>
+                                                <div class="col-md-4 mb-3">
+                                                    <label class="form-label">±5 Yıl Doğruluğu</label>
+                                                    <h4 class="age-within-5-years">-</h4>
+                                                </div>
+                                                <div class="col-md-4 mb-3">
+                                                    <label class="form-label">±10 Yıl Doğruluğu</label>
+                                                    <h4 class="age-within-10-years">-</h4>
                                                 </div>
                                             </div>
                                         </div>
@@ -1137,7 +1165,24 @@
                                             <h5 class="mb-0">Yaş Dağılımı</h5>
                                         </div>
                                         <div class="card-body">
-                                            <canvas id="ageDistributionChart"></canvas>
+                                            <table class="table table-sm age-distribution-table">
+                                                <thead>
+                                                    <tr>
+                                                        <th>Yaş Aralığı</th>
+                                                        <th>Örnek Sayısı</th>
+                                                        <th>Yüzde</th>
+                                                        <th>Görsel</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    <tr>
+                                                        <td colspan="4" class="text-center text-muted">
+                                                            <i class="fas fa-chart-bar me-2"></i>
+                                                            Veri yükleniyor...
+                                                        </td>
+                                                    </tr>
+                                                </tbody>
+                                            </table>
                                         </div>
                                     </div>
                                 </div>
@@ -1145,9 +1190,27 @@
                                 <!-- Yaş Tahmin Modeli Metrikleri -->
                                 <div class="col-md-6">
                                     <div class="card h-100">
-                                        <div class="card-header">Yaş Tahmin Hata Dağılımı</div>
+                                        <div class="card-header">
+                                            <h5 class="mb-0">Yaş Tahmin Hata Dağılımı</h5>
+                                        </div>
                                         <div class="card-body">
-                                            <canvas id="ageErrorChart"></canvas>
+                                            <table class="table table-sm age-error-distribution">
+                                                <thead>
+                                                    <tr>
+                                                        <th>Hata Aralığı</th>
+                                                        <th>Doğruluk</th>
+                                                        <th>Görsel</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    <tr>
+                                                        <td colspan="3" class="text-center text-muted">
+                                                            <i class="fas fa-chart-line me-2"></i>
+                                                            Veri yükleniyor...
+                                                        </td>
+                                                    </tr>
+                                                </tbody>
+                                            </table>
                                         </div>
                                     </div>
                                 </div>
