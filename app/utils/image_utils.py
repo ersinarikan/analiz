@@ -1,7 +1,7 @@
 import os
 import cv2
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
 from flask import current_app
 
 def load_image(image_path: str) -> 'np.ndarray':
@@ -122,6 +122,69 @@ def overlay_text(image, text, position, font=cv2.FONT_HERSHEY_SIMPLEX, font_scal
     
     except Exception as e:
         current_app.logger.error(f"Metin ekleme hatası: {str(e)}")
+        return image
+
+def overlay_text_turkish(image, text, position, color=(0, 255, 0), font_size=20, bg_color=(0, 0, 0), bg_padding=5):
+    """
+    OpenCV görüntüsüne Türkçe karakter destekli metin çizer.
+    
+    Args:
+        image: OpenCV görüntüsü (numpy array)
+        text: Çizilecek metin (Türkçe karakter destekli)
+        position: (x, y) pozisyonu
+        color: Text rengi (BGR format)
+        font_size: Font boyutu
+        bg_color: Arka plan rengi (BGR format)
+        bg_padding: Arka plan padding
+    
+    Returns:
+        OpenCV görüntüsü (numpy array)
+    """
+    try:
+        if image is None:
+            return None
+            
+        # OpenCV'den PIL'e dönüştür
+        pil_image = Image.fromarray(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
+        draw = ImageDraw.Draw(pil_image)
+        
+        # Varsayılan font kullan (sistem fontunu bulmaya çalış)
+        try:
+            font = ImageFont.truetype("arial.ttf", font_size)
+        except:
+            try:
+                font = ImageFont.truetype("C:/Windows/Fonts/arial.ttf", font_size)
+            except:
+                font = ImageFont.load_default()
+        
+        # Text boyutlarını hesapla
+        bbox = draw.textbbox((0, 0), text, font=font)
+        text_width = bbox[2] - bbox[0]
+        text_height = bbox[3] - bbox[1]
+        
+        x, y = position
+        
+        # Arka plan çiz
+        if bg_color is not None:
+            bg_coords = [
+                x - bg_padding,
+                y - text_height - bg_padding,
+                x + text_width + bg_padding,
+                y + bg_padding
+            ]
+            draw.rectangle(bg_coords, fill=bg_color)
+        
+        # Metni çiz (PIL RGB formatında)
+        pil_color = (color[2], color[1], color[0])  # BGR -> RGB
+        draw.text((x, y - text_height), text, font=font, fill=pil_color)
+        
+        # PIL'den OpenCV'ye geri dönüştür
+        result = cv2.cvtColor(np.array(pil_image), cv2.COLOR_RGB2BGR)
+        
+        return result
+        
+    except Exception as e:
+        current_app.logger.error(f"Türkçe metin ekleme hatası: {str(e)}")
         return image
 
 def draw_rectangle(image, top_left, bottom_right, color=(0, 255, 0), thickness=2):

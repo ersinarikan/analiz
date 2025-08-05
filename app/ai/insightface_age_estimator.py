@@ -54,7 +54,7 @@ def find_latest_age_model(model_path):
     return os.path.join(age_model_dir, latest_model_file)
 
 class InsightFaceAgeEstimator:
-    def __init__(self, det_size=(640, 640)):
+    def __init__(self, det_size=(1024, 1024)):
         # Model dosya yolunu ayarla
         # active_insightface_path = os.path.join(Config.MODELS_FOLDER, 'age', 'buffalo_l') # Eski yol
         active_insightface_path = current_app.config['INSIGHTFACE_AGE_MODEL_ACTIVE_PATH']
@@ -180,61 +180,14 @@ class InsightFaceAgeEstimator:
             self.custom_age_head = None
             self.age_model = None
             
-        # CLIP modelini yükle
-        try:
-            device = "cuda" if torch.cuda.is_available() and current_app.config.get('USE_GPU', True) else "cpu"
-            self.clip_device = device
-
-            # ORIJINAL YÖNTEM: Önce base model yükle (dfn5b), sonra fine-tuned weights
-            logger.info(f"CLIP modeli yükleniyor: ViT-H-14-378-quickgelu, Device: {device}")
-            
-            try:
-                model, _, preprocess_val = open_clip.create_model_and_transforms(
-                    'ViT-H-14-378-quickgelu', 
-                    pretrained="dfn5b",
-                    device=self.clip_device
-                )
-                
-                # Fine-tuned model varsa yükle
-                try:
-                    active_model_path = current_app.config['OPENCLIP_MODEL_ACTIVE_PATH']
-                    model_file_path = os.path.join(active_model_path, 'open_clip_pytorch_model.bin')
-                    
-                    if os.path.exists(model_file_path):
-                        logger.info(f"Fine-tuned CLIP weights yükleniyor (yaş tahmini için): {model_file_path}")
-                        checkpoint = torch.load(model_file_path, map_location=self.clip_device)
-                        model.load_state_dict(checkpoint, strict=False)
-                        logger.info("Fine-tuned CLIP weights başarıyla yüklendi! (yaş tahmini)")
-                    else:
-                        logger.info("Fine-tuned CLIP weights bulunamadı, base model kullanılıyor (yaş tahmini)")
-                        
-                except Exception as ft_error:
-                    logger.warning(f"Fine-tuned weights yükleme hatası (yaş tahmini): {str(ft_error)}")
-                    logger.info("Base model ile devam ediliyor... (yaş tahmini)")
-                
-                model.eval()
-                self.clip_model = model
-                self.clip_preprocess = preprocess_val
-                logger.info(f"✅ CLIP modeli (yaş tahmini için) başarıyla yüklendi! Device: {self.clip_device}")
-                
-            except Exception as clip_error:
-                logger.warning(f"CLIP model (yaş için) yüklenemedi: {clip_error}")
-                # Fallback: CLIP olmadan devam et
-                self.clip_model = None
-                self.clip_preprocess = None
-                logger.warning("CLIP modeli olmadan güven skoru 0.5 olarak sabitlenecek")
-
-            # Tokenizer'ı yükle (OpenCLIP için) - sadece CLIP model başarılıysa
-            if self.clip_model is not None:
-                logger.info("OpenCLIP tokenizer (ViT-H-14-378-quickgelu) yaş tahmini için yükleniyor...")
-                self.tokenizer = open_clip.get_tokenizer('ViT-H-14-378-quickgelu')
-                logger.info("OpenCLIP tokenizer (yaş tahmini) başarıyla yüklendi.")
-
-        except Exception as e:
-            logger.error(f"CLIP modeli yüklenemedi: {str(e)}")
-            logger.warning("CLIP modeli olmadan güven skoru 0.5 olarak sabitlenecek")
-            self.clip_model = None
-            self.clip_preprocess = None
+        # CLIP modelini yükle - ama önce shared CLIP kontrol et
+        self.clip_model = None
+        self.clip_preprocess = None 
+        self.tokenizer = None
+        self.clip_device = "cpu"
+        
+        logger.info("⚠️ CLIP yükleme skip edildi - ContentAnalyzer'dan shared CLIP beklenecek")
+        logger.info("🔄 set_shared_clip() metodu ile CLIP inject edilecek")
 
     def cleanup_models(self):
         """GPU memory ve model referanslarını temizle - Performance optimization"""
@@ -281,6 +234,43 @@ class InsightFaceAgeEstimator:
             
         except Exception as e:
             logger.warning(f"InsightFaceAgeEstimator cleanup sırasında hata: {e}")
+    
+    def set_shared_clip(self, clip_model, clip_preprocess=None, tokenizer=None):
+        """
+        ContentAnalyzer'dan CLIP modelini paylaş - Memory optimization
+        
+        Args:
+            clip_model: ContentAnalyzer'ın CLIP modeli
+            clip_preprocess: CLIP preprocessing fonksiyonu  
+            tokenizer: CLIP tokenizer
+        """
+        try:
+            logger.info("Shared CLIP model InsightFaceAgeEstimator'a inject ediliyor...")
+            
+            # Mevcut CLIP modelini temizle
+            if hasattr(self, 'clip_model') and self.clip_model is not None:
+                logger.debug("Mevcut CLIP model temizleniyor...")
+                del self.clip_model
+                self.clip_model = None
+            
+            # Shared CLIP modelini ayarla
+            self.clip_model = clip_model
+            self.clip_preprocess = clip_preprocess
+            self.tokenizer = tokenizer
+            
+            # Device bilgisini güncelle
+            if hasattr(clip_model, 'device') and clip_model.device:
+                self.clip_device = clip_model.device
+            else:
+                self.clip_device = next(clip_model.parameters()).device if clip_model else "cpu"
+            
+            logger.info(f"✅ Shared CLIP model başarıyla inject edildi! Device: {self.clip_device}")
+            
+        except Exception as e:
+            logger.error(f"Shared CLIP model inject hatası: {e}")
+            self.clip_model = None
+            self.clip_preprocess = None
+            self.tokenizer = None
     
     def __del__(self):
         """Garbage collection sırasında cleanup yap"""

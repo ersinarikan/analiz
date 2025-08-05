@@ -778,6 +778,12 @@ export function handleAnalysisCompleted(data) {
             try {
                 console.log(`🎉 Analiz tamamlandı, sonuçlar getiriliyor: ${fileNameFromId(fileId)}`);
                 getAnalysisResults(fileId, analysisId);
+                
+                // 💾 localStorage'a ekle (persistent storage için)
+                if (window.addAnalysisToLocalStorage) {
+                    window.addAnalysisToLocalStorage(fileId, analysisId, fileNameFromId(fileId));
+                }
+                
             } catch (error) {
                 console.error('Sonuçlar alınırken hata:', error);
                 showToast('Uyarı', 'Analiz tamamlandı ama sonuçlar alınırken hata oluştu. Sayfayı yenileyin.', 'warning');
@@ -1184,6 +1190,12 @@ function displayAnalysisResults(fileId, results) {
         if (detailsTab) {
             detailsTab.innerHTML += '<div class="alert alert-info mt-3">Bu dosya için yaş tahmini bulunmuyor.</div>';
         }
+    }
+    
+    // 🔧 FEEDBACK FORM HER DURUMDA GÖSTERİLMELİ
+    const feedbackTab = resultCard.querySelector('.tab-content .tab-pane:nth-child(3)') || resultCard.querySelector('#feedback');
+    if (feedbackTab && !feedbackTab.querySelector('.unified-feedback-form')) {
+        displayUnifiedFeedbackForm(feedbackTab, results);
     }
     
     // Detaylar tabını doldur (yedek main.js'ten)

@@ -509,4 +509,52 @@ def get_pending_feedback_analyses():
         return jsonify({'error': f'Bekleyen analizler alınırken bir hata oluştu: {str(e)}'}), 500
 
 
+@analysis_bp.route('/recent', methods=['GET'])
+def get_recent_analyses():
+    """
+    🔄 Son tamamlanan analizleri getirir (page refresh sonrası restore için)
+    """
+    try:
+        # Son 10 completed analizi al (en yeni üstte)
+        recent_analyses = Analysis.query.filter_by(
+            status='completed'
+        ).order_by(Analysis.end_time.desc()).limit(10).all()
+        
+        result = []
+        for analysis in recent_analyses:
+            # Basic analiz bilgileri
+            analysis_data = {
+                'analysis_id': analysis.id,
+                'file_id': analysis.file_id,
+                'file_name': analysis.file.original_filename if analysis.file else 'Unknown',
+                'status': analysis.status,
+                'include_age_analysis': analysis.include_age_analysis,
+                'completed_at': analysis.end_time.isoformat() if analysis.end_time else None,
+                'overall_scores': {}
+            }
+            
+            # Overall scores'ları individual field'lardan oluştur
+            analysis_data['overall_scores'] = {
+                'violence': analysis.overall_violence_score or 0,
+                'adult_content': analysis.overall_adult_content_score or 0,
+                'harassment': analysis.overall_harassment_score or 0,
+                'weapon': analysis.overall_weapon_score or 0,
+                'drug': analysis.overall_drug_score or 0,
+                'safe': analysis.overall_safe_score or 0
+            }
+            
+            result.append(analysis_data)
+        
+        logger.info(f"📊 Recent analyses: {len(result)} completed analiz döndürüldü")
+        return jsonify({
+            'success': True,
+            'recent_analyses': result,
+            'count': len(result)
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Recent analyses alınırken hata: {str(e)}")
+        return jsonify({'error': f'Recent analyses alınırken bir hata oluştu: {str(e)}'}), 500
+
+
 bp = analysis_bp 

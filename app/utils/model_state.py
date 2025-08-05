@@ -104,7 +104,7 @@ def get_age_estimator():
         logger.info("Yeni InsightFaceAgeEstimator instance oluşturuluyor...")
         
         start_time = time.time()
-        estimator = InsightFaceAgeEstimator()
+        estimator = InsightFaceAgeEstimator()  # CLIP shared olarak inject edilecek
         load_time = time.time() - start_time
         
         # Thread-safe cache'e kaydet

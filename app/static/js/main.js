@@ -84,6 +84,12 @@ function initializeApplication() {
     // 9. Overall progress bar'ı initialize et
     initializeOverallProgress();
     
+    // 10. 🔄 Recent analysis sonuçlarını restore et (page refresh için)
+    loadRecentAnalyses();
+    
+    // 11. 🔄 localStorage'dan offline recent analyses restore et
+    loadStoredAnalyses();
+    
     console.log('✅ WSANALIZ Uygulaması başarıyla başlatıldı');
     console.log('🎯 Modüler mimari aktif - Bakım ve debugging kolaylaştırıldı');
     
@@ -1109,13 +1115,13 @@ function displayContentModelVersions(versionData) {
         // Base model'i de göster (eğer base_model_exists varsa)
         if (versionData.base_model_exists) {
             versionsHtml += `
-                <div class="d-flex align-items-center gap-2 mb-2">
-                    <span class="badge ${activeVersion === 'base_openclip' ? 'bg-success' : 'bg-secondary'}" 
-                          style="cursor: pointer;" onclick="switchContentModelVersion('base_openclip')"
-                          title="Bu versiyona geç">CLIP-v1.0 ${activeVersion === 'base_openclip' ? '(Aktif)' : ''}</span>
-                    <small class="text-muted">Temel model</small>
-                </div>
-            `;
+            <div class="d-flex align-items-center gap-2 mb-2">
+                <span class="badge ${activeVersion === 'base_openclip' ? 'bg-success' : 'bg-secondary'}" 
+                      style="cursor: pointer;" onclick="switchContentModelVersion('base_openclip')"
+                      title="Bu versiyona geç">CLIP-v1.0 ${activeVersion === 'base_openclip' ? '(Aktif)' : ''}</span>
+                <small class="text-muted">Temel model</small>
+            </div>
+        `;
         }
         
         // Database versiyonları (versions array) kullan, physical_versions değil
@@ -1227,13 +1233,13 @@ function switchContentModelVersion(version) {
     
     if (confirm(`İçerik analiz modelini "${version}" versiyonuna geçirmek istediğinizden emin misiniz?`)) {
         fetch(`/api/model/content/activate/${version === 'base_openclip' ? 'base' : version}`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
             }
-        })
-        .then(response => response.json())
-        .then(data => {
+    })
+    .then(response => response.json())
+    .then(data => {
             console.log('✅ Content model versiyon değiştirildi:', data);
             
             // Önce metrikleri yükle
@@ -1241,7 +1247,7 @@ function switchContentModelVersion(version) {
                 // Sonra versiyonları yükle
                 loadModalModelVersions().then(() => {
                     // En son başarı mesajını göster
-                    alert(`İçerik model "${version}" versiyonuna başarıyla geçirildi!`);
+            alert(`İçerik model "${version}" versiyonuna başarıyla geçirildi!`);
                 });
             });
         })
@@ -1268,8 +1274,8 @@ function deleteSpecificContentVersion(version) {
             alert(`"${version}" versiyonu başarıyla silindi!`);
             // Modal'ı yenile
             initializeModelManagementModal();
-        })
-        .catch(error => {
+    })
+    .catch(error => {
             console.error('❌ Content model specific versiyon silme hatası:', error);
             alert('Hata: ' + error.message);
         });
@@ -1463,6 +1469,183 @@ setTimeout(() => {
         window.checkModuleHealth();
     }
 }, 2000); 
+
+// 🔄 Recent analysis sonuçlarını restore et (page refresh için + persistent storage)
+function loadRecentAnalyses() {
+    console.log('🔄 Recent analyses yükleniyor...');
+    
+    fetch('/api/analysis/recent')
+        .then(response => {
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            return response.json();
+        })
+        .then(data => {
+            if (data.success && data.recent_analyses && data.recent_analyses.length > 0) {
+                console.log(`📊 ${data.count} recent analysis bulundu, restore ediliyor...`);
+                
+                // localStorage'dan mevcut analysis IDs'leri al
+                const storedAnalyses = JSON.parse(localStorage.getItem('wsanaliz_recent_analyses') || '[]');
+                const newAnalysesToStore = [];
+                
+                // Her analiz için fake uploadedFiles entry oluştur ve sonuçları göster
+                data.recent_analyses.forEach((analysis, index) => {
+                    // Fake file entry (uploadedFiles array'i için)
+                    const fakeFile = {
+                        id: analysis.file_id,
+                        name: analysis.file_name,
+                        status: 'completed',
+                        analysis_id: analysis.analysis_id,
+                        include_age_analysis: analysis.include_age_analysis
+                    };
+                    
+                    // uploadedFiles array'e ekle (duplicate check ile)
+                    if (!window.uploadedFiles.find(f => f.id === analysis.file_id)) {
+                        window.uploadedFiles.push(fakeFile);
+                    }
+                    
+                    // localStorage için kaydet
+                    newAnalysesToStore.push({
+                        file_id: analysis.file_id,
+                        analysis_id: analysis.analysis_id,
+                        file_name: analysis.file_name,
+                        completed_at: analysis.completed_at
+                    });
+                    
+                    // Detailed results'ı çek ve göster
+                    setTimeout(() => {
+                        window.analysisManager.getAnalysisResults(
+                            analysis.file_id, 
+                            analysis.analysis_id, 
+                            false // isPartial = false
+                        );
+                    }, index * 200); // Her analiz 200ms arayla yüklensin
+                });
+                
+                // localStorage'a kaydet (sadece unique olanları)
+                const allAnalyses = [...storedAnalyses];
+                newAnalysesToStore.forEach(newAnalysis => {
+                    if (!allAnalyses.find(stored => stored.analysis_id === newAnalysis.analysis_id)) {
+                        allAnalyses.push(newAnalysis);
+                    }
+                });
+                
+                // En fazla 20 analizi sakla (disk alanı)
+                if (allAnalyses.length > 20) {
+                    allAnalyses.sort((a, b) => new Date(b.completed_at) - new Date(a.completed_at));
+                    allAnalyses.splice(20);
+                }
+                
+                localStorage.setItem('wsanaliz_recent_analyses', JSON.stringify(allAnalyses));
+                console.log(`💾 ${allAnalyses.length} analiz localStorage'a kaydedildi`);
+                
+                // Results section'ı görünür yap
+                const resultsSection = document.getElementById('resultsSection');
+                if (resultsSection) {
+                    resultsSection.style.display = 'block';
+                }
+                
+                console.log(`✅ ${data.count} analiz sonucu restore edildi`);
+            } else {
+                console.log('📝 Henüz recent analysis yok');
+            }
+        })
+        .catch(error => {
+            console.error('❌ Recent analyses yüklenirken hata:', error);
+            // Sessizce devam et, page load engellenmemeli
+        });
+}
+
+// 🔄 Yeni analiz tamamlandığında localStorage'a ekleme fonksiyonu
+window.addAnalysisToLocalStorage = function(fileId, analysisId, fileName) {
+    const storedAnalyses = JSON.parse(localStorage.getItem('wsanaliz_recent_analyses') || '[]');
+    const newAnalysis = {
+        file_id: fileId,
+        analysis_id: analysisId,
+        file_name: fileName,
+        completed_at: new Date().toISOString()
+    };
+    
+    // Duplicate check
+    if (!storedAnalyses.find(stored => stored.analysis_id === analysisId)) {
+        storedAnalyses.unshift(newAnalysis); // En başa ekle
+        
+        // En fazla 20 analizi sakla
+        if (storedAnalyses.length > 20) {
+            storedAnalyses.splice(20);
+        }
+        
+        localStorage.setItem('wsanaliz_recent_analyses', JSON.stringify(storedAnalyses));
+        console.log(`💾 Yeni analiz localStorage'a eklendi: ${fileName}`);
+    }
+};
+
+// 🔄 localStorage'dan stored analyses restore et (offline support)
+function loadStoredAnalyses() {
+    console.log('💾 localStorage analyses restore ediliyor...');
+    
+    try {
+        const storedAnalyses = JSON.parse(localStorage.getItem('wsanaliz_recent_analyses') || '[]');
+        
+        if (storedAnalyses.length > 0) {
+            console.log(`💾 ${storedAnalyses.length} stored analysis bulundu, restore ediliyor...`);
+            
+            storedAnalyses.forEach((analysis, index) => {
+                // Fake file entry (uploadedFiles array'i için)
+                const fakeFile = {
+                    id: analysis.file_id,
+                    name: analysis.file_name,
+                    status: 'completed',
+                    analysis_id: analysis.analysis_id,
+                    include_age_analysis: true // Default olarak true (güvenli taraf)
+                };
+                
+                // uploadedFiles array'e ekle (duplicate check ile)
+                if (!window.uploadedFiles.find(f => f.id === analysis.file_id)) {
+                    window.uploadedFiles.push(fakeFile);
+                    
+                    // Detailed results'ı çek ve göster (delay ile)
+                    setTimeout(() => {
+                        if (window.analysisManager && window.analysisManager.getAnalysisResults) {
+                            window.analysisManager.getAnalysisResults(
+                                analysis.file_id, 
+                                analysis.analysis_id, 
+                                false // isPartial = false
+                            );
+                        }
+                    }, 3000 + (index * 300)); // API load'dan sonra başlasın
+                }
+            });
+            
+            // Results section'ı görünür yap
+            setTimeout(() => {
+                const resultsSection = document.getElementById('resultsSection');
+                if (resultsSection) {
+                    resultsSection.style.display = 'block';
+                }
+            }, 3500);
+            
+            console.log(`💾 ${storedAnalyses.length} stored analiz restore edildi`);
+        } else {
+            console.log('💾 localStorage'da stored analysis yok');
+        }
+        
+    } catch (error) {
+        console.error('❌ localStorage analyses restore hatası:', error);
+        // localStorage'ı temizle eğer corrupt olmuşsa
+        localStorage.removeItem('wsanaliz_recent_analyses');
+    }
+}
+
+// 🗑️ localStorage analysis cache'ini temizle (debug için)
+window.clearAnalysisCache = function() {
+    localStorage.removeItem('wsanaliz_recent_analyses');
+    console.log('🗑️ Analysis cache temizlendi');
+    if (confirm('Sayfa yenilensin mi?')) {
+        location.reload();
+    }
+};
 
 // İçerik analizi son geri bildirimleri ve kategori dağılımı yükleyici
 function loadRecentContentFeedbacks() {

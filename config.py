@@ -104,7 +104,7 @@ class Config:
     # VIDEO_FRAME_SAMPLING_RATE = 1 # Videolardan saniyede kaç kare analiz edileceği (KALDIRILDI)
 
     # Yeni Global Analiz Parametreleri (Kullanıcının resmindeki)
-    FACE_DETECTION_CONFIDENCE = 0.2 # (0.1 - 1.0)
+    FACE_DETECTION_CONFIDENCE = 0.1 # (0.1 - 1.0) - Daha hassas yüz tespiti
     TRACKING_RELIABILITY_THRESHOLD = 0.3 # (0.1 - 0.9)
     ID_CHANGE_THRESHOLD = 0.45 # (0.1 - 0.8)
     MAX_LOST_FRAMES = None # (5 - 300)
@@ -130,7 +130,7 @@ class Config:
 
     # Merkezi fabrika ayarları (ör: settings_routes.py ve analysis_service.py'de kullanılıyor)
     FACTORY_DEFAULTS = {
-        "FACE_DETECTION_CONFIDENCE": 0.5,
+        "FACE_DETECTION_CONFIDENCE": 0.1,  # Daha hassas yüz tespiti için güncellendi
         "TRACKING_RELIABILITY_THRESHOLD": 0.5,
         "ID_CHANGE_THRESHOLD": 0.45,
         "MAX_LOST_FRAMES": 30,

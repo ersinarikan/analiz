@@ -18,7 +18,7 @@ from app.utils.model_state import get_age_estimator as model_state_get_age_estim
 from app.models.analysis import Analysis, ContentDetection, AgeEstimation
 from app.models.feedback import Feedback
 from app.models.file import File
-from app.utils.image_utils import load_image
+from app.utils.image_utils import load_image, overlay_text_turkish
 from app.routes.settings_routes import FACTORY_DEFAULTS
 from app.json_encoder import NumPyJSONEncoder
 from app.services.db_service import safe_database_session
@@ -435,6 +435,25 @@ def analyze_image(analysis):
             
             from app.utils.model_state import get_age_estimator
             age_estimator = get_age_estimator()
+            
+            # CLIP Sharing - Memory optimization (Image Analysis)
+            try:
+                content_analyzer_instance = get_content_analyzer()
+                if hasattr(content_analyzer_instance, 'clip_model') and content_analyzer_instance.clip_model is not None:
+                    clip_preprocess = getattr(content_analyzer_instance, 'clip_preprocess', None)
+                    tokenizer = getattr(content_analyzer_instance, 'tokenizer', None)
+                    age_estimator.set_shared_clip(
+                        content_analyzer_instance.clip_model,
+                        clip_preprocess,
+                        tokenizer
+                    )
+                    logger.info(f"✅ CLIP model shared for image analysis #{analysis.id}")
+                else:
+                    logger.warning("ContentAnalyzer CLIP not available for image analysis sharing")
+            except Exception as clip_share_err:
+                logger.error(f"Image analysis CLIP sharing error: {str(clip_share_err)}")
+                logger.warning("Image analysis age estimation will use fallback confidence")
+            
             faces = age_estimator.model.get(image)
             persons = {}
             
@@ -596,28 +615,22 @@ def analyze_image(analysis):
                             # Çerçeve çiz
                             cv2.rectangle(image_with_overlay, (x1, y1), (x2, y2), (0, 255, 0), 2)
                             
-                            # Metin için arka plan oluştur
+                            # Türkçe destekli metin overlay
                             # Kişi ID'sini 1'den başlatmak için +1 ekle
                             person_id_num = int(person_id.split('_')[-1]) + 1
                             text = f"Kişi {person_id_num}  Yaş: {round(age)}"
-                            text_size = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.7, 2)[0]
                             text_y = y1 - 10 if y1 > 20 else y1 + h + 25
                             
-                            # Metin arka planı için koordinatları hesapla
-                            text_bg_x1 = x1
-                            text_bg_y1 = text_y - text_size[1] - 5
-                            text_bg_x2, text_bg_y2 = x1 + text_size[0] + 10, text_y + 5
-                            
-                            # Arka plan çiz
-                            cv2.rectangle(image_with_overlay, 
-                                        (text_bg_x1, text_bg_y1),
-                                        (text_bg_x2, text_bg_y2),
-                                        (0, 0, 0),
-                                        -1)
-                            
-                            # Metni çiz
-                            cv2.putText(image_with_overlay, text, (x1 + 5, text_y), 
-                                      cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+                            # Türkçe karakter destekli text overlay
+                            image_with_overlay = overlay_text_turkish(
+                                image_with_overlay, 
+                                text, 
+                                (x1 + 5, text_y),
+                                color=(0, 255, 0),
+                                font_size=18,
+                                bg_color=(0, 0, 0),
+                                bg_padding=5
+                            )
                             
                             # Overlay'i kaydet
                             success = cv2.imwrite(out_path, image_with_overlay)
@@ -767,6 +780,23 @@ def analyze_video(analysis):
                 from app.utils.model_state import get_age_estimator
                 age_estimator = get_age_estimator() # model_state'den alınıyor
                 logger.info(f"Yaş tahmin modeli yüklendi: Analiz #{analysis.id}")
+                
+                # CLIP Sharing - Memory optimization
+                try:
+                    if hasattr(content_analyzer_instance, 'clip_model') and content_analyzer_instance.clip_model is not None:
+                        clip_preprocess = getattr(content_analyzer_instance, 'clip_preprocess', None)
+                        tokenizer = getattr(content_analyzer_instance, 'tokenizer', None)
+                        age_estimator.set_shared_clip(
+                            content_analyzer_instance.clip_model,
+                            clip_preprocess,
+                            tokenizer
+                        )
+                        logger.info(f"✅ CLIP model successfully shared between ContentAnalyzer and InsightFaceAgeEstimator")
+                    else:
+                        logger.warning("ContentAnalyzer CLIP model not available for sharing")
+                except Exception as clip_share_err:
+                    logger.error(f"CLIP sharing error: {str(clip_share_err)}")
+                    logger.warning("Age estimation will use fallback confidence (0.5)")
                 
                 # Config'den takip parametrelerini oku
                 max_lost_frames_config = current_app.config.get('MAX_LOST_FRAMES', FACTORY_DEFAULTS['MAX_LOST_FRAMES'])
@@ -1183,25 +1213,19 @@ def analyze_video(analysis):
                     label = f"Kişi {person_number}  Yaş: {age_to_display}"
                     cv2.rectangle(image_with_overlay, (x1_bbox, y1_bbox), (x1_bbox + w_bbox, y1_bbox + h_bbox), (0, 255, 0), 2)
                     
-                    # Metin için arka plan oluştur (görüntü analizindeki gibi)
-                    text_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.7, 2)[0]
+                    # Türkçe destekli metin overlay
                     text_y = y1_bbox - 10 if y1_bbox > 20 else y1_bbox + h_bbox + 25
                     
-                    # Metin arka planı için koordinatları hesapla
-                    text_bg_x1 = x1_bbox
-                    text_bg_y1 = text_y - text_size[1] - 5
-                    text_bg_x2, text_bg_y2 = x1_bbox + text_size[0] + 10, text_y + 5
-                    
-                    # Arka plan çiz
-                    cv2.rectangle(image_with_overlay, 
-                                (text_bg_x1, text_bg_y1),
-                                (text_bg_x2, text_bg_y2),
-                                (0, 0, 0),
-                                -1)
-                    
-                    # Metni çiz
-                    cv2.putText(image_with_overlay, label, (x1_bbox + 5, text_y), 
-                              cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+                    # Türkçe karakter destekli text overlay
+                    image_with_overlay = overlay_text_turkish(
+                        image_with_overlay, 
+                        label, 
+                        (x1_bbox + 5, text_y),
+                        color=(0, 255, 0),
+                        font_size=18,
+                        bg_color=(0, 0, 0),
+                        bg_padding=5
+                    )
                     
                     # Benzersiz ve anlamlı bir dosya adı oluştur (orijinal kare adını içerebilir)
                     original_frame_basename = os.path.basename(source_frame_for_overlay_path) # ör: frame_000123.jpg
