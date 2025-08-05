@@ -197,12 +197,12 @@ function loadModelMetrics() {
         .then(r => r.json())
         .then(data => {
             console.log('Content model metrics:', data);
-            displayContentModelMetrics(data);
+            updateModalModelStats('content', data);
             updateTrainingDataCounts('content', data);
         })
         .catch(err => {
             console.error('Content model metrics hatası:', err);
-            displayContentModelMetrics({});
+            updateModalModelStats('content', {});
         });
         
     // Age model metrics
@@ -210,12 +210,12 @@ function loadModelMetrics() {
         .then(r => r.json())
         .then(data => {
             console.log('Age model metrics:', data);
-            displayAgeModelMetrics(data);
+            updateModalModelStats('age', data);
             updateTrainingDataCounts('age', data);
         })
         .catch(err => {
             console.error('Age model metrics hatası:', err);
-            displayAgeModelMetrics({});
+            updateModalModelStats('age', {});
         });
     
 
@@ -324,7 +324,7 @@ function updateTrainingDataCounts(modelType, data) {
 }
 
 // 🎯 TAM FONKSİYON - main.js.backup'tan alındı
-function displayContentModelMetrics(data) {
+function displayContentModelMetrics_OLD(data) {
     console.log('displayContentModelMetrics called with data:', data);
     
     // Veri kontrolü
@@ -484,8 +484,8 @@ function generateCategoryRows(hasEnsembleCorrections) {
     }).join('');
 }
 
-// 🎯 TAM AGE METRICS FONKSİYONU - main.js.backup'tan alındı  
-function displayAgeModelMetrics(data) {
+// 🎯 ESKİ AGE METRICS FONKSİYONU - ARTIK KULLANILMIYOR
+function displayAgeModelMetrics_OLD(data) {
     console.log('displayAgeModelMetrics called with data:', data);
     
     // Veri kontrolü
