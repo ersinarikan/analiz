@@ -340,13 +340,11 @@ function displayContentModelMetrics_OLD(data) {
         return;
     }
     
-    // Loading spinner'ı kaldır
-    const contentTab = document.getElementById('contentMetricsTab');
-    if (contentTab) {
-        const loadingSpinner = contentTab.querySelector('.spinner-border');
-        if (loadingSpinner && loadingSpinner.parentElement) {
-            loadingSpinner.parentElement.remove();
-        }
+    // Loading spinner'ı kaldır - container içindeki spinner'ı bul ve kaldır
+    const loadingSpinner = container.querySelector('.spinner-border');
+    if (loadingSpinner && loadingSpinner.parentElement) {
+        loadingSpinner.parentElement.remove();
+        console.log('✅ Content model loading spinner kaldırıldı');
     }
     
     // Basic info display with graceful fallbacks
@@ -501,13 +499,11 @@ function displayAgeModelMetrics_OLD(data) {
         return;
     }
     
-    // Loading spinner'ı kaldır
-    const ageTab = document.getElementById('ageMetricsTab');
-    if (ageTab) {
-        const loadingSpinner = ageTab.querySelector('.spinner-border');
-        if (loadingSpinner && loadingSpinner.parentElement) {
-            loadingSpinner.parentElement.remove();
-        }
+    // Loading spinner'ı kaldır - container içindeki spinner'ı bul ve kaldır
+    const loadingSpinner = container.querySelector('.spinner-border');
+    if (loadingSpinner && loadingSpinner.parentElement) {
+        loadingSpinner.parentElement.remove();
+        console.log('✅ Age model loading spinner kaldırıldı');
     }
     
     // Basic info display with graceful fallbacks
@@ -1131,41 +1127,44 @@ function updateContentCategoryPerformance(contentData) {
 
 // 📈 İçerik Modeli Genel Metrikler  
 function updateContentGeneralMetrics(contentData) {
-    const feedbackSources = contentData.feedback_sources || { manual: 0, pseudo: 0 };
-    const hasData = feedbackSources.manual > 0 || feedbackSources.pseudo > 0;
+    const metrics = contentData.metrics || {};
+    const hasData = Object.keys(metrics).length > 0 && metrics.accuracy !== undefined;
     
-    // Doğruluk (örnek hesaplama)
+    // Doğruluk - backend'den gelen gerçek veri
     const accuracyEl = document.querySelector('.content-accuracy');
     if (accuracyEl) {
-        const accuracy = hasData ? '93.7%' : 'Veri yok';
+        const accuracy = hasData ? `${(metrics.accuracy * 100).toFixed(1)}%` : 'Veri yok';
         accuracyEl.textContent = accuracy;
     }
     
-    // Kesinlik (Precision)
+    // Kesinlik (Precision) - backend'den gelen gerçek veri
     const precisionEl = document.querySelector('.content-precision');
     if (precisionEl) {
-        const precision = hasData ? '91.4%' : 'Veri yok';
+        const precision = hasData ? `${(metrics.precision * 100).toFixed(1)}%` : 'Veri yok';
         precisionEl.textContent = precision;
     }
     
-    // Duyarlılık (Recall)
+    // Duyarlılık (Recall) - backend'den gelen gerçek veri
     const recallEl = document.querySelector('.content-recall');
     if (recallEl) {
-        const recall = hasData ? '95.2%' : 'Veri yok';
+        const recall = hasData ? `${(metrics.recall * 100).toFixed(1)}%` : 'Veri yok';
         recallEl.textContent = recall;
     }
     
-    // F1 Skoru
+    // F1 Skoru - backend'den gelen gerçek veri
     const f1El = document.querySelector('.content-f1-score');
     if (f1El) {
-        const f1 = hasData ? '93.2%' : 'Veri yok';
+        const f1 = hasData ? `${(metrics.f1_score * 100).toFixed(1)}%` : 'Veri yok';
         f1El.textContent = f1;
     }
     
-    console.log('✅ İçerik modeli genel metrikler güncellendi:', {
+    console.log('✅ İçerik modeli genel metrikler güncellendi (GERÇEK VERİ):', {
         hasData,
-        manual: feedbackSources.manual,
-        pseudo: feedbackSources.pseudo
+        metrics: metrics,
+        accuracy: metrics.accuracy,
+        precision: metrics.precision,
+        recall: metrics.recall,
+        f1_score: metrics.f1_score
     });
 }
 
