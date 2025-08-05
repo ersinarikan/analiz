@@ -640,6 +640,7 @@ function displayAgeModelMetrics(data) {
             
 // Global access
 window.loadModelMetrics = loadModelMetrics;
+window.loadModalModelVersions = loadModalModelVersions;
 
 // 🎯 MODEL METRICS BUTTON EVENT LISTENER (from main.js.backup)
 const modelMetricsBtn = document.getElementById('modelMetricsBtn');

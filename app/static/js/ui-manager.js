@@ -136,6 +136,10 @@ export function updateAnalysisParamsButtonStateWithQueue(queueData) {
                 let modalInstance = null;
                 modelMetricsBtn.addEventListener('click', () => {
                     window.loadModelMetrics();
+                    // 🎯 MODEL VERSIONS DE YÜKLE
+                    if (window.loadModalModelVersions) {
+                        window.loadModalModelVersions();
+                    }
                     // Var olan modal instance'ını kullan veya yeni oluştur
                     const modalElement = document.getElementById('modelMetricsModal');
                     if (!modalInstance && modalElement) {
