@@ -683,8 +683,10 @@ if (modelManagementBtn && modelManagementModal) {
         const modal = new bootstrap.Modal(modelManagementModal);
         modal.show();
         
-        // 🎯 MODEL DATA YÜKLEME - main.js.backup'tan
-        initializeModelManagementModal();
+        // 🎯 MODEL DATA YÜKLEME - main.js.backup'tan (DOM render beklemesi ile)
+        setTimeout(() => {
+            initializeModelManagementModal();
+        }, 100);
     });
     
     // 🔧 MODAL CLEANUP EVENT - Gri ekran sorunu için
@@ -1245,11 +1247,14 @@ function updateAgeEnsembleCorrections(ageData) {
 
 // 🎯 AGE MODEL VERSIONS DISPLAY FUNCTION
 function displayAgeModelVersions(versionData) {
+    console.log('🎯 displayAgeModelVersions çağrıldı:', versionData);
     const versionsContainer = document.getElementById('modal-age-versions');
     if (!versionsContainer) {
         console.error('❌ modal-age-versions container bulunamadı');
+        console.log('🔍 Tüm modal elementleri:', document.querySelectorAll('[id*="modal"]'));
         return;
     }
+    console.log('✅ modal-age-versions container bulundu:', versionsContainer);
     // Aktif versiyon adı backend'den gelen window.activeAgeVersion (case-sensitive, birebir karşılaştır)
     let activeVersionName = window.activeAgeVersion;
     if (!activeVersionName) activeVersionName = 'v1.0';
