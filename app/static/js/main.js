@@ -326,7 +326,7 @@ function updateTrainingDataCounts(modelType, data) {
 }
 
 // 🎯 TAM FONKSİYON - main.js.backup'tan alındı
-function displayContentModelMetrics_OLD(data) {
+function displayContentModelMetrics(data) {
     console.log('displayContentModelMetrics called with data:', data);
     
     // Veri kontrolü
@@ -485,7 +485,7 @@ function generateCategoryRows(hasEnsembleCorrections) {
 }
 
 // 🎯 ESKİ AGE METRICS FONKSİYONU - ARTIK KULLANILMIYOR
-function displayAgeModelMetrics_OLD(data) {
+function displayAgeModelMetrics(data) {
     console.log('displayAgeModelMetrics called with data:', data);
     
     // Veri kontrolü
