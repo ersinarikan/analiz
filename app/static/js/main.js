@@ -683,10 +683,15 @@ if (modelManagementBtn && modelManagementModal) {
         const modal = new bootstrap.Modal(modelManagementModal);
         modal.show();
         
-        // 🎯 MODEL DATA YÜKLEME - main.js.backup'tan (DOM render beklemesi ile)
-        setTimeout(() => {
+        // 🎯 MODEL DATA YÜKLEME - DOM ready olmadı, hemen çağır + modal event ile de çağır
+        console.log('🔄 Hemen initializeModelManagementModal çağrılıyor...');
+        initializeModelManagementModal();
+        
+        // 🎯 BACKUP: Modal tamamen açıldığında da çağır
+        modelManagementModal.addEventListener('shown.bs.modal', () => {
+            console.log('🔄 Modal shown event - initializeModelManagementModal tekrar çağrılıyor...');
             initializeModelManagementModal();
-        }, 100);
+        }, { once: true });
     });
     
     // 🔧 MODAL CLEANUP EVENT - Gri ekran sorunu için
