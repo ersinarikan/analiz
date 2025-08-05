@@ -130,6 +130,22 @@ export function updateAnalysisParamsButtonStateWithQueue(queueData) {
             modelMetricsBtn.classList.remove('disabled');
             modelMetricsBtn.setAttribute('aria-disabled', 'false');
             modelMetricsBtn.removeEventListener('click', handleModelAlert);
+            // Gerçek model metrics event listener'ını yeniden ekle
+            if (window.loadModelMetrics) {
+                // Modal instance'ını sakla
+                let modalInstance = null;
+                modelMetricsBtn.addEventListener('click', () => {
+                    window.loadModelMetrics();
+                    // Var olan modal instance'ını kullan veya yeni oluştur
+                    const modalElement = document.getElementById('modelMetricsModal');
+                    if (!modalInstance && modalElement) {
+                        modalInstance = new bootstrap.Modal(modalElement);
+                    }
+                    if (modalInstance) {
+                        modalInstance.show();
+                    }
+                });
+            }
         }
 
         // Model Eğitimi butonu

@@ -218,18 +218,7 @@ function loadModelMetrics() {
             displayAgeModelMetrics({});
         });
     
-    // Age model metrics  
-    fetch('/api/models/metrics/age')
-        .then(r => r.json())
-    .then(data => {
-            console.log('Age model metrics:', data);
-            displayAgeModelMetrics(data);
-            updateTrainingDataCounts('age', data);
-        })
-        .catch(err => {
-            console.error('Age model metrics hatası:', err);
-            displayAgeModelMetrics({});
-        });
+
 }
 
 // 🎯 EĞİTİM VERİSİ SAYAÇLARI GÜNCELLEME FONKSİYONU
@@ -643,11 +632,32 @@ window.loadModelMetrics = loadModelMetrics;
 
 // 🎯 MODEL METRICS BUTTON EVENT LISTENER (from main.js.backup)
 const modelMetricsBtn = document.getElementById('modelMetricsBtn');
-if (modelMetricsBtn) {
+const modelMetricsModal = document.getElementById('modelMetricsModal');
+if (modelMetricsBtn && modelMetricsModal) {
+    // Global modal instance'ını sakla
+    let modalInstance = null;
+    
     modelMetricsBtn.addEventListener('click', () => {
         loadModelMetrics();
-        const modal = new bootstrap.Modal(document.getElementById('modelMetricsModal'));
-        modal.show();
+        // Eğer modal instance yoksa oluştur
+        if (!modalInstance) {
+            modalInstance = new bootstrap.Modal(modelMetricsModal);
+        }
+        modalInstance.show();
+    });
+    
+    // Modal kapatıldığında backdrop'u temizle
+    modelMetricsModal.addEventListener('hidden.bs.modal', () => {
+        console.log('🔧 Model Metrics modal kapatıldı, backdrop temizleniyor...');
+        // Backdrop'u manuel olarak temizle
+        const backdrop = document.querySelector('.modal-backdrop');
+        if (backdrop) {
+            backdrop.remove();
+        }
+        // Body sınıflarını temizle
+        document.body.classList.remove('modal-open');
+        document.body.style.overflow = '';
+        document.body.style.paddingRight = '';
     });
 }
 
@@ -699,7 +709,7 @@ async function loadModalModelStats() {
     console.log('📊 Modal model stats yükleniyor...');
     try {
         // Yaş modeli istatistikleri
-        const ageResponse = await fetch('/api/model/metrics/age');
+        const ageResponse = await fetch('/api/models/metrics/age');
         if (ageResponse.ok) {
             const ageStats = await ageResponse.json();
             // Global state'e kaydet
@@ -707,8 +717,9 @@ async function loadModalModelStats() {
             console.log('✅ Age model stats yüklendi:', ageStats);
             console.log('🔍 DEBUG - Age API Response Full Structure:', JSON.stringify(ageStats, null, 2));
             // Aktif versiyon bilgisini güncelle (düzeltildi)
-            if (ageStats.age && ageStats.age.active_version) {
-                window.activeAgeVersion = ageStats.age.active_version;
+            if (ageStats.active_version) {
+                window.activeAgeVersion = ageStats.active_version;
+                console.log('✅ window.activeAgeVersion güncellendi:', window.activeAgeVersion);
             }
             updateModalModelStats('age', ageStats);
         } else {
@@ -716,7 +727,7 @@ async function loadModalModelStats() {
         }
 
         // İçerik modeli istatistikleri
-        const contentResponse = await fetch('/api/model/metrics/content');
+        const contentResponse = await fetch('/api/models/metrics/content');
         if (contentResponse.ok) {
             const contentStats = await contentResponse.json();
             console.log('✅ Content model stats yüklendi:', contentStats);
@@ -734,7 +745,7 @@ async function loadModalModelVersions() {
     console.log('📦 Modal model versions yükleniyor...');
     try {
         // Yaş modeli versiyonları
-        const ageResponse = await fetch('/api/model/age/versions');
+        const ageResponse = await fetch('/api/models/versions/age');
         if (ageResponse.ok) {
             const ageData = await ageResponse.json();
             console.log('✅ Age model versions yüklendi:', ageData);
@@ -754,7 +765,7 @@ async function loadModalModelVersions() {
         }
 
         // İçerik modeli versiyonları  
-        const contentResponse = await fetch('/api/model/versions/content');
+        const contentResponse = await fetch('/api/models/versions/content');
         if (contentResponse.ok) {
             const contentData = await contentResponse.json();
             console.log('✅ Content model versions yüklendi:', contentData);
@@ -903,12 +914,23 @@ function displayAgeModelVersions(versionData) {
     if (!activeVersionName) activeVersionName = 'v1.0';
     console.log('DEBUG: window.activeAgeVersion =', window.activeAgeVersion, 'activeVersionName =', activeVersionName);
 
+    // Base model açıklamasını API'den al
+    let baseModelDescription = 'Buffalo-L + Custom Age Head (UTKFace eğitimli)';
+    
+    // Versions listesinde base_model'i bul
+    if (versionData?.versions?.length > 0) {
+        const baseModelVersion = versionData.versions.find(v => v.version_name === 'base_model');
+        if (baseModelVersion?.metrics?.description) {
+            baseModelDescription = baseModelVersion.metrics.description;
+        }
+    }
+
     let versionsHtml = `
         <div class="d-flex align-items-center gap-2 mb-2">
             <span class="badge ${activeVersionName === 'v1.0' ? 'bg-success' : 'bg-secondary'}" 
                   style="cursor: pointer;" onclick="switchAgeModelVersion('base_model')"
                   title="Bu versiyona geç">v1.0 ${activeVersionName === 'v1.0' ? '(Aktif)' : ''}</span>
-            <small class="text-muted">Temel model</small>
+            <small class="text-muted">${baseModelDescription}</small>
         </div>
     `;
     if (versionData?.versions?.length > 0) {
@@ -917,12 +939,27 @@ function displayAgeModelVersions(versionData) {
             const versionKey = version.id;
             const isActive = String(versionName) === String(activeVersionName);
             console.log('DEBUG: versionName =', versionName, 'isActive =', isActive);
+            
+            // Base model'i atla çünkü zaten üstte gösteriliyor
+            if (version.version_name === 'base_model') {
+                return;
+            }
+            
+            // Custom model için açıklama
+            let versionDescription = `ID: ${versionKey}`;
+            if (version.metrics?.description) {
+                versionDescription = version.metrics.description;
+            } else if (version.created_at) {
+                const createdDate = new Date(version.created_at).toLocaleDateString('tr-TR');
+                versionDescription = `Oluşturulma: ${createdDate}`;
+            }
+            
             versionsHtml += `
                 <div class="d-flex align-items-center gap-2 mb-1">
                     <span class="badge ${isActive ? 'bg-success' : 'bg-info'}" 
                           style="cursor: pointer;" onclick="switchAgeModelVersion('${versionKey}')"
                           title="Bu versiyona geç">${versionName} ${isActive ? '(Aktif)' : ''}</span>
-                    <small class="text-muted">${versionKey}</small>
+                    <small class="text-muted">${versionDescription}</small>
                     ${!isActive ? `<button class="btn btn-xs btn-outline-danger ms-auto" 
                                          onclick="deleteSpecificAgeVersion('${versionKey}')" 
                                          title="Bu versiyonu sil">
@@ -1628,7 +1665,7 @@ function loadStoredAnalyses() {
             
             console.log(`💾 ${storedAnalyses.length} stored analiz restore edildi`);
         } else {
-            console.log('💾 localStorage'da stored analysis yok');
+            console.log('💾 localStorage\'da stored analysis yok');
         }
         
     } catch (error) {
@@ -1693,4 +1730,57 @@ function loadRecentContentFeedbacks() {
 const modelMetricsModalEl = document.getElementById('modelMetricsModal');
 if (modelMetricsModalEl) {
     modelMetricsModalEl.addEventListener('show.bs.modal', loadRecentContentFeedbacks);
-} 
+}
+
+// 🗑️ ANALIZ SONUÇLARI TEMİZLEME FONKSİYONU
+async function clearAllAnalysisResults() {
+    if (confirm('Tüm analiz sonuçlarını temizlemek istediğinizden emin misiniz? Bu işlem geri alınamaz ve veritabanından da silinecektir.')) {
+        try {
+            // Backend'ten analiz sonuçlarını temizle
+            const response = await fetch('/api/analysis/clear-all', {
+                method: 'DELETE',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            });
+            
+            const result = await response.json();
+            
+            if (response.ok && result.success) {
+                // localStorage'dan analiz sonuçlarını temizle
+                localStorage.removeItem('wsanaliz_recent_analyses');
+                
+                // Global uploadedFiles array'ini temizle
+                if (window.uploadedFiles) {
+                    window.uploadedFiles = [];
+                }
+                
+                // Results section'ı gizle
+                const resultsSection = document.getElementById('resultsSection');
+                if (resultsSection) {
+                    resultsSection.style.display = 'none';
+                }
+                
+                // Results listesini temizle
+                const resultsList = document.getElementById('resultsList');
+                if (resultsList) {
+                    resultsList.innerHTML = '';
+                }
+                
+                // Success mesajı göster
+                alert(`Başarı! ${result.deleted_count} analiz sonucu veritabanından ve localStorage'dan temizlendi.`);
+                
+                console.log(`🗑️ ${result.deleted_count} analiz sonucu temizlendi`);
+            } else {
+                throw new Error(result.error || 'Backend temizleme işlemi başarısız');
+            }
+            
+        } catch (error) {
+            console.error('❌ Analiz sonuçları temizleme hatası:', error);
+            alert(`Hata: Analiz sonuçları temizlenirken bir sorun oluştu: ${error.message}`);
+        }
+    }
+}
+
+// Global erişim için
+window.clearAllAnalysisResults = clearAllAnalysisResults; 

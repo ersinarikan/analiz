@@ -113,6 +113,7 @@ def submit_age_feedback():
             corrected_age=corrected_age,
             is_age_range_correct=is_age_range_correct,
             feedback_type='age',
+            feedback_source='MANUAL_USER_AGE_CORRECTION',
             frame_path=frame_path,
             embedding=embedding_str
         )

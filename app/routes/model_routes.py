@@ -456,7 +456,7 @@ def train_model_web():
             'batch_size': data.get('batch_size', 16),
             'learning_rate': data.get('learning_rate', 0.001),
             'patience': data.get('patience', 5),
-            'min_samples': data.get('min_samples', 50)
+            'min_samples': data.get('min_samples', 30)
         }
         
         if model_type == 'content':

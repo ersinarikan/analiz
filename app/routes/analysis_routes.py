@@ -557,4 +557,30 @@ def get_recent_analyses():
         return jsonify({'error': f'Recent analyses alınırken bir hata oluştu: {str(e)}'}), 500
 
 
+@analysis_bp.route('/clear-all', methods=['DELETE'])
+def clear_all_analyses():
+    """
+    Tüm analiz sonuçlarını temizler (veritabanından siler)
+    """
+    try:
+        from app.models.analysis import Analysis
+        
+        # Tüm analizleri sil
+        deleted_count = Analysis.query.delete()
+        db.session.commit()
+        
+        logger.info(f"🗑️ {deleted_count} analiz sonucu veritabanından temizlendi")
+        
+        return jsonify({
+            'success': True,
+            'message': f'{deleted_count} analiz sonucu başarıyla temizlendi',
+            'deleted_count': deleted_count
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Analiz sonuçları temizlenirken hata: {str(e)}")
+        db.session.rollback()
+        return jsonify({'error': f'Analiz sonuçları temizlenirken bir hata oluştu: {str(e)}'}), 500
+
+
 bp = analysis_bp 

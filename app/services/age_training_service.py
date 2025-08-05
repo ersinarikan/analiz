@@ -426,6 +426,11 @@ class AgeTrainingService:
                 ).update({'is_active': False})
                 db.session.commit()
                 logger.info("Base model activated")
+                
+                # Model state'i güncelle
+                from app.utils.model_state import reset_model_cache
+                reset_model_cache()
+                
                 return True
                 
             # Versiyonu bul
@@ -449,13 +454,10 @@ class AgeTrainingService:
             db.session.commit()
             
             logger.info(f"Model version {version.version_name} activated successfully")
-            return True
             
-        except Exception as e:
-            logger.error(f"Error activating model version: {str(e)}")
-            return False
-            
-            logger.info(f"Activated model version: {version.version_name} (ID: {version_id})")
+            # Model state'i güncelle
+            from app.utils.model_state import reset_model_cache
+            reset_model_cache()
             
             return True
             

@@ -235,8 +235,8 @@ class ModelService:
                     age_counts[age_group] = age_counts.get(age_group, 0) + 1
             stats['age_distribution'] = age_counts
             # Manuel vs pseudo feedback dağılımı
-            manual_count = len([f for f in feedbacks if f.feedback_source == 'MANUAL_USER'])
-            pseudo_count = len([f for f in feedbacks if f.feedback_source != 'MANUAL_USER'])
+            manual_count = len([f for f in feedbacks if f.feedback_source and 'MANUAL_USER' in f.feedback_source])
+            pseudo_count = len([f for f in feedbacks if not f.feedback_source or 'MANUAL_USER' not in f.feedback_source])
             stats['feedback_sources'] = {
                 'manual': manual_count,
                 'pseudo': pseudo_count

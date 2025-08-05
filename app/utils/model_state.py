@@ -242,3 +242,20 @@ def update_model_state_file(model_type, version_id):
     """
     update_model_state(model_type, version_id)
     logger.info(f"Model state file updated: {model_type} -> version {version_id}")
+
+
+def reset_model_cache():
+    """
+    Model cache'ini temizler. Model aktivasyonundan sonra çağrılır.
+    Bu sayede in-memory model instance'ları yeniden yüklenir.
+    """
+    global _model_instances
+    
+    with _model_lock:
+        old_count = len(_model_instances)
+        _model_instances.clear()
+        logger.info(f"🔄 Model cache temizlendi ({old_count} instance kaldırıldı)")
+        
+    # Force garbage collection for cached models
+    import gc
+    gc.collect()
