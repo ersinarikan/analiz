@@ -188,22 +188,35 @@ function closeZoomModal() {
 window.zoomImage = zoomImage;
 window.closeZoomModal = closeZoomModal;
 
-// 🎯 MODEL METRICS FUNCTIONALITY (corrected to call display functions)
+// 🎯 MODEL METRICS FUNCTIONALITY (use working updateModalModelStats + manual spinner removal)
 function loadModelMetrics() {
     console.log('🔧 Model metrikleri yükleniyor...');
+    
+    // 🎯 MANUAL SPINNER REMOVAL - önce spinnerları kaldır
+    const contentSpinner = document.getElementById('contentLoadingSpinner');
+    if (contentSpinner) {
+        contentSpinner.remove();
+        console.log('✅ Content model loading spinner kaldırıldı');
+    }
+    
+    const ageSpinner = document.getElementById('ageLoadingSpinner');
+    if (ageSpinner) {
+        ageSpinner.remove();
+        console.log('✅ Age model loading spinner kaldırıldı');
+    }
     
     // Content model metrics
     fetch('/api/models/metrics/content')
         .then(r => r.json())
         .then(data => {
             console.log('Content model metrics:', data);
-            // 🎯 DISPLAY CONTENT MODEL - spinner'ı kaldırır
-            displayContentModelMetrics(data.content || data);
+            // 🎯 USE WORKING FUNCTION
+            updateModalModelStats('content', data);
             updateTrainingDataCounts('content', data);
         })
         .catch(err => {
             console.error('Content model metrics hatası:', err);
-            displayContentModelMetrics({});
+            updateModalModelStats('content', {});
         });
         
     // Age model metrics
@@ -211,13 +224,13 @@ function loadModelMetrics() {
         .then(r => r.json())
         .then(data => {
             console.log('Age model metrics:', data);
-            // 🎯 DISPLAY AGE MODEL - spinner'ı kaldırır
-            displayAgeModelMetrics(data.age || data);
+            // 🎯 USE WORKING FUNCTION
+            updateModalModelStats('age', data);
             updateTrainingDataCounts('age', data);
         })
         .catch(err => {
             console.error('Age model metrics hatası:', err);
-            displayAgeModelMetrics({});
+            updateModalModelStats('age', {});
         });
     
 
