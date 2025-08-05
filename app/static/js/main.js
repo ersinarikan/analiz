@@ -665,8 +665,63 @@ if (trainingDataTab) {
         // Model metrics'i yeniden yükle (eğitim verisi sayaçları için)
         setTimeout(() => {
             loadModelMetrics();
+            // 🎯 MODEL VERSİYONLARI YÜKLENİYOR!
+            console.log('📦 Model Versiyonları da yükleniyor...');
+            loadModelVersionsForTrainingTab();
         }, 100); // Tab geçişi için kısa gecikme
     });
+}
+
+// 🎯 TRAINING TAB MODEL VERSIONS LOADER
+async function loadModelVersionsForTrainingTab() {
+    console.log('📦 Training tab model versions yükleniyor...');
+    
+    const container = document.getElementById('contentVersionsContainer');
+    if (!container) {
+        console.error('❌ contentVersionsContainer bulunamadı');
+        return;
+    }
+    
+    try {
+        // Content model versions
+        const contentResponse = await fetch('/api/models/versions/content');
+        if (contentResponse.ok) {
+            const contentData = await contentResponse.json();
+            console.log('✅ Content model versions (training tab):', contentData);
+            
+            // Remove loading spinner
+            const loadingSpinner = container.querySelector('.spinner-border');
+            if (loadingSpinner && loadingSpinner.parentElement) {
+                loadingSpinner.parentElement.remove();
+                console.log('✅ Training tab loading spinner kaldırıldı');
+            }
+            
+            if (contentData.success && contentData.versions) {
+                container.innerHTML = `
+                    <div class="list-group">
+                        ${contentData.versions.map(version => `
+                            <div class="list-group-item ${version.is_active ? 'active' : ''}">
+                                <div class="d-flex w-100 justify-content-between">
+                                    <h6 class="mb-1">${version.version_name}</h6>
+                                    <small>${version.is_active ? 'Aktif' : 'Pasif'}</small>
+                                </div>
+                                <p class="mb-1">${version.metrics?.description || 'Açıklama yok'}</p>
+                                <small>Oluşturma: ${new Date(version.created_at).toLocaleDateString('tr-TR')}</small>
+                            </div>
+                        `).join('')}
+                    </div>
+                `;
+            } else {
+                container.innerHTML = '<p class="text-muted">Henüz model versiyonu yok</p>';
+            }
+        } else {
+            console.log('⚠️ Content model versions API error:', contentResponse.status);
+            container.innerHTML = '<p class="text-muted">Model versiyonları yüklenemedi</p>';
+        }
+    } catch (error) {
+        console.error('❌ Training tab model versions yükleme hatası:', error);
+        container.innerHTML = '<p class="text-danger">Hata: Versiyon bilgileri alınamadı</p>';
+    }
 }
 
 // 🎯 MODEL MANAGEMENT BUTTON EVENT LISTENER (from main.js.backup)
