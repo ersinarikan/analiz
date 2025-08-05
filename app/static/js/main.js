@@ -1083,7 +1083,7 @@ function updateContentModelTables(contentData) {
 function updateContentCategoryPerformance(contentData) {
     // Tab'ın aktif olmasını bekle
     setTimeout(() => {
-        const categoryContainer = document.querySelector('.content-category-performance tbody');
+        const categoryContainer = document.querySelector('.content-category-performance');
         
         if (!categoryContainer) {
             console.warn('⚠️ Content category performance table container bulunamadı');
@@ -1162,7 +1162,7 @@ function updateContentGeneralMetrics(contentData) {
 // ⚙️ İçerik Modeli Ensemble Düzeltmeleri
 function updateContentEnsembleCorrections(contentData) {
     setTimeout(() => {
-        const ensembleContainer = document.querySelector('.content-ensemble-corrections tbody');
+        const ensembleContainer = document.querySelector('.content-ensemble-corrections');
         
         if (!ensembleContainer) {
             console.warn('⚠️ Content ensemble corrections table container bulunamadı');
