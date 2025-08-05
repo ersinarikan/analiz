@@ -340,10 +340,10 @@ function displayContentModelMetrics_OLD(data) {
         return;
     }
     
-    // Loading spinner'ı kaldır - container içindeki spinner'ı bul ve kaldır
-    const loadingSpinner = container.querySelector('.spinner-border');
-    if (loadingSpinner && loadingSpinner.parentElement) {
-        loadingSpinner.parentElement.remove();
+    // Loading spinner'ı kaldır - ID ile hedefle ve tamamen kaldır
+    const loadingSpinner = document.getElementById('contentLoadingSpinner');
+    if (loadingSpinner) {
+        loadingSpinner.remove();
         console.log('✅ Content model loading spinner kaldırıldı');
     }
     
@@ -499,10 +499,10 @@ function displayAgeModelMetrics_OLD(data) {
         return;
     }
     
-    // Loading spinner'ı kaldır - container içindeki spinner'ı bul ve kaldır
-    const loadingSpinner = container.querySelector('.spinner-border');
-    if (loadingSpinner && loadingSpinner.parentElement) {
-        loadingSpinner.parentElement.remove();
+    // Loading spinner'ı kaldır - ID ile hedefle ve tamamen kaldır
+    const loadingSpinner = document.getElementById('ageLoadingSpinner');
+    if (loadingSpinner) {
+        loadingSpinner.remove();
         console.log('✅ Age model loading spinner kaldırıldı');
     }
     
