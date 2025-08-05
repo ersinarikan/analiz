@@ -1081,12 +1081,15 @@ function updateContentModelTables(contentData) {
 
 // 🏷️ İçerik Modeli Kategori Performansı
 function updateContentCategoryPerformance(contentData) {
-    const categoryContainer = document.querySelector('.content-category-performance tbody');
-    
-    if (!categoryContainer) {
-        console.warn('⚠️ Content category performance table container bulunamadı');
-        return;
-    }
+    // Tab'ın aktif olmasını bekle
+    setTimeout(() => {
+        const categoryContainer = document.querySelector('.content-category-performance tbody');
+        
+        if (!categoryContainer) {
+            console.warn('⚠️ Content category performance table container bulunamadı');
+            console.log('🔍 Tüm content-category-performance elementleri:', document.querySelectorAll('.content-category-performance'));
+            return;
+        }
     
     // Örnek kategoriler (gerçek veriler API'den gelecek)
     const categories = [
@@ -1113,6 +1116,7 @@ function updateContentCategoryPerformance(contentData) {
     });
     
     console.log('✅ İçerik kategori performansı tablosu güncellendi');
+    }, 100); // setTimeout kapanışı
 }
 
 // 📈 İçerik Modeli Genel Metrikler  
@@ -1157,12 +1161,14 @@ function updateContentGeneralMetrics(contentData) {
 
 // ⚙️ İçerik Modeli Ensemble Düzeltmeleri
 function updateContentEnsembleCorrections(contentData) {
-    const ensembleContainer = document.querySelector('.content-ensemble-corrections tbody');
-    
-    if (!ensembleContainer) {
-        console.warn('⚠️ Content ensemble corrections table container bulunamadı');
-        return;
-    }
+    setTimeout(() => {
+        const ensembleContainer = document.querySelector('.content-ensemble-corrections tbody');
+        
+        if (!ensembleContainer) {
+            console.warn('⚠️ Content ensemble corrections table container bulunamadı');
+            console.log('🔍 Tüm content-ensemble-corrections elementleri:', document.querySelectorAll('.content-ensemble-corrections'));
+            return;
+        }
     
     const corrections = contentData.ensemble_corrections || [];
     const feedbackSources = contentData.feedback_sources || { manual: 0, pseudo: 0 };
@@ -1199,6 +1205,7 @@ function updateContentEnsembleCorrections(contentData) {
     }
     
     console.log('✅ İçerik ensemble düzeltmeleri tablosu güncellendi');
+    }, 100); // setTimeout kapanışı
 }
 
 // 🎯 AGE MODEL VERSIONS DISPLAY FUNCTION
