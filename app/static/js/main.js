@@ -650,6 +650,8 @@ if (modelMetricsBtn && modelMetricsModal) {
     
     modelMetricsBtn.addEventListener('click', () => {
         loadModelMetrics();
+        // 🎯 MODEL VERSIONS DE YÜKLE
+        loadModalModelVersions();
         // Eğer modal instance yoksa oluştur
         if (!modalInstance) {
             modalInstance = new bootstrap.Modal(modelMetricsModal);
