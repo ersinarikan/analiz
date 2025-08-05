@@ -8,6 +8,8 @@ import time
 
 # Kullanılmayan importlar kaldırıldı
 import torch
+
+logger = logging.getLogger(__name__)
 import tensorflow as tf
 
 from flask import current_app
@@ -166,31 +168,8 @@ class ModelService:
             # Kategori dağılımı (isteğe bağlı, category_feedback alanına göre eklenebilir)
             # ...
 
-        # 🚀 DEMO: Geliştirme amaçlı sahte ensemble düzeltmeleri (manual_count > 0 olunca gerçek veri kullanılacak)
-        if stats['feedback_count'] == 0:  # Gerçek veri yoksa sahte veri ekle
-            stats['ensemble_corrections'] = [
-                {
-                    'category': 'Şiddet',
-                    'original_confidence': 0.45,
-                    'corrected_confidence': 0.88,
-                    'improvement': '+43%',
-                    'sample_count': 12
-                },
-                {
-                    'category': 'Yetişkin İçeriği', 
-                    'original_confidence': 0.62,
-                    'corrected_confidence': 0.91,
-                    'improvement': '+29%',
-                    'sample_count': 8
-                },
-                {
-                    'category': 'Güvenli İçerik',
-                    'original_confidence': 0.78,
-                    'corrected_confidence': 0.95,
-                    'improvement': '+17%',
-                    'sample_count': 25
-                }
-            ]
+        # 📊 GERÇEK VERİ: Content modeli henüz gerçek ensemble düzeltmeleri saklamıyor
+        # Content ensemble sistem geliştirildiğinde buraya eklenecek
 
         return stats
 
@@ -269,31 +248,31 @@ class ModelService:
                 'pseudo': pseudo_count
             }
 
-        # 🚀 DEMO: Geliştirme amaçlı sahte ensemble düzeltmeleri (manual_count > 0 olunca gerçek veri kullanılacak)
-        if not feedbacks or len([f for f in feedbacks if f.feedback_source and 'MANUAL_USER' in f.feedback_source]) == 0:
-            stats['ensemble_corrections'] = [
-                {
-                    'age_range': '0-18 yaş',
-                    'original_mae': 5.2,
-                    'corrected_mae': 3.1,
-                    'improvement': '-40%',
-                    'sample_count': 15
-                },
-                {
-                    'age_range': '19-35 yaş',
-                    'original_mae': 4.8,
-                    'corrected_mae': 2.9,
-                    'improvement': '-40%',
-                    'sample_count': 22
-                },
-                {
-                    'age_range': '36-65 yaş',
-                    'original_mae': 6.1,
-                    'corrected_mae': 4.2,
-                    'improvement': '-31%',
-                    'sample_count': 18
-                }
-            ]
+        # 📊 GERÇEK VERİ: Config dosyalarından ensemble düzeltmeleri oku
+        if active_version and active_version.file_path:
+            training_details_path = os.path.join(active_version.file_path, 'training_details.json')
+            if os.path.exists(training_details_path):
+                try:
+                    with open(training_details_path, 'r') as f:
+                        training_details = json.load(f)
+                        if 'history' in training_details and 'val_mae' in training_details['history']:
+                            val_mae_history = training_details['history']['val_mae']
+                            if len(val_mae_history) >= 2:
+                                initial_mae = val_mae_history[0]
+                                final_mae = val_mae_history[-1]
+                                improvement_pct = ((initial_mae - final_mae) / initial_mae) * 100
+                                
+                                stats['ensemble_corrections'] = [
+                                    {
+                                        'age_range': 'Genel İyileşme',
+                                        'original_mae': round(initial_mae, 2),
+                                        'corrected_mae': round(final_mae, 2),
+                                        'improvement': f'-{improvement_pct:.1f}%',
+                                        'sample_count': training_details.get('training_samples', 0)
+                                    }
+                                ]
+                except Exception as e:
+                    logger.error(f"Training details okuma hatası: {str(e)}")
 
         return stats
 
