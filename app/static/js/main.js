@@ -849,8 +849,8 @@ async function loadModalModelVersions() {
             
             // Global variable'a kaydet
             window.contentVersionData = contentData;
-            // UI'ı güncelle
-            displayContentModelVersions(contentData);
+            // UI'ı güncelle - Model Yönetimi modalı için interactive versiyon
+            displayContentModelVersionsManagement(contentData);
             
             // Versiyon listesi debug log
             if (contentData.versions) {
@@ -1393,6 +1393,8 @@ function displayAgeModelVersions(versionData) {
         });
     }
     versionsContainer.innerHTML = versionsHtml;
+    console.log('✅ Content versions: Model versiyonları listelendi');
+    console.log('VERSIONS CONTAINER HTML:', versionsContainer.innerHTML);
 }
 window.switchAgeModelVersion = switchAgeModelVersion;
 window.deleteSpecificAgeVersion = deleteSpecificAgeVersion;
@@ -1555,24 +1557,36 @@ window.deleteLatestModelVersion = deleteLatestModelVersion;
 
 // 🎯 CONTENT MODEL VERSIONS DISPLAY FUNCTION
 function displayContentModelVersions(versionData) {
-    const versionsContainer = document.getElementById('modal-content-versions');
-    if (!versionsContainer) {
-        console.error('❌ modal-content-versions container bulunamadı');
-        return;
-    }
-    
-    console.log('🎯 Content model versions display ediliyor:', versionData);
-    console.log('🔍 DEBUG - versionData.versions length:', versionData?.versions?.length || 0);
-    console.log('🔍 DEBUG - versionData.base_model_exists:', versionData?.base_model_exists);
-    
-    // Eğer versions array'i varsa ve en az 1 model varsa, versiyonları göster
+    const versionsContainer = document.getElementById('contentVersionsContainer');
+    // Spinner'ı kaldır
+    const spinners = versionsContainer.querySelectorAll('.spinner-border, .fa-spinner, .fa-spin');
+    spinners.forEach(spinner => {
+        if (spinner.parentElement) spinner.parentElement.remove();
+        else spinner.remove();
+    });
+    let versionsHtml = '';
     if (versionData && versionData.versions && versionData.versions.length > 0) {
-        // Model varsa versiyonları göster
+        versionData.versions.forEach((versionInfo, index) => {
+            if (versionInfo.version_name === 'base_openclip') {
+                versionsHtml += `<div><b>Temel model:</b> CLIP-v1.0</div>`;
+            } else {
+                versionsHtml += `<div><b>Versiyon:</b> ${versionInfo.version_name} ${versionInfo.is_active ? '(Aktif)' : ''}</div>`;
+            }
+        });
+    } else {
+        versionsHtml = '<div>Henüz model versiyonu yok.</div>';
+    }
+    versionsContainer.innerHTML = versionsHtml;
+    console.log('✅ Content model versions sade liste olarak güncellendi');
+}
+
+// Model Yönetimi modalı için eski badge/butonlu kod (tamamen geri getirildi)
+function displayContentModelVersionsManagement(versionData) {
+    const versionsContainer = document.getElementById('management-content-versions');
+    let versionsHtml = '';
+    if (versionData && versionData.versions && versionData.versions.length > 0) {
         const activeVersion = versionData.active_version || 'base_openclip';
-        
-        let versionsHtml = '';
-        
-        // Base model'i de göster (eğer base_model_exists varsa)
+        // Base model
         if (versionData.base_model_exists) {
             versionsHtml += `
             <div class="d-flex align-items-center gap-2 mb-2">
@@ -1583,57 +1597,32 @@ function displayContentModelVersions(versionData) {
             </div>
         `;
         }
-        
-        // Database versiyonları (versions array) kullan, physical_versions değil
-        console.log('🔍 DEBUG - Processing versions for display...');
-        if (versionData.versions && versionData.versions.length > 0) {
-            console.log('🔍 DEBUG - Found', versionData.versions.length, 'total versions');
-            versionData.versions.forEach((versionInfo, index) => {
-                console.log(`🔍 DEBUG - Version ${index}: ${versionInfo.version_name} (active: ${versionInfo.is_active})`);
-                
-                // Base model'i atla (version_name: 'base_openclip')
-                if (versionInfo.version_name === 'base_openclip') {
-                    console.log('   ⏭️ Skipping base model');
-                    return;
-                }
-                
-                const isActive = versionInfo.is_active;
-                const displayName = versionInfo.version_name.includes('ensemble_clip') 
-                    ? `CLIP-v${versionInfo.version}` 
-                    : versionInfo.version_name;
-                
-                console.log(`   ✅ Rendering: ${displayName} (active: ${isActive})`);
-                
+        // Diğer versiyonlar
+        versionData.versions.forEach((versionInfo) => {
+            if (versionInfo.version_name === 'base_openclip') return;
+            const isActive = versionInfo.is_active;
+            const displayName = versionInfo.version_name.includes('ensemble_clip') 
+                ? `CLIP-v${versionInfo.version}` 
+                : versionInfo.version_name;
                 versionsHtml += `
                     <div class="d-flex align-items-center gap-2 mb-1">
                         <span class="badge ${isActive ? 'bg-success' : 'bg-info'}" 
-                              style="cursor: pointer;" onclick="switchContentModelVersion('${versionInfo.version_name}')"
-                              title="Bu versiyona geç">${displayName} ${isActive ? '(Aktif)' : ''}</span>
-                        <small class="text-muted">${versionInfo.version_name}</small>
+                          style="cursor: pointer;" onclick="switchContentModelVersion('${versionInfo.version_name}')"
+                          title="Bu versiyona geç">${displayName} ${isActive ? '(Aktif)' : ''}</span>
+                    <small class="text-muted">${versionInfo.version_name}</small>
                         ${!isActive ? `<button class="btn btn-xs btn-outline-danger ms-auto" 
-                                             onclick="deleteSpecificContentVersion('${versionInfo.version_name}')" 
+                                         onclick="deleteSpecificContentVersion('${versionInfo.version_name}')" 
                                              title="Bu versiyonu sil">
                                              <i class="fas fa-times"></i>
                                       </button>` : ''}
                     </div>
                 `;
             });
-        } else {
-            console.log('🔍 DEBUG - No additional versions to display (only base model)');
-        }
-        
-        versionsContainer.innerHTML = versionsHtml;
-        console.log('✅ Content versions: Model versiyonları listelendi');
     } else {
-        // Hiç model yoksa
-        versionsContainer.innerHTML = `
-            <div class="d-flex align-items-center gap-2">
-                <span class="badge bg-secondary" title="Henüz eğitim yapılmamış">CLIP-v1.0 (Temel)</span>
-                <small class="text-muted">Henüz custom versiyon yok</small>
-            </div>
-        `;
-        console.log('⚠️ Content versions: Henüz custom versiyon yok, placeholder gösteriliyor');
-    }
+        versionsHtml = '<div>Henüz model versiyonu yok.</div>';
+        }
+        versionsContainer.innerHTML = versionsHtml;
+    console.log('✅ Model Yönetimi için versiyonlar badge ve butonlarla güncellendi');
 }
 
 // 🎯 MODEL VERSION SWITCHING FUNCTIONS
