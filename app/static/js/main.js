@@ -188,7 +188,7 @@ function closeZoomModal() {
 window.zoomImage = zoomImage;
 window.closeZoomModal = closeZoomModal;
 
-// 🎯 MODEL METRICS FUNCTIONALITY (basic version from main.js.backup)
+// 🎯 MODEL METRICS FUNCTIONALITY (corrected to call display functions)
 function loadModelMetrics() {
     console.log('🔧 Model metrikleri yükleniyor...');
     
@@ -197,12 +197,13 @@ function loadModelMetrics() {
         .then(r => r.json())
         .then(data => {
             console.log('Content model metrics:', data);
-            updateModalModelStats('content', data);
+            // 🎯 DISPLAY CONTENT MODEL - spinner'ı kaldırır
+            displayContentModelMetrics(data.content || data);
             updateTrainingDataCounts('content', data);
         })
         .catch(err => {
             console.error('Content model metrics hatası:', err);
-            updateModalModelStats('content', {});
+            displayContentModelMetrics({});
         });
         
     // Age model metrics
@@ -210,12 +211,13 @@ function loadModelMetrics() {
         .then(r => r.json())
         .then(data => {
             console.log('Age model metrics:', data);
-            updateModalModelStats('age', data);
+            // 🎯 DISPLAY AGE MODEL - spinner'ı kaldırır
+            displayAgeModelMetrics(data.age || data);
             updateTrainingDataCounts('age', data);
         })
         .catch(err => {
             console.error('Age model metrics hatası:', err);
-            updateModalModelStats('age', {});
+            displayAgeModelMetrics({});
         });
     
 
