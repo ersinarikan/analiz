@@ -7,7 +7,6 @@ import logging
 
 from app import db
 from app.models.file import File
-from app.services.file_service import is_allowed_file, save_uploaded_file
 from app.services.analysis_service import AnalysisService
 from app.utils.security import (
     validate_file_upload, validate_path, validate_request_params,
