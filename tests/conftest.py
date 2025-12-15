@@ -13,7 +13,9 @@ def app():
     """Create application for testing"""
     from app import create_app
     
-    app = create_app('testing')
+    created = create_app('testing')
+    # create_app artık (app, socketio) tuple döndürüyor olabilir
+    app = created[0] if isinstance(created, tuple) else created
     app.config.update({
         'TESTING': True,
         'SQLALCHEMY_DATABASE_URI': 'sqlite:///:memory:',

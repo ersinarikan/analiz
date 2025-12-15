@@ -14,32 +14,32 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
 from config import config
 
-# 🎯 SocketIO'yu ayrı dosyadan import et (circular import önleme)
+# ERSIN 🎯 SocketIO'yu ayrı dosyadan import et (circular import önleme)
 from app.socketio_instance import socketio
 from app.json_encoder import CustomJSONEncoder
 
 # Global minimal socketio reference (runtime'da set edilecek)
 _current_running_socketio = None
-global_flask_app = None  # Ana Flask app nesnesi, background thread'ler için
+global_flask_app = None  # ERSIN Ana Flask app nesnesi, background thread'ler için
 
-# Memory utils - optional import
+# ERSIN Memory utils - isteğe bağlı import
 try:
     from app.utils.memory_utils import initialize_memory_management
 except ImportError:
     initialize_memory_management = None
 
-# Global extensions
+# ERSIN Global Flask eklentileri
 db = SQLAlchemy()
 migrate = Migrate()
 
 logger = logging.getLogger("wsanaliz.app_init")
 logging.basicConfig(level=logging.INFO)
 
-# ===============================
-# 🎯 STANDARD FLASK-SOCKETIO PATTERN
-# ===============================
-# DİKKAT: SocketIO instance'ı SADECE burada, uygulama başlatılırken oluşturulur ve set edilir.
-# Başka hiçbir yerde yeni SocketIO instance'ı yaratılmayacak veya set edilmeyecek!
+# ERSIN ===============================
+# ERSIN 🎯 STANDARD FLASK-SOCKETIO PATTERN
+# ERSIN ===============================
+# ERSIN DİKKAT: SocketIO instance'ı SADECE burada, uygulama başlatılırken oluşturulur ve set edilir.
+# ERSIN Başka hiçbir yerde yeni SocketIO instance'ı yaratılmayacak veya set edilmeyecek!
 
 def register_blueprints_from_list(app, blueprint_defs):
     """
@@ -78,26 +78,26 @@ def create_app(config_name='default'):
     flask_app = Flask(__name__)
     flask_app.config.from_object(config[config_name])
     
-    # Initialize extensions
+    # ERSIN Flask uzantılarını başlat
     db.init_app(flask_app)
     
-    # ✅ MİNİMAL PATTERN: Direct SocketIO setup with optimized configuration
+    # ERSIN ✅ MİNİMAL PATTERN: Optimize SocketIO kurulumu
     from flask_socketio import SocketIO
     minimal_socketio = SocketIO(
         flask_app,
         cors_allowed_origins="*",
-        ping_timeout=720,  # Uzun analizler için 12 dakika timeout
-        ping_interval=60,  # Her dakika ping ile browser arka plan uyumluluğu
-        logger=False,      # Verbose logging kapat
+        ping_timeout=720,  # ERSIN Uzun analizler için 12 dakika timeout
+        ping_interval=60,  # ERSIN Her dakika ping ile browser arka plan uyumluluğu
+        logger=False,      # ERSIN Verbose logging kapat
         engineio_logger=False,
-        async_mode='eventlet'  # Eventlet async mode
+        async_mode='eventlet'  # ERSIN Eventlet async mode
     )
     
-    # Global instance'ı güncelleyelim - emit_analysis_progress için
+    # ERSIN Global instance'ı güncelleyelim - emit_analysis_progress için
     import app.socketio_instance
     app.socketio_instance.set_socketio(minimal_socketio)  # TEK NOKTA SET!
     
-    # ✅ MİNİMAL PATTERN: Direct event handler registration
+    # ERSIN ✅ MİNİMAL PATTERN: Event handler kayıtları
     
     @minimal_socketio.on('connect')
     def handle_connect():
@@ -117,9 +117,9 @@ def create_app(config_name='default'):
         session_id = request.sid
         print(f"❌❌❌ MİNİMAL DISCONNECT! Session: {session_id}")
         
-        # Bu WebSocket session'ı ile ilişkili çalışan analizleri bul ve iptal et
+        # ERSIN Bu WebSocket session'ı ile ilişkili çalışan analizleri bul ve iptal et
         try:
-            # 1. Veritabanındaki ilişkili analizleri bul
+            # ERSIN 1. Veritabanındaki ilişkili analizleri bul
             active_analyses = Analysis.query.filter(
                 Analysis.websocket_session_id == session_id,
                 Analysis.status.in_(['pending', 'processing'])
@@ -131,7 +131,7 @@ def create_app(config_name='default'):
                 analysis.cancel_analysis("WebSocket bağlantısı kesildi")
                 cancelled_count += 1
             
-            # 2. Kuyruktaki analizleri de kontrol et
+            # ERSIN 2. Kuyruktaki analizleri de kontrol et
             from app.services.queue_service import remove_cancelled_from_queue
             queue_removed = remove_cancelled_from_queue()
             
@@ -163,10 +163,10 @@ def create_app(config_name='default'):
             analysis_id = data['analysis_id']
             room = f"analysis_{analysis_id}"
             
-            # Room'a katıl
+            # ERSIN Room'a katıl
             join_room(room)
             
-            # DEBUG: Room membership kontrol et
+            # ERSIN DEBUG: Room membership kontrol et
             try:
                 room_members = minimal_socketio.server.manager.get_participants(namespace='/', room=room)
                 room_members_list = list(room_members)
@@ -174,7 +174,7 @@ def create_app(config_name='default'):
             except Exception as room_err:
                 print(f"🔍 MİNİMAL JOIN: Room membership check failed: {room_err}")
             
-            # Başarı mesajı gönder
+            # ERSIN Başarı mesajı gönder
             emit('joined_analysis', {
                 'analysis_id': analysis_id,
                 'room': room,
@@ -187,29 +187,29 @@ def create_app(config_name='default'):
     logger.info("[OK] Minimal pattern SocketIO handlers registered!")
     print("[OK] Minimal pattern SocketIO handlers registered!")
     
-    # Minimal SocketIO'yu app'e attach et ki emit_analysis_progress bulabilsin
+    # ERSIN Minimal SocketIO'yu app'e attach et ki emit_analysis_progress bulabilsin
     app.minimal_socketio = minimal_socketio
     
-    # Global referans da tut
+    # ERSIN Global referans da tut
     import app as app_module
     app_module._current_minimal_socketio = minimal_socketio
     
-    # Global modül-level referansı da set et
+    # ERSIN Global modül-level referansı da set et
     global _current_running_socketio
     _current_running_socketio = minimal_socketio
     
-    # Ana Flask app nesnesini global değişkene ata
+    # ERSIN Ana Flask app nesnesini global değişkene ata
     global global_flask_app
     global_flask_app = flask_app
     
-    # JSON encoder'ı ayarla
+    # ERSIN JSON encoder'ı ayarla
     flask_app.json_encoder = CustomJSONEncoder
     
-    # Initialize security middleware
+    # ERSIN Security middleware başlat
     from app.middleware.security_middleware import SecurityMiddleware
     SecurityMiddleware(flask_app)
     
-    # Initialize memory management for performance optimization
+    # ERSIN Performans için memory management başlat
     try:
         if initialize_memory_management:
             initialize_memory_management()
@@ -219,7 +219,7 @@ def create_app(config_name='default'):
     except Exception as e:
         logger.warning(f"Memory management initialization failed: {e}", exc_info=True)
     
-    # Register blueprints with error handling (refactored)
+    # ERSIN Blueprint'leri error handling ile kaydet (refaktör)
     blueprint_defs = [
         ("app.routes.main_routes", "main_bp", None),
         ("app.routes.file_routes", "bp", "file_bp"),
@@ -236,18 +236,10 @@ def create_app(config_name='default'):
     ]
     register_blueprints_from_list(flask_app, blueprint_defs)
     
-    # WebSocket event handlers registration - ESKİ YÖNTEMs DEVRE DIŞI
-    # try:
-    #     from app.routes.websocket_routes import register_websocket_handlers
-    #     register_websocket_handlers(socketio)
-    #     logger.info("WebSocket event handlers registered successfully")
-    # except Exception as e:
-    #     logger.error(f"WebSocket handlers registration failed: {e}")
+    # ERSIN WebSocket event handlers registration - ESKİ YÖNTEM DEVRE DIŞI
+    # ERSIN Error handlers - geçici olarak kapalı (circular import)
     
-    # Error handlers - Geçici olarak disable edildi (circular import problemi)
-    # register_error_handlers(flask_app)
-    
-    # Startup tasks
+    # ERSIN Startup görevleri
     with flask_app.app_context():
         try:
             db.create_all()
@@ -427,9 +419,10 @@ def cleanup_old_analysis_results(days_old=7):
                     shutil.rmtree(analysis_folder)
                     logger.info(f"Analiz klasörü silindi: {analysis_folder}")
                 
-                # İşlenmiş resim dosyasını sil
-                if analysis.processed_image_path:
-                    processed_file = os.path.join(current_app.config['PROCESSED_FOLDER'], analysis.processed_image_path)
+                # İşlenmiş resim dosyasını sil (alan mevcutsa)
+                processed_image_rel = getattr(analysis, 'processed_image_path', None)
+                if processed_image_rel:
+                    processed_file = os.path.join(current_app.config['PROCESSED_FOLDER'], processed_image_rel)
                     if os.path.exists(processed_file):
                         os.unlink(processed_file)
                         logger.info(f"İşlenmiş resim silindi: {processed_file}")

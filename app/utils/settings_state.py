@@ -3,13 +3,13 @@
 # Otomatik restart için config.py tarafından import edilir
 
 SETTINGS_STATE = {
-    'face_detection_confidence': 0.2,
-    'tracking_reliability_threshold': 0.3,
+    'face_detection_confidence': 0.5,
+    'tracking_reliability_threshold': 0.5,
     'id_change_threshold': 0.45,
-    'max_lost_frames': None,
-    'embedding_distance_threshold': 0.3
+    'max_lost_frames': 45,
+    'embedding_distance_threshold': 0.4
 }
 
 # Bu satır Flask'ın dosya değişikliklerini algılaması için
 # Her parametre değişikliğinde timestamp güncellenir
-LAST_UPDATE = "2025-07-31T13:31:00.974626"
+LAST_UPDATE = "2025-12-15T15:50:02.661015"

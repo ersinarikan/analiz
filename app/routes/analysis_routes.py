@@ -25,7 +25,7 @@ def start_analysis():
     Güvenli analiz başlatma endpoint'i. Tüm girişleri doğrular.
     """
     try:
-        # JSON input validation
+        # ERSIN JSON input validation
         if not request.is_json:
             return jsonify({'error': 'Content-Type application/json gereklidir'}), 400
         
@@ -34,7 +34,7 @@ def start_analysis():
         except SecurityError as e:
             return jsonify({'error': f'JSON doğrulama hatası: {str(e)}'}), 400
         
-        # Validate request parameters
+        # ERSIN Parametre doğrulama
         try:
             params = validate_request_params(
                 data,
@@ -61,17 +61,17 @@ def start_analysis():
         
         file_id = params['file_id']
         
-        # Dosyanın varlığını kontrol et
+        # ERSIN Dosyanın varlığını kontrol et
         file = File.query.get(file_id)
         if not file:
             return jsonify({'error': 'Dosya bulunamadı'}), 404
             
-        # Analiz parametrelerini güvenli şekilde al
+        # ERSIN Analiz parametrelerini güvenli şekilde al
         frames_per_second = params.get('frames_per_second')
         include_age_analysis = params.get('include_age_analysis', False)
         websocket_session_id = request.headers.get('X-WebSocket-Session-ID')  # Header'dan WebSocket session ID'yi al
         
-        # AnalysisService ile analizi başlat
+        # ERSIN AnalysisService ile analizi başlat
         analysis_service = AnalysisService()
         analysis = analysis_service.start_analysis(file_id, frames_per_second, include_age_analysis, websocket_session_id)
         
@@ -88,14 +88,14 @@ def start_analysis():
         db.session.rollback()
         return jsonify({'error': 'Analiz başlatılırken bir hata oluştu'}), 500
 
-@analysis_bp.route('/<int:analysis_id>', methods=['GET'])
+@analysis_bp.route('/<analysis_id>', methods=['GET'])
 def get_analysis(analysis_id):
     """
     Güvenli analiz bilgisi getirme endpoint'i.
     """
     try:
-        # ID validation
-        if analysis_id <= 0:
+        # ERSIN ID validation (negatif veya sıfır sayı geçersiz; UUID/string kabul)
+        if isinstance(analysis_id, str) and analysis_id.isdigit() and int(analysis_id) <= 0:
             return jsonify({'error': 'Geçersiz analiz ID'}), 400
         
         analysis = Analysis.query.get(analysis_id)
@@ -115,16 +115,16 @@ def get_file_analyses(file_id):
     Güvenli dosya analizleri getirme endpoint'i.
     """
     try:
-        # ID validation
+        # ERSIN ID validation
         if file_id <= 0:
             return jsonify({'error': 'Geçersiz dosya ID'}), 400
         
-        # Dosyanın varlığını kontrol et
+        # ERSIN Dosyanın varlığını kontrol et
         file = File.query.get(file_id)
         if not file:
             return jsonify({'error': 'Dosya bulunamadı'}), 404
         
-        # Dosyaya ait tüm analizleri bul
+        # ERSIN Dosyaya ait tüm analizleri bul
         analyses = Analysis.query.filter_by(file_id=file_id).all()
         
         return jsonify([a.to_dict() for a in analyses]), 200
@@ -133,14 +133,14 @@ def get_file_analyses(file_id):
         logger.error(f"Dosya analizleri alınırken hata: {str(e)}")
         return jsonify({'error': 'Dosya analizleri alınırken bir hata oluştu'}), 500
 
-@analysis_bp.route('/<int:analysis_id>/results', methods=['GET'])
+@analysis_bp.route('/<analysis_id>/results', methods=['GET'])
 def get_results(analysis_id):
     """
     Güvenli analiz sonuçları getirme endpoint'i.
     """
     try:
-        # ID validation
-        if analysis_id <= 0:
+        # ERSIN ID validation (negatif/sıfır ID geçersiz; UUID/string kabul)
+        if isinstance(analysis_id, str) and analysis_id.isdigit() and int(analysis_id) <= 0:
             return jsonify({'error': 'Geçersiz analiz ID'}), 400
         
         results = get_analysis_results(analysis_id)
@@ -154,22 +154,22 @@ def get_results(analysis_id):
         logger.error(f"Analiz sonuçları alınırken hata: {str(e)}")
         return jsonify({'error': 'Analiz sonuçları alınırken bir hata oluştu'}), 500
 
-@analysis_bp.route('/<int:analysis_id>/feedback', methods=['POST'])
+@analysis_bp.route('/<analysis_id>/feedback', methods=['POST'])
 def submit_feedback(analysis_id):
     """
     Güvenli feedback gönderme endpoint'i.
     """
     try:
-        # ID validation
-        if analysis_id <= 0:
+        # ID validation (numeric negatives or zero are invalid; UUID/string ids allowed)
+        if isinstance(analysis_id, str) and analysis_id.isdigit() and int(analysis_id) <= 0:
             return jsonify({'error': 'Geçersiz analiz ID'}), 400
         
-        # Analizin varlığını kontrol et
+        # ERSIN Analizin varlığını kontrol et
         analysis = Analysis.query.get(analysis_id)
         if not analysis:
             return jsonify({'error': 'Analiz bulunamadı'}), 404
         
-        # JSON input validation
+        # ERSIN JSON input validation
         if not request.is_json:
             return jsonify({'error': 'Content-Type application/json gereklidir'}), 400
         
@@ -178,7 +178,7 @@ def submit_feedback(analysis_id):
         except SecurityError as e:
             return jsonify({'error': f'JSON doğrulama hatası: {str(e)}'}), 400
         
-        # Validate request parameters
+        # ERSIN Parametre doğrulama
         try:
             params = validate_request_params(
                 data,
@@ -206,10 +206,10 @@ def submit_feedback(analysis_id):
         except SecurityError as e:
             return jsonify({'error': f'Parameter doğrulama hatası: {str(e)}'}), 400
         
-        # Sanitize comment input
+        # ERSIN Yorum alanını sanitize et
         comment = sanitize_html_input(params.get('comment', ''))
         
-        # Feedback oluştur
+        # ERSIN Feedback oluştur
         feedback = Feedback(
             analysis_id=analysis_id,
             rating=params['rating'],
@@ -242,10 +242,10 @@ def get_feedback(analysis_id):
     Returns:
         JSON: Geribildirim listesi veya hata mesajı
     """
-    # Analizin varlığını kontrol et
+    # ERSIN Analizin varlığını kontrol et
     analysis = Analysis.query.get_or_404(analysis_id)
     
-    # Analiz için tüm geribildirimleri bul
+    # ERSIN Analiz için tüm geribildirimleri bul
     feedbacks = Feedback.query.filter_by(analysis_id=analysis_id).all()
     
     return jsonify([f.to_dict() for f in feedbacks]), 200
@@ -267,11 +267,11 @@ def cancel_analysis(analysis_id):
         if not analysis:
             return jsonify({'error': 'Analiz bulunamadı'}), 404
             
-        # Analiz zaten tamamlanmış veya iptal edilmişse
+        # ERSIN Analiz zaten tamamlanmış veya iptal edilmişse
         if analysis.status in ['completed', 'failed', 'cancelled']:
             return jsonify({'error': f'Bu analiz zaten {analysis.status} durumunda'}), 400
             
-        # Analiz servisini çağırarak iptal et
+        # ERSIN Analiz servisini çağırarak iptal et
         analysis_service = AnalysisService()
         success = analysis_service.cancel_analysis(analysis_id)
         
@@ -301,11 +301,11 @@ def retry_analysis(analysis_id):
         if not analysis:
             return jsonify({'error': 'Analiz bulunamadı'}), 404
             
-        # Analiz başarısız değilse tekrar denemek anlamlı değil
+        # ERSIN Analiz başarısız değilse tekrar denemek anlamlı değil
         if analysis.status != 'failed':
             return jsonify({'error': f'Sadece başarısız analizler tekrar denenebilir. Mevcut durum: {analysis.status}'}), 400
             
-        # Analiz servisini çağırarak tekrar başlat
+        # ERSIN Analiz servisini çağırarak tekrar başlat
         analysis_service = AnalysisService()
         new_analysis = analysis_service.retry_analysis(analysis_id)
         
@@ -371,19 +371,19 @@ def get_detailed_results(analysis_id):
         if not analysis:
             return jsonify({'error': 'Analiz bulunamadı'}), 404
             
-        # Analiz henüz tamamlanmamışsa, processing durumundaysa partial sonuçlar dön
+        # ERSIN Analiz henüz tamamlanmamışsa, processing durumundaysa partial sonuçlar dön
         if analysis.status not in ['completed', 'processing']:
             return jsonify({'error': f'Analiz henüz başlamadı veya başarısız oldu. Mevcut durum: {analysis.status}'}), 400
             
-        # Analiz sonuçlarını getir
+        # ERSIN Analiz sonuçlarını getir
         content_detections = [cd.to_dict() for cd in analysis.content_detections]
         
-        # Age estimations'ı alıp processed_image_path'leri düzelt
+        # ERSIN Age estimations'ı alıp processed_image_path'leri düzelt
         age_estimations = []
         if analysis.include_age_analysis:
             for ae in analysis.age_estimations:
                 ae_dict = ae.to_dict()
-                # Eğer processed_image_path None ise, frame_path'den türet
+                # ERSIN Eğer processed_image_path None ise, frame_path'den türet
                 if not ae_dict.get('processed_image_path') and ae_dict.get('frame_path'):
                     frame_path = ae_dict['frame_path'].replace('\\', '/')
                     if '/storage/' in frame_path:
@@ -392,19 +392,19 @@ def get_detailed_results(analysis_id):
                         ae_dict['processed_image_path'] = frame_path
                 age_estimations.append(ae_dict)
         
-        # En yüksek riskli kare yolunu uygun formata getir
+        # ERSIN En yüksek riskli kare yolunu uygun formata getir
         highest_risk_frame = analysis.highest_risk_frame
         if highest_risk_frame:
-            # Dosya adını düzgün biçimde çıkar - frame_XXX.jpg formatındaki dosya adını al
+            # ERSIN Dosya adını düzgün biçimde çıkar - frame_XXX.jpg formatındaki dosya adını al
             frame_filename = highest_risk_frame.split('/')[-1].split('\\')[-1]
             
-            # "frame_" ön ekini tekrar eklemeyelim
+            # ERSIN \"frame_\" ön ekini tekrar eklemeyelim
             if frame_filename.startswith("frame_"):
                 frame_url = frame_filename
             else:
                 frame_url = f"frame_{frame_filename}"
                 
-            # Processed image path'i de set et (highest_risk için)
+            # ERSIN Processed image path'i de set et (highest_risk için)
             processed_image_path = highest_risk_frame.replace('\\', '/')
             if '/storage/' in processed_image_path:
                 path_after_storage = processed_image_path.split('/storage/')[-1]
@@ -453,22 +453,22 @@ def get_detailed_results(analysis_id):
             'category_specific_highest_risks_data': analysis.category_specific_highest_risks_data
         }
         
-        # --- LOG EKLEME ---
-        # content_detections içindeki frame_path ve processed_image_path logla
+        # ERSIN --- LOG EKLEME ---
+        # ERSIN content_detections içindeki frame_path ve processed_image_path logla
         for idx, det in enumerate(content_detections):
             logger.info(f"[BACKEND][content_detections][{idx}] frame_path: {det.get('frame_path')}, processed_image_path: {det.get('processed_image_path')}")
-        # age_estimations içindeki processed_image_path logla
+        # ERSIN age_estimations içindeki processed_image_path logla
         for idx, age in enumerate(age_estimations):
             logger.info(f"[BACKEND][age_estimations][{idx}] processed_image_path: {age.get('processed_image_path')}")
-        # highest_risk frame logla
+        # ERSIN highest_risk frame logla
         logger.info(f"[BACKEND][highest_risk] frame: {results['highest_risk'].get('frame')}")
         logger.info(f"[BACKEND][highest_risk] processed_image_path: {results['highest_risk'].get('processed_image_path')}")
         logger.info(f"[BACKEND][highest_risk] RAW analysis.highest_risk_frame: {analysis.highest_risk_frame}")
-        # --- LOG EKLEME SONU ---
+        # ERSIN --- LOG EKLEME SONU ---
 
-        # NumPy veri tipleri ile başa çıkabilmek için özel JSON dönüştürücü kullan
-        json_str = json_dumps_numpy(results)
-        return jsonify(json_str), 200
+        # ERSIN NumPy veri tipleri için özel encoder kullanmadan doğrudan dict döndür
+        # ERSIN Flask 3 ve json modülü ile dict döndürmek yeterli
+        return jsonify(results), 200
         
     except Exception as e:
         logger.error(f"Detaylı analiz sonuçları alınırken hata: {str(e)}")
@@ -482,12 +482,12 @@ def get_pending_feedback_analyses():
     Otomatik yönlendirme için kullanılır.
     """
     try:
-        # Tamamlanmış analizleri al
+        # ERSIN Tamamlanmış analizleri al
         completed_analyses = Analysis.query.filter_by(status='completed').all()
         
         pending_analyses = []
         for analysis in completed_analyses:
-            # Bu analiz için feedback verilmiş mi?
+            # ERSIN Bu analiz için feedback verilmiş mi?
             has_feedback = Feedback.query.filter_by(analysis_id=analysis.id).first() is not None
             
             if not has_feedback:
@@ -515,14 +515,14 @@ def get_recent_analyses():
     🔄 Son tamamlanan analizleri getirir (page refresh sonrası restore için)
     """
     try:
-        # Son 10 completed analizi al (en yeni üstte)
+        # ERSIN Son 10 completed analizi al (en yeni üstte)
         recent_analyses = Analysis.query.filter_by(
             status='completed'
         ).order_by(Analysis.end_time.desc()).limit(10).all()
         
         result = []
         for analysis in recent_analyses:
-            # Basic analiz bilgileri
+            # ERSIN Basic analiz bilgileri
             analysis_data = {
                 'analysis_id': analysis.id,
                 'file_id': analysis.file_id,
@@ -533,7 +533,7 @@ def get_recent_analyses():
                 'overall_scores': {}
             }
             
-            # Overall scores'ları individual field'lardan oluştur
+            # ERSIN Overall scores'ları field'lardan oluştur
             analysis_data['overall_scores'] = {
                 'violence': analysis.overall_violence_score or 0,
                 'adult_content': analysis.overall_adult_content_score or 0,
@@ -565,7 +565,7 @@ def clear_all_analyses():
     try:
         from app.models.analysis import Analysis
         
-        # Tüm analizleri sil
+        # ERSIN Tüm analizleri sil
         deleted_count = Analysis.query.delete()
         db.session.commit()
         
