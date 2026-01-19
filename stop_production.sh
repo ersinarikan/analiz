@@ -1,9 +1,19 @@
 #!/bin/bash
-# CLIP Training Production Stop Script
+# WSANALIZ Production Stop Script
 
-echo "Stopping CLIP Training Production Server..."
+echo "Stopping WSANALIZ Production Server..."
 
 # Find and kill gunicorn processes
 pkill -f "gunicorn.*wsgi:app"
 
-echo "CLIP Training Server stopped"
+# Also kill any remaining Python processes for this app
+if [ -f wsanaliz.pid ]; then
+    PID=$(cat wsanaliz.pid)
+    if ps -p $PID > /dev/null 2>&1; then
+        kill $PID 2>/dev/null
+        echo "Killed process $PID from PID file"
+    fi
+    rm -f wsanaliz.pid
+fi
+
+echo "WSANALIZ Server stopped"

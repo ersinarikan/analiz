@@ -53,6 +53,23 @@ import {
  */
 function initializeApplication() {
     console.log('🚀 WSANALIZ Uygulaması başlatılıyor...');
+
+    // 🔁 Restart sonrası UI restore bug fix:
+    // Analiz parametreleri değişince backend restart oluyor ve sayfa reload oluyor.
+    // Bu reload sonrası localStorage'dan recent analyses restore edilirse uploadedFiles doluyor
+    // ve overall progress 0/N gibi takılı kalabiliyor.
+    let skipRestore = false;
+    try {
+        const url = new URL(window.location.href);
+        skipRestore = sessionStorage.getItem('wsanaliz_skip_restore') === '1' || url.searchParams.has('restarted');
+        if (skipRestore) {
+            sessionStorage.removeItem('wsanaliz_skip_restore');
+            localStorage.removeItem('wsanaliz_recent_analyses');
+            console.log('🧹 Restart sonrası restore skip edildi, local cache temizlendi.');
+        }
+    } catch (e) {
+        console.warn('Restart restore-check hatası:', e);
+    }
     console.log('📦 Modüler mimari yüklendi - 5 modül aktif');
     
     // 1. Global state'i expose et
@@ -85,10 +102,14 @@ function initializeApplication() {
     initializeOverallProgress();
     
     // 10. 🔄 Recent analysis sonuçlarını restore et (page refresh için)
-    loadRecentAnalyses();
+    if (!skipRestore) {
+        loadRecentAnalyses();
+    }
     
     // 11. 🔄 localStorage'dan offline recent analyses restore et
-    loadStoredAnalyses();
+    if (!skipRestore) {
+        loadStoredAnalyses();
+    }
     
     console.log('✅ WSANALIZ Uygulaması başarıyla başlatıldı');
     console.log('🎯 Modüler mimari aktif - Bakım ve debugging kolaylaştırıldı');
@@ -1931,6 +1952,14 @@ function loadRecentAnalyses() {
             return response.json();
         })
         .then(data => {
+            // Eğer backend tarafında hiç recent analiz yoksa (ör: DB silindi/temiz başlangıç),
+            // localStorage'daki eski cache'i temizle ki "Genel ilerleme" ve restore listesi şişmesin.
+            if (data && data.success && Array.isArray(data.recent_analyses) && data.recent_analyses.length === 0) {
+                console.log('🧹 Backend recent analyses boş; localStorage cache temizleniyor.');
+                localStorage.removeItem('wsanaliz_recent_analyses');
+                return;
+            }
+
             if (data.success && data.recent_analyses && data.recent_analyses.length > 0) {
                 console.log(`📊 ${data.count} recent analysis bulundu, restore ediliyor...`);
                 
@@ -1972,22 +2001,14 @@ function loadRecentAnalyses() {
                     }, index * 200); // Her analiz 200ms arayla yüklensin
                 });
                 
-                // localStorage'a kaydet (sadece unique olanları)
-                const allAnalyses = [...storedAnalyses];
-                newAnalysesToStore.forEach(newAnalysis => {
-                    if (!allAnalyses.find(stored => stored.analysis_id === newAnalysis.analysis_id)) {
-                        allAnalyses.push(newAnalysis);
-                    }
-                });
-                
-                // En fazla 20 analizi sakla (disk alanı)
+                // localStorage'a kaydet: server'ın döndürdüğü listeyi baz al (eski cache ile şişirme yapma)
+                let allAnalyses = [...newAnalysesToStore];
                 if (allAnalyses.length > 20) {
                     allAnalyses.sort((a, b) => new Date(b.completed_at) - new Date(a.completed_at));
                     allAnalyses.splice(20);
                 }
-                
                 localStorage.setItem('wsanaliz_recent_analyses', JSON.stringify(allAnalyses));
-                console.log(`💾 ${allAnalyses.length} analiz localStorage'a kaydedildi`);
+                console.log(`💾 ${allAnalyses.length} analiz localStorage'a kaydedildi (server bazlı)`);
                 
                 // Results section'ı görünür yap
                 const resultsSection = document.getElementById('resultsSection');

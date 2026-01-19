@@ -49,6 +49,7 @@ def register_blueprints_from_list(app, blueprint_defs):
     - alias: Optional alias for logging (e.g. 'file_bp'), can be None
     """
     import importlib
+    import traceback
     logger = logging.getLogger("wsanaliz.app_init")
     blueprints_to_register = []
     for import_path, attr_name, alias in blueprint_defs:
@@ -58,12 +59,20 @@ def register_blueprints_from_list(app, blueprint_defs):
             blueprints_to_register.append(bp)
             logger.info(f"Blueprint imported: {import_path}.{attr_name} as {alias or attr_name}")
         except ImportError as e:
-            logger.warning(f"{import_path} import failed: {e}")
+            logger.error(f"{import_path} import failed: {e}")
+            logger.debug(f"Import traceback: {traceback.format_exc()}")
         except AttributeError as e:
-            logger.warning(f"{import_path} has no attribute {attr_name}: {e}")
+            logger.error(f"{import_path} has no attribute {attr_name}: {e}")
+            logger.debug(f"AttributeError traceback: {traceback.format_exc()}")
+        except Exception as e:
+            logger.error(f"{import_path} failed with unexpected error: {e}")
+            logger.debug(f"Unexpected error traceback: {traceback.format_exc()}")
     for bp in blueprints_to_register:
-        app.register_blueprint(bp)
-        logger.info(f"Blueprint registered: {bp.name}")
+        try:
+            app.register_blueprint(bp)
+            logger.info(f"Blueprint registered: {bp.name}")
+        except Exception as e:
+            logger.error(f"Failed to register blueprint {bp.name}: {e}")
     logger.info(f"Total blueprints registered: {len(blueprints_to_register)}")
     return blueprints_to_register
 
@@ -83,6 +92,10 @@ def create_app(config_name='default'):
     
     # ERSIN ✅ MİNİMAL PATTERN: Optimize SocketIO kurulumu
     from flask_socketio import SocketIO
+
+    # Cross-process SocketIO events (analysis runs in subprocess):
+    # Use Redis message queue so emits from subprocess can reach connected clients.
+    socketio_message_queue = os.environ.get("SOCKETIO_MESSAGE_QUEUE", "redis://localhost:6379/0")
     minimal_socketio = SocketIO(
         flask_app,
         cors_allowed_origins="*",
@@ -90,6 +103,7 @@ def create_app(config_name='default'):
         ping_interval=60,  # ERSIN Her dakika ping ile browser arka plan uyumluluğu
         logger=False,      # ERSIN Verbose logging kapat
         engineio_logger=False,
+        message_queue=socketio_message_queue,
         async_mode='eventlet'  # ERSIN Eventlet async mode
     )
     
@@ -295,11 +309,22 @@ def initialize_app(app):
         # Model versiyonlarını senkronize et (VT oluşturulduktan sonra)
         sync_model_versions_on_startup()
         
-        # Analiz kuyruğu servisini başlat
-        from app.services.queue_service import start_processor
-        logger.info("Analiz kuyruğu servisi başlatılıyor...")
-        start_processor()
-        logger.info("Analiz kuyruğu servisi başlatıldı.")
+        # Worker crash recovery: "processing" durumunda olan ama uzun süredir ilerlemeyen analizleri kontrol et
+        recover_stuck_analyses()
+        
+        # Analiz kuyruğu servisini başlat (sadece memory backend'te)
+        # Redis backend'te queue processing ayrı worker prosesinde yapılır.
+        try:
+            from app.services import queue_service as _queue_service
+            if not getattr(_queue_service, "is_redis_backend", lambda: False)():
+                from app.services.queue_service import start_processor
+                logger.info("Analiz kuyruğu servisi (memory backend) başlatılıyor...")
+                start_processor()
+                logger.info("Analiz kuyruğu servisi başlatıldı.")
+            else:
+                logger.info("Redis queue backend aktif: web prosesinde queue processor başlatılmıyor.")
+        except Exception as e:
+            logger.warning(f"Queue processor init atlandı: {e}")
 
     # Global route'ları kaydet
     register_global_routes(app)
@@ -383,6 +408,57 @@ def check_and_run_migrations():
             
     except Exception as e:
         logger.error(f"❌ Migration kontrolü hatası: {str(e)}", exc_info=True)
+
+def recover_stuck_analyses():
+    """
+    Worker crash recovery: "processing" durumunda olan ama uzun süredir ilerlemeyen 
+    analizleri kontrol edip "failed" yapar.
+    
+    Bu, worker process segfault veya crash olduğunda analizlerin takılı kalmasını önler.
+    """
+    try:
+        from app.models.analysis import Analysis
+        
+        # "processing" durumunda olan analizleri bul
+        stuck_analyses = Analysis.query.filter(
+            Analysis.status == 'processing'
+        ).all()
+        
+        if not stuck_analyses:
+            logger.info("🔍 Worker crash recovery: Takılı analiz bulunamadı.")
+            return
+        
+        recovered_count = 0
+        timeout_minutes = 10  # 10 dakikadan fazla "processing" durumunda olan analizler takılı sayılır
+        
+        for analysis in stuck_analyses:
+            if analysis.start_time:
+                elapsed = datetime.now() - analysis.start_time
+                elapsed_minutes = elapsed.total_seconds() / 60
+                
+                if elapsed_minutes > timeout_minutes:
+                    logger.warning(
+                        f"🔧 Worker crash recovery: Analiz #{analysis.id} "
+                        f"{elapsed_minutes:.1f} dakikadır 'processing' durumunda, "
+                        f"'failed' olarak işaretleniyor (muhtemelen worker crash)."
+                    )
+                    analysis.status = 'failed'
+                    analysis.error_message = (
+                        f"Worker process crash nedeniyle analiz başarısız oldu. "
+                        f"Analiz {elapsed_minutes:.1f} dakikadır işleniyordu."
+                    )
+                    analysis.end_time = datetime.now()
+                    recovered_count += 1
+        
+        if recovered_count > 0:
+            db.session.commit()
+            logger.info(f"✅ Worker crash recovery: {recovered_count} takılı analiz 'failed' olarak işaretlendi.")
+        else:
+            logger.info("ℹ️ Worker crash recovery: Tüm 'processing' analizler aktif görünüyor.")
+            
+    except Exception as e:
+        logger.error(f"❌ Worker crash recovery hatası: {e}", exc_info=True)
+        db.session.rollback()
 
 def cleanup_old_analysis_results(days_old=7):
     """

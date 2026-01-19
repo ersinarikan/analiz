@@ -18,7 +18,7 @@ Flask-SocketIO==5.3.5
 python-socketio==5.8.0
 gunicorn==21.2.0
 Werkzeug==3.1.3
-itsdangerous==2.1.2
+itsdangerous==2.2.0
 blinker>=1.9.0
 Flask-Session==0.8.0
 
@@ -34,14 +34,18 @@ alembic==1.16.4
 # ⚡ ASYNC SUPPORT
 # ============================================================================
 eventlet==0.40.1
+redis>=5.0.0
 
 # ============================================================================
 # 🧠 CORE AI & MACHINE LEARNING
 # ============================================================================
-tensorflow==2.16.1
-torch==2.0.1+cpu
-torchvision==0.15.2+cpu
-torchaudio==2.0.2+cpu
+tensorflow[and-cuda]==2.16.1  # GPU desteği için CUDA ve cuDNN dahil
+onnx>=1.20.1  # ml_dtypes uyumluluğu için güncel sürüm gerekli
+onnxruntime>=1.18.0  # insightface için gerekli
+ml-dtypes>=0.5.0  # onnx uyumluluğu için
+torch==2.4.1
+torchvision==0.19.1
+torchaudio==2.4.1
 scikit-learn==1.5.2
 
 # ============================================================================
@@ -71,13 +75,12 @@ tokenizers==0.21.0
 # 🎯 OBJECT TRACKING
 # ============================================================================
 deep-sort-realtime==1.3.2
-bytetracker==0.3.2
 
 # ============================================================================
 # 🎬 VIDEO PROCESSING
 # ============================================================================
 moviepy==1.0.3
-imageio==2.38.0
+imageio==2.37.2
 imageio-ffmpeg==0.5.1
 
 # ============================================================================
@@ -114,7 +117,7 @@ gdown==5.2.1
 # ============================================================================
 # 🪟 WINDOWS COMPATIBILITY
 # ============================================================================
-python-magic-bin==0.4.14  # Windows için gerekli
+python-magic==0.4.27
 
 # ============================================================================
 # 📊 MODEL COMPLEXITY ANALYSIS (Optional)

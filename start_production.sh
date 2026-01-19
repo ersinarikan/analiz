@@ -1,7 +1,7 @@
 #!/bin/bash
-# CLIP Training Production Start Script
+# WSANALIZ Production Start Script
 
-echo "Starting CLIP Training Production Server..."
+echo "Starting WSANALIZ Production Server..."
 
 # Activate virtual environment
 source venv/bin/activate
@@ -10,7 +10,17 @@ source venv/bin/activate
 export FLASK_ENV=production
 export FLASK_DEBUG=0
 
-# Start the application
-gunicorn --bind 0.0.0.0:5000 --workers 4 --timeout 300 wsgi:app
+# Start the application with eventlet worker for SocketIO support
+# SocketIO requires eventlet or gevent worker, not standard gunicorn workers
+gunicorn --bind 0.0.0.0:5000 \
+         --workers 4 \
+         --worker-class eventlet \
+         --worker-connections 1000 \
+         --timeout 300 \
+         --keep-alive 5 \
+         --log-level info \
+         --access-logfile - \
+         --error-logfile - \
+         wsgi:app
 
-echo "CLIP Training Server started on port 5000"
+echo "WSANALIZ Server started on port 5000"

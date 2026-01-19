@@ -578,8 +578,13 @@ function updateOverallProgress(queueData) {
         return;
     }
     
-    const totalFiles = uploadedFiles.length;
-    const completedFiles = getCompletedAnalysesCount();
+    // NOTE: uploadedFiles içine "recent/stored analyses restore" için fake kayıtlar da eklenebiliyor.
+    // Genel ilerleme sayacı sadece bu oturumda gerçekten upload edilmiş dosyaları göstermeli.
+    // Bu yüzden serverFileId'si olanları "aktif upload" kabul ediyoruz.
+    const activeFiles = uploadedFiles.filter(f => f && f.serverFileId !== undefined && f.serverFileId !== null);
+    const activeFileIds = new Set(activeFiles.map(f => f.id));
+    const totalFiles = activeFiles.length;
+    const completedFiles = getCompletedAnalysesCount(activeFileIds);
     const queueSize = queueData.queue_size || 0;
     const isProcessing = queueData.is_processing || false;
     
@@ -684,8 +689,10 @@ function updateButtonStateBasedOnQueue(queueSize, isProcessing) {
  * Tüm analizlerin tamamlanıp tamamlanmadığını kontrol eder
  */
 function checkAllAnalysesCompleted() {
-    const completedCount = getCompletedAnalysesCount();
-    const totalCount = uploadedFiles.length;
+    const activeFiles = uploadedFiles.filter(f => f && f.serverFileId !== undefined && f.serverFileId !== null);
+    const activeFileIds = new Set(activeFiles.map(f => f.id));
+    const completedCount = getCompletedAnalysesCount(activeFileIds);
+    const totalCount = activeFiles.length;
     
     if (completedCount === totalCount && totalCount > 0) {
         console.log('🎉 Tüm analizler tamamlandı!');
@@ -708,9 +715,12 @@ function checkAllAnalysesCompleted() {
 /**
  * Tamamlanan analiz sayısını döndürür
  */
-function getCompletedAnalysesCount() {
+function getCompletedAnalysesCount(activeFileIds = null) {
     let completedCount = 0;
     for (const [fileId, status] of fileStatuses.entries()) {
+        if (activeFileIds && !activeFileIds.has(fileId)) {
+            continue;
+        }
         if (status === 'completed' || status === 'failed') {
             completedCount++;
         }
@@ -858,6 +868,18 @@ export function getAnalysisResults(fileId, analysisId, isPartial = false) {
         if (typeof data === 'string') {
             console.log('JSON string detected, parsing again...');
             data = JSON.parse(data);
+        }
+
+        // Backend failed/pending/cancelled için artık 200 + error payload dönebiliyor.
+        // Bu durumda UI'ı hata durumuna çek ve sonuç render etmeye çalışma.
+        if (data && data.error && data.status && data.status !== 'completed' && !isPartial) {
+            console.warn(`Analiz tamamlanmadı (${analysisId}) status=${data.status}:`, data);
+            const loadingEl = document.getElementById(`loading-${fileId}`);
+            if (loadingEl) loadingEl.remove();
+
+            updateFileStatus(fileId, data.status === 'failed' ? 'failed' : 'queued', 0, data.error_message || data.error);
+            showToast('Uyarı', `${fileNameFromId(fileId)}: ${data.error_message || data.error}`, 'warning');
+            return;
         }
         
         // Yükleme göstergesini kaldır

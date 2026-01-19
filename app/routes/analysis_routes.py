@@ -1,5 +1,6 @@
 import logging
 from flask import Blueprint, request, jsonify, current_app
+from werkzeug.exceptions import BadRequest
 from app import db
 from app.models.file import File
 from app.models.analysis import Analysis, ContentDetection, AgeEstimation
@@ -30,7 +31,10 @@ def start_analysis():
             return jsonify({'error': 'Content-Type application/json gereklidir'}), 400
         
         try:
-            data = validate_json_input(request.json)
+            # request.json invalid olduğunda BadRequest fırlatabilir
+            data = validate_json_input(request.get_json(silent=False))
+        except BadRequest as e:
+            return jsonify({'error': f'Geçersiz JSON: {str(e)}'}), 400
         except SecurityError as e:
             return jsonify({'error': f'JSON doğrulama hatası: {str(e)}'}), 400
         
@@ -373,7 +377,14 @@ def get_detailed_results(analysis_id):
             
         # ERSIN Analiz henüz tamamlanmamışsa, processing durumundaysa partial sonuçlar dön
         if analysis.status not in ['completed', 'processing']:
-            return jsonify({'error': f'Analiz henüz başlamadı veya başarısız oldu. Mevcut durum: {analysis.status}'}), 400
+            # Frontend fetchWithRetry non-2xx gördüğünde tekrar tekrar deniyor ve console spam oluyor.
+            # Bu yüzden failed/cancelled/pending için 200 dönüp status+error payload veriyoruz.
+            return jsonify({
+                'analysis_id': analysis.id,
+                'status': analysis.status,
+                'error': f'Analiz tamamlanmadı. Mevcut durum: {analysis.status}',
+                'error_message': analysis.error_message,
+            }), 200
             
         # ERSIN Analiz sonuçlarını getir
         content_detections = [cd.to_dict() for cd in analysis.content_detections]
@@ -522,6 +533,8 @@ def get_recent_analyses():
         
         result = []
         for analysis in recent_analyses:
+            # completed_at için end_time ideal, ama eski kayıtlar null olabilir.
+            completed_dt = analysis.end_time or analysis.start_time or analysis.created_at
             # ERSIN Basic analiz bilgileri
             analysis_data = {
                 'analysis_id': analysis.id,
@@ -529,7 +542,7 @@ def get_recent_analyses():
                 'file_name': analysis.file.original_filename if analysis.file else 'Unknown',
                 'status': analysis.status,
                 'include_age_analysis': analysis.include_age_analysis,
-                'completed_at': analysis.end_time.isoformat() if analysis.end_time else None,
+                'completed_at': completed_dt.isoformat() if completed_dt else None,
                 'overall_scores': {}
             }
             

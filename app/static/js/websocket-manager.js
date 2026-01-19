@@ -310,23 +310,50 @@ function handleAnalysisParamsSave(form, settingsSaveLoader) {
         },
         body: JSON.stringify(params)
     })
-    .then(response => response.json())
-    .then(data => {
+    .then(response => response.json().then(data => ({ status: response.status, body: data })))
+    .then(({ status, body: data }) => {
         if (settingsSaveLoader) {
             settingsSaveLoader.style.display = 'none';
         }
         
-        if (data.success) {
-            showToast('Başarılı', 'Analiz parametreleri kaydedildi.', 'success');
-            
-            // WebSocket yeniden bağlan
-            if (socketioClient && socketioClient.disconnect) {
-                socketioClient.disconnect();
-                setTimeout(() => {
-                    if (socketioClient.connect) {
-                        socketioClient.connect();
+        // Response status kontrolü (200 OK ise başarılı)
+        if (status === 200 && data.message) {
+            // Restart durumunu kontrol et
+            if (data.restart_required || data.restart_initiated) {
+                // Production mode - restart başlatıldı
+                showToast('Başarılı', data.message || 'Analiz parametreleri kaydedildi. Sistem yeniden başlatılıyor...', 'success');
+                
+                // Restart sonrası sayfa yenile
+                if (data.restart_initiated) {
+                    // Restart sonrası eski UI state'in (uploadedFiles / overall progress) kalmaması için
+                    // local restore mekanizmasını bir seferlik devre dışı bırak.
+                    try {
+                        sessionStorage.setItem('wsanaliz_skip_restore', '1');
+                        localStorage.removeItem('wsanaliz_recent_analyses');
+                    } catch (e) {
+                        console.warn('Restart cleanup storage erişilemedi:', e);
                     }
-                }, 1000);
+
+                    setTimeout(() => {
+                        console.log('[DEBUG] Analiz parametreleri güncellendi, sayfa yeniden yükleniyor (restart bekleniyor)...');
+                        const url = new URL(window.location.href);
+                        url.searchParams.set('restarted', String(Date.now()));
+                        window.location.href = url.toString();
+                    }, 8000);
+                }
+            } else {
+                // Development mode - normal kayıt
+                showToast('Başarılı', data.message || 'Analiz parametreleri kaydedildi.', 'success');
+                
+                // WebSocket yeniden bağlan (development mode için)
+                if (socketioClient && socketioClient.disconnect) {
+                    socketioClient.disconnect();
+                    setTimeout(() => {
+                        if (socketioClient.connect) {
+                            socketioClient.connect();
+                        }
+                    }, 1000);
+                }
             }
         } else {
             showToast('Hata', data.error || 'Global ayarlar kaydedilirken bir hata oluştu.', 'error');

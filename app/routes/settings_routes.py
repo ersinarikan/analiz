@@ -247,17 +247,63 @@ def set_analysis_params():
         # Settings state dosyasını güncelle (Flask auto-reload için)
         update_settings_state_file(params_to_update_in_file)
         
-        # Environment'a göre response mesajı
+        # Environment'a göre response mesajı ve restart
         environment = os.environ.get('FLASK_ENV', 'development')
-        if environment == 'development':
-            message = "Analysis parameters saved successfully."
+        restart_required = environment != 'development'
+        
+        if restart_required:
+            # Production ortamında otomatik restart yap
+            current_app.logger.info("Production ortamı tespit edildi, otomatik restart başlatılıyor...")
+            
+            def delayed_restart():
+                import time
+                import sys
+                import subprocess
+                
+                # Response gönderilmesi için bekle
+                time.sleep(3)
+                
+                current_app.logger.info("🔄 Analiz parametreleri güncellendi, RESTART başlatılıyor...")
+                
+                try:
+                    # Systemd servisi olarak çalışıyorsak systemctl kullan
+                    if os.path.exists('/etc/systemd/system/wsanaliz.service'):
+                        current_app.logger.info("Systemd servisi bulundu, systemctl restart yapılıyor...")
+                        # Sudo şifresini environment'tan al (güvenlik için)
+                        sudo_password = os.environ.get('SUDO_PASSWORD', '5ex5chan5ge4')
+                        restart_cmd = f'echo "{sudo_password}" | sudo -S systemctl restart wsanaliz.service'
+                        subprocess.Popen(restart_cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                        current_app.logger.info("✅ Systemctl restart komutu gönderildi")
+                        # Process'i sonlandır, systemd yeniden başlatacak
+                        os._exit(0)
+                    # Windows için restart
+                    elif sys.platform == "win32":
+                        subprocess.Popen([sys.executable] + sys.argv)
+                        os._exit(0)
+                    else:
+                        # Linux/Mac için restart (systemd yoksa)
+                        current_app.logger.info("Systemd servisi bulunamadı, process restart yapılıyor...")
+                        os.kill(os.getpid(), signal.SIGTERM)
+                except Exception as restart_err:
+                    current_app.logger.error(f"Restart hatası: {restart_err}")
+                    # Restart başarısız olursa en azından process'i kill et
+                    os._exit(1)
+            
+            # Background thread'de restart
+            import threading
+            restart_thread = threading.Thread(target=delayed_restart)
+            restart_thread.daemon = True
+            restart_thread.start()
+            
+            message = "Analysis parameters saved successfully. System restarting..."
         else:
-            message = "Analysis parameters saved successfully. Manual restart required for production."
+            message = "Analysis parameters saved successfully."
         
         # Parametreler başarıyla kaydedildi
         response_data = {
             "message": message,
-            "restart_required": environment != 'development'
+            "restart_required": restart_required,
+            "restart_initiated": restart_required
         }
         response = jsonify(response_data)
         
@@ -271,6 +317,7 @@ def set_analysis_params():
 def restart_server():
     """
     Production ortamında manuel server restart endpoint'i
+    Systemd servisi üzerinden restart yapar
     """
     try:
         # Sadece production ortamında izin ver
@@ -286,9 +333,37 @@ def restart_server():
         # Güvenli restart için timer kullan
         def delayed_restart():
             import time
-            time.sleep(2)  # Response gönderilmesi için bekle
-            current_app.logger.info("Server restart signal gönderiliyor...")
+            import sys
+            import subprocess
+            
+            # Response gönderilmesi için bekle
+            time.sleep(2)
+            
+            current_app.logger.info("🔄 RESTART başlatılıyor...")
+            
+            try:
+                # Systemd servisi olarak çalışıyorsak systemctl kullan
+                if os.path.exists('/etc/systemd/system/wsanaliz.service'):
+                    current_app.logger.info("Systemd servisi bulundu, systemctl restart yapılıyor...")
+                    # Sudo şifresini environment'tan al (güvenlik için)
+                    sudo_password = os.environ.get('SUDO_PASSWORD', '5ex5chan5ge4')
+                    restart_cmd = f'echo "{sudo_password}" | sudo -S systemctl restart wsanaliz.service'
+                    subprocess.Popen(restart_cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    current_app.logger.info("✅ Systemctl restart komutu gönderildi")
+                    # Process'i sonlandır, systemd yeniden başlatacak
+                    os._exit(0)
+                # Windows için restart
+                elif sys.platform == "win32":
+                    subprocess.Popen([sys.executable] + sys.argv)
+                    os._exit(0)
+                else:
+                    # Linux/Mac için restart (systemd yoksa)
+                    current_app.logger.info("Systemd servisi bulunamadı, process restart yapılıyor...")
             os.kill(os.getpid(), signal.SIGTERM)
+            except Exception as restart_err:
+                current_app.logger.error(f"Restart hatası: {restart_err}")
+                # Restart başarısız olursa en azından process'i kill et
+                os._exit(1)
         
         # Background thread'de restart
         import threading

@@ -47,6 +47,8 @@ class PersonTracker:
         Returns:
             bool: Güncellemenin kabul edilip edilmediği
         """
+        is_first_update = len(self.face_embeddings) == 1 and self.last_seen_frame == 0
+        
         # Cinsiyet tutarlılığı kontrolü
         gender_match_score = 1.0 if new_gender == self.gender else 0.0
         
@@ -56,6 +58,9 @@ class PersonTracker:
         # Eğer embedding_distance_threshold 0 ise (olmamalı ama), bölme hatasını engelle
         denominator_embedding = self.embedding_distance_threshold if self.embedding_distance_threshold > 0 else 0.4
         embedding_match_score = max(0.0, 1.0 - (embedding_distance / denominator_embedding))
+        
+        if is_first_update:
+            logger.info(f"[PersonTracker][{self.track_id}] İlk güncelleme - embedding_distance={embedding_distance:.4f}, embedding_match_score={embedding_match_score:.4f}, gender_match={gender_match_score:.2f}")
 
         # Saç rengi ve cilt tonu benzerlik skorları
         hair_match_score = 0.5  # Varsayılan (bilgi yoksa nötr)
@@ -99,7 +104,7 @@ class PersonTracker:
         
         # Eğer ham güvenilirlik skoru düşükse, bu kişi farklı olabilir
         if new_reliability_raw < self.id_change_threshold: # Dinamik eşik kullan
-            logger.warning(f"Olası ID switch (eşik {self.id_change_threshold}): Track ID {self.track_id}, Ham Güvenilirlik: {new_reliability_raw:.2f} (Detaylar: G:{gender_match_score:.2f} E:{embedding_match_score:.2f} H:{hair_match_score:.2f} S:{skin_match_score:.2f} F:{face_match_score:.2f})")
+            logger.warning(f"[PersonTracker][{self.track_id}] Olası ID switch (eşik {self.id_change_threshold}): Ham Güvenilirlik: {new_reliability_raw:.2f} (Detaylar: G:{gender_match_score:.2f} E:{embedding_match_score:.2f} H:{hair_match_score:.2f} S:{skin_match_score:.2f} F:{face_match_score:.2f})")
             return False  # ID Switch olabilir, güncellemeyi reddet
         
         # Güncelleme yap
@@ -134,7 +139,11 @@ class PersonTracker:
                 self.skin_tone = 0.9 * current_skin_tone_arr + 0.1 * new_skin_tone_arr # Yavaşça güncelle
                 
         # Güvenilirlik skorunu güncelle (biraz ağırlıklı ortalama)
+        old_reliability = self.reliability_score
         self.reliability_score = 0.8 * self.reliability_score + 0.2 * new_reliability_raw
+        
+        if is_first_update:
+            logger.info(f"[PersonTracker][{self.track_id}] İlk güncelleme tamamlandı - reliability_score: {old_reliability:.2f} -> {self.reliability_score:.2f} (new_raw={new_reliability_raw:.2f})")
         
         return True
 
@@ -150,6 +159,7 @@ class PersonTrackerManager:
         self.max_frames_missing = max_frames_missing     # Parametreden al
         self.id_change_threshold = id_change_threshold # PersonTracker'a iletilecek
         self.embedding_distance_threshold = embedding_distance_threshold # PersonTracker'a iletilecek
+        self.warmup_frames = 3  # İlk birkaç frame için is_confirmed kontrolünü atla
         self.current_frame = 0
         
     def update(self, tracks, face_data, frame_idx):
@@ -173,10 +183,15 @@ class PersonTrackerManager:
         seen_track_ids = set()
         
         # Her takibi işle
+        logger.info(f"[PersonTrackerManager] Frame {frame_idx}: {len(tracks)} track, {len(face_data)} face_data işleniyor")
         for i, (track_obj, data) in enumerate(zip(tracks, face_data)): # track_obj ve i eklendi
-            if not hasattr(track_obj, 'is_confirmed') or not track_obj.is_confirmed():
-                logger.debug(f"Track {i} onaylanmamış, atlanıyor.")
+            # İlk birkaç frame için is_confirmed kontrolünü atla (DeepSORT n_init=2 için)
+            skip_confirmed_check = frame_idx < self.warmup_frames
+            if not skip_confirmed_check and (not hasattr(track_obj, 'is_confirmed') or not track_obj.is_confirmed()):
+                logger.info(f"[PersonTrackerManager] Track {i} (ID: {getattr(track_obj, 'track_id', 'unknown')}) onaylanmamış, atlanıyor.")
                 continue  # Onaylanmamış track'leri atla
+            elif skip_confirmed_check and (not hasattr(track_obj, 'is_confirmed') or not track_obj.is_confirmed()):
+                logger.info(f"[PersonTrackerManager] Frame {frame_idx} warmup aşamasında - Track {i} (ID: {getattr(track_obj, 'track_id', 'unknown')}) onaylanmamış ama işleniyor (warmup)")
                 
             track_id = str(track_obj.track_id)
             seen_track_ids.add(track_id)
@@ -189,22 +204,20 @@ class PersonTrackerManager:
             skin_tone = data.get('skin_tone')
 
             if embedding is None or gender is None:
-                logger.warning(f"Track ID {track_id} için embedding veya gender eksik, bu track atlanıyor.")
+                logger.warning(f"[PersonTrackerManager] Track ID {track_id} için embedding veya gender eksik (embedding={embedding is not None}, gender={gender}), bu track atlanıyor.")
                 continue
             
             # Eğer bu track daha önce görülmemişse, yeni bir tracker oluştur
-            if track_id not in self.person_trackers:
-                logger.info(f"Yeni kişi takibi başlatılıyor: ID {track_id}")
+            is_new_track = track_id not in self.person_trackers
+            if is_new_track:
+                logger.info(f"[PersonTrackerManager] Yeni kişi takibi başlatılıyor: ID {track_id}, gender={gender}, embedding_shape={embedding.shape if embedding is not None else None}")
+                logger.info(f"[PersonTrackerManager] Threshold değerleri: reliability={self.reliability_threshold}, id_change={self.id_change_threshold}, embedding_dist={self.embedding_distance_threshold}")
                 self.person_trackers[track_id] = PersonTracker(track_id, gender, embedding, self.id_change_threshold, self.embedding_distance_threshold)
-                # Yeni oluşturulan tracker'ın güvenilirliğini doğrudan kontrol et
-                if self.person_trackers[track_id].reliability_score >= self.reliability_threshold:
-                    reliable_tracks.append(track_obj)
-                else:
-                    logger.info(f"Yeni takip ID {track_id} başlangıç güvenilirliği ({self.person_trackers[track_id].reliability_score:.2f}) düşük (eşik {self.reliability_threshold}), listeye eklenmedi.")
+                logger.info(f"[PersonTrackerManager] Yeni tracker oluşturuldu: ID {track_id}, başlangıç reliability_score={self.person_trackers[track_id].reliability_score:.2f}")
 
             # Mevcut tracker'ı güncelle (veya yeni oluşturulanı)
             person_tracker_instance = self.person_trackers[track_id]
-            is_update_accepted = person_tracker_instance.update( # Değişken adı düzeltildi
+            is_update_accepted = person_tracker_instance.update(
                 embedding, gender, frame_idx,
                 face_landmarks=landmarks,
                 hair_color=hair_color,
@@ -212,17 +225,20 @@ class PersonTrackerManager:
             )
             
             # Eğer güncelleme kabul edildiyse ve genel güvenilirlik yeterliyse, track'i listeye ekle
-            if is_update_accepted and person_tracker_instance.reliability_score >= self.reliability_threshold: # Değişken adı düzeltildi
+            if is_update_accepted and person_tracker_instance.reliability_score >= self.reliability_threshold:
                 reliable_tracks.append(track_obj)
+                if is_new_track:
+                    logger.info(f"[PersonTrackerManager] ✅ Yeni takip ID {track_id} güvenilir olarak eklendi (reliability_score={person_tracker_instance.reliability_score:.2f} >= {self.reliability_threshold})")
             else:
                 if not is_update_accepted:
-                    logger.warning(f"ID {track_id} için güncelleme reddedildi (olası ID switch), takip bu frame için filtrelendi")
+                    logger.warning(f"[PersonTrackerManager] ❌ ID {track_id} için güncelleme reddedildi (olası ID switch), takip bu frame için filtrelendi")
                 else: # reliability_score < self.reliability_threshold
-                    logger.warning(f"ID {track_id} için güvenilirlik düşük ({person_tracker_instance.reliability_score:.2f} < {self.reliability_threshold}), takip bu frame için filtrelendi") 
+                    logger.warning(f"[PersonTrackerManager] ❌ ID {track_id} için güvenilirlik düşük ({person_tracker_instance.reliability_score:.2f} < {self.reliability_threshold}), takip bu frame için filtrelendi") 
         
         # Uzun süre görünmeyen track'leri temizle
         self._cleanup_old_trackers(seen_track_ids)
         
+        logger.info(f"[PersonTrackerManager] Frame {frame_idx}: {len(reliable_tracks)}/{len(tracks)} track güvenilir olarak döndürüldü")
         return reliable_tracks
     
     def _cleanup_old_trackers(self, seen_track_ids):

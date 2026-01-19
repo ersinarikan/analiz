@@ -70,6 +70,9 @@ class Analysis(db.Model):
     def start_analysis(self):
         """Analiz sürecini başlatır ve durumu 'processing' olarak günceller."""
         self.status = 'processing'
+        # start_time default'u var, ama bazı path'lerde eski değer kalabiliyor; güvenli şekilde güncelle.
+        if not self.start_time:
+            self.start_time = datetime.now()
         db.session.commit()
     
     def cancel_analysis(self, reason="WebSocket bağlantısı kesildi"):
@@ -109,6 +112,9 @@ class Analysis(db.Model):
     def complete_analysis(self):
         """Analizi başarıyla tamamlandı olarak işaretler."""
         self.status = 'completed'
+        # completed_at / recent endpoint için end_time'ı mutlaka doldur
+        if not self.end_time:
+            self.end_time = datetime.now()
         db.session.commit()
     
     def fail_analysis(self, message: str):
@@ -120,6 +126,9 @@ class Analysis(db.Model):
         """
         self.status = 'failed'
         self.error_message = message
+        # failed analizlerde de bitiş zamanı yazılsın
+        if not self.end_time:
+            self.end_time = datetime.now()
         db.session.commit()
     
     def to_dict(self) -> dict:

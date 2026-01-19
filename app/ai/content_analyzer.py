@@ -5,9 +5,6 @@ import logging
 from flask import current_app
 import warnings
 warnings.filterwarnings('ignore', category=DeprecationWarning)
-import tensorflow as tf
-# Güncel TensorFlow 2.x logging API'si kullan
-tf.get_logger().setLevel('ERROR')
 from ultralytics import YOLO
 import torch
 import open_clip

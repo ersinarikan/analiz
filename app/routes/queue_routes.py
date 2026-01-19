@@ -223,13 +223,24 @@ def force_stop_and_restart():
             logger.info("🔄 RESTART başlatılıyor...")
             
             try:
+                # Systemd servisi olarak çalışıyorsak systemctl kullan
+                if os.path.exists('/etc/systemd/system/wsanaliz.service'):
+                    import subprocess
+                    logger.info("Systemd servisi bulundu, systemctl restart yapılıyor...")
+                    # Sudo şifresini environment'tan al (güvenlik için)
+                    sudo_password = os.environ.get('SUDO_PASSWORD', '5ex5chan5ge4')
+                    restart_cmd = f'echo "{sudo_password}" | sudo -S systemctl restart wsanaliz.service'
+                    subprocess.Popen(restart_cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    logger.info("✅ Systemctl restart komutu gönderildi")
+                    # Process'i sonlandır, systemd yeniden başlatacak
+                    os._exit(0)
                 # Windows için restart
-                if sys.platform == "win32":
+                elif sys.platform == "win32":
                     import subprocess
                     subprocess.Popen([sys.executable] + sys.argv)
                     os._exit(0)
                 else:
-                    # Linux/Mac için restart  
+                    # Linux/Mac için restart (systemd yoksa)
                     os.execv(sys.executable, [sys.executable] + sys.argv)
             except Exception as restart_err:
                 logger.error(f"Restart hatası: {restart_err}")

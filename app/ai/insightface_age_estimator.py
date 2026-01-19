@@ -381,40 +381,50 @@ class InsightFaceAgeEstimator:
         elif embedding_current is None:
             logger.info("[AGE_LOG] Özel yaş modeli (CustomAgeHead) için embedding mevcut değil (face.embedding None).")
 
-        # Adım 4: Nihai Yaş ve Güven Belirleme (ÇAPRAZ TEST İLE)
+        # Adım 4: Nihai Yaş ve Güven Belirleme (CLIP GÜVEN SKORLARINA GÖRE)
         final_age = age_buffalo # Varsayılan olarak buffalo'nun ham yaşı
         final_confidence = confidence_clip_buffalo # ve onun CLIP güveni
         
-        # ÇAPRAZ TEST SİSTEMİ: Her iki tahmin için de karşıt soruları sor
+        # CLIP TABANLI BASİT SEÇİM: CLIP'in hangi tahmine daha yüksek güven verdiğine bak
         if custom_age_calculated:
-            logger.info(f"[AGE_LOG][CROSS_TEST] Çapraz test başlıyor...")
+            # CLIP güven skorları çok düşükse (0.15) özel mantık uygula
+            LOW_CONFIDENCE_THRESHOLD = 0.15
+            both_low_confidence = confidence_clip_buffalo <= LOW_CONFIDENCE_THRESHOLD and confidence_clip_custom <= LOW_CONFIDENCE_THRESHOLD
             
-            # Normal çapraz test
-            # Buffalo'nun tahmini için Custom'ın yaş sorusunu sor
-            buffalo_cross_confidence = self._calculate_confidence_with_clip(face_roi, age_custom)
-            
-            # Custom'ın tahmini için Buffalo'nun yaş sorusunu sor  
-            custom_cross_confidence = self._calculate_confidence_with_clip(face_roi, age_buffalo)
-            
-            logger.info(f"[AGE_LOG][CROSS_TEST] Buffalo {age_buffalo:.1f} yaş tahmini, Custom'ın {age_custom:.1f} yaş sorusunda: {buffalo_cross_confidence:.4f}")
-            logger.info(f"[AGE_LOG][CROSS_TEST] Custom {age_custom:.1f} yaş tahmini, Buffalo'nun {age_buffalo:.1f} yaş sorusunda: {custom_cross_confidence:.4f}")
-            
-            # Net üstünlük kontrolü
-            buffalo_net_score = confidence_clip_buffalo - buffalo_cross_confidence
-            custom_net_score = confidence_clip_custom - custom_cross_confidence
-            
-            logger.info(f"[AGE_LOG][CROSS_TEST] Buffalo Net Skor: {buffalo_net_score:.4f} (kendi: {confidence_clip_buffalo:.4f} - karşıt: {buffalo_cross_confidence:.4f})")
-            logger.info(f"[AGE_LOG][CROSS_TEST] Custom Net Skor: {custom_net_score:.4f} (kendi: {confidence_clip_custom:.4f} - karşıt: {custom_cross_confidence:.4f})")
-            
-            # En yüksek net skora sahip olan kazansın
-            if custom_net_score > buffalo_net_score:
-                final_age = age_custom
-                final_confidence = confidence_clip_custom
-                logger.info(f"[AGE_LOG][CROSS_SELECT] Çapraz test sonucu: CustomAgeHead seçildi (Net: {custom_net_score:.4f})")
+            if both_low_confidence:
+                # Her iki model de düşük güvenle tahmin yapıyor
+                # Çocuklar için daha küçük yaşı tercih et, büyük fark varsa
+                age_diff = abs(age_buffalo - age_custom)
+                if age_diff > 5:  # Büyük fark varsa
+                    # Daha küçük yaşı tercih et (çocuklar için daha mantıklı)
+                    if age_custom < age_buffalo:
+                        final_age = age_custom
+                        final_confidence = confidence_clip_custom
+                        logger.info(f"[AGE_LOG][LOW_CONF_SELECT] Her iki model düşük güven, CustomAgeHead seçildi (daha küçük yaş: {age_custom:.1f} vs {age_buffalo:.1f})")
+                    else:
+                        final_age = age_buffalo
+                        final_confidence = confidence_clip_buffalo
+                        logger.info(f"[AGE_LOG][LOW_CONF_SELECT] Her iki model düşük güven, Buffalo seçildi (daha küçük yaş: {age_buffalo:.1f} vs {age_custom:.1f})")
+                else:
+                    # Fark küçükse, Buffalo'yu tercih et (daha başarılı)
+                    final_age = age_buffalo
+                    final_confidence = confidence_clip_buffalo
+                    logger.info(f"[AGE_LOG][LOW_CONF_SELECT] Her iki model düşük güven, Buffalo seçildi (fark küçük: {age_diff:.1f})")
             else:
-                final_age = age_buffalo  
-                final_confidence = confidence_clip_buffalo
-                logger.info(f"[AGE_LOG][CROSS_SELECT] Çapraz test sonucu: Buffalo seçildi (Net: {buffalo_net_score:.4f})")
+                # Normal seçim: CLIP'in hangi tahmine daha yüksek güven verdiğine bak
+                if confidence_clip_custom > confidence_clip_buffalo:
+                    final_age = age_custom
+                    final_confidence = confidence_clip_custom
+                    logger.info(f"[AGE_LOG][CLIP_SELECT] CustomAgeHead seçildi (CLIP güveni daha yüksek: {confidence_clip_custom:.4f} > {confidence_clip_buffalo:.4f})")
+                elif confidence_clip_custom < confidence_clip_buffalo:
+                    final_age = age_buffalo  
+                    final_confidence = confidence_clip_buffalo
+                    logger.info(f"[AGE_LOG][CLIP_SELECT] Buffalo seçildi (CLIP güveni daha yüksek: {confidence_clip_buffalo:.4f} > {confidence_clip_custom:.4f})")
+                else:
+                    # Eşitlik durumunda: Buffalo'yu tercih et (daha başarılı)
+                    final_age = age_buffalo  
+                    final_confidence = confidence_clip_buffalo
+                    logger.info(f"[AGE_LOG][CLIP_SELECT] CLIP güven skorları eşit ({confidence_clip_buffalo:.4f}), Buffalo tercih edildi")
         
         # Adım 5: CustomAgeHead İçin Potansiyel Sözde Etiketli Veri Hazırlama
         pseudo_label_data_to_save = None
@@ -452,10 +462,7 @@ class InsightFaceAgeEstimator:
             logger.info(f"[AGE_LOG][DETAIL] CustomAgeHead yaş tahmini: {age_custom:.2f}, CLIP güveni: {confidence_clip_custom:.4f}")
         else:
             logger.info(f"[AGE_LOG][DETAIL] CustomAgeHead tahmini yapılamadı.")
-        if custom_age_calculated and confidence_clip_custom >= confidence_clip_buffalo:
-            logger.info(f"[AGE_LOG][SELECT] Seçilen yaş tahmini: CustomAgeHead (Yaş: {age_custom:.2f}, Güven: {confidence_clip_custom:.4f})")
-        else:
-            logger.info(f"[AGE_LOG][SELECT] Seçilen yaş tahmini: Buffalo (Yaş: {age_buffalo:.2f}, Güven: {confidence_clip_buffalo:.4f})")
+        logger.info(f"[AGE_LOG][SELECT] Seçilen yaş tahmini: {final_age:.2f}, CLIP güveni: {final_confidence:.4f}")
         if pseudo_label_data_to_save:
             logger.info(f"[AGE_LOG][PSEUDO] Pseudo label kaydı hazırlanacak: {pseudo_label_data_to_save}")
 

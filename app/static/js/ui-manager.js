@@ -560,12 +560,43 @@ function setupAnalysisParamsModal(modalElement) {
                 console.log('Settings response:', { status, body });
                 
                 if (status === 200 && body.message) {
-                    if (body.restart_required) {
-                        // Production mode - manual restart required
+                    if (body.restart_required || body.restart_initiated) {
+                        // Production mode - restart başlatıldı
                         if (window.showToast) {
-                            window.showToast('Bilgi', body.message, 'warning');
+                            window.showToast('Başarılı', body.message || 'Analiz parametreleri kaydedildi. Sistem yeniden başlatılıyor...', 'success');
                         }
-                        console.log('🔄 Production mode - manual restart required');
+                        console.log('🔄 Production mode - restart başlatıldı');
+                        
+                        // Modal'ı kapat
+                        const modal = bootstrap.Modal.getInstance(modalElement);
+                        if (modal) modal.hide();
+                        
+                        // Restart sonrası sayfa yenile (force stop gibi)
+                        if (body.restart_initiated) {
+                            // Restart sonrası eski UI state'in (uploadedFiles / overall progress) kalmaması için
+                            // local restore mekanizmasını bir seferlik devre dışı bırak.
+                            try {
+                                sessionStorage.setItem('wsanaliz_skip_restore', '1');
+                                localStorage.removeItem('wsanaliz_recent_analyses');
+                            } catch (e) {
+                                console.warn('Restart cleanup storage erişilemedi:', e);
+                            }
+
+                            // Loading mesajını güncelle (eğer varsa)
+                            const loadingMessage = document.getElementById('loadingMessage');
+                            if (loadingMessage) {
+                                loadingMessage.textContent = 'Sistem yeniden başlatılıyor, lütfen bekleyin...';
+                            }
+                            
+                            // 8 saniye bekle sonra sayfa yenile (restart tamamlanması için)
+                            setTimeout(() => {
+                                console.log('[DEBUG] Analiz parametreleri güncellendi, sayfa yeniden yükleniyor (restart bekleniyor)...');
+                                // Cache bypass + temiz init için query param ekle
+                                const url = new URL(window.location.href);
+                                url.searchParams.set('restarted', String(Date.now()));
+                                window.location.href = url.toString();
+                            }, 8000);
+                        }
                     } else {
                         // Development mode - auto reload
                         if (window.showToast) {

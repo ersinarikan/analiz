@@ -139,20 +139,11 @@ def emit_analysis_progress(analysis_id, progress, message="İşleniyor...", file
                 error_msg = "CRITICAL: get_socketio() None döndürdü! Emit edilemiyor!"
                 logger.error(error_msg)
                 return False
-            
-            # Room membership kontrol et
-            try:
-                room_members = running_socketio.server.manager.get_participants(namespace='/', room=room)
-                room_members_list = list(room_members)
-                logger.debug(f"Room {room} members: {room_members_list}")
-            except Exception as room_err:
-                logger.debug(f"Room membership check failed: {room_err}")
-            
-            # Broadcast emit (tüm connected clientlara)
-            running_socketio.emit('analysis_progress', data)
-            logger.debug("BROADCAST emit completed")
-            
-            # Room-specific emit 
+
+            # NOTE: server.manager.get_participants() public API değil ve eventlet altında
+            # güvenli olmayabiliyor. Ayrıca progress event'ini iki kez (broadcast + room)
+            # emit etmek duplicate/yan etkilere sebep oluyordu.
+            # Bu yüzden progress event'ini sadece room'a emit ediyoruz.
             running_socketio.emit('analysis_progress', data, room=room)
             
             logger.info(f"Emit successful with centralized socketio, data sent: {data}")

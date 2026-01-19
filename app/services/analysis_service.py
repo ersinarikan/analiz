@@ -847,8 +847,14 @@ def analyze_video(analysis):
                 status_message = f"Kare #{i+1}/{total_frames_to_process} işleniyor ({timestamp:.1f}s)"
                 
                 # Kareyi oku
+                if i < 2:
+                    logger.info(f"[SVC_LOG][VID_STEP] Kare #{i} BEFORE cap.set (frame_idx={frame_idx})")
                 cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
+                if i < 2:
+                    logger.info(f"[SVC_LOG][VID_STEP] Kare #{i} AFTER cap.set (frame_idx={frame_idx})")
                 ret, image = cap.read()
+                if i < 2:
+                    logger.info(f"[SVC_LOG][VID_STEP] Kare #{i} AFTER cap.read ret={ret} shape={getattr(image, 'shape', None)}")
                 if not ret:
                     logger.warning(f"Kare okunamadı: #{frame_idx}, işlem sonlandırıldı")
                     break
@@ -865,10 +871,14 @@ def analyze_video(analysis):
                 
                 # İçerik analizi yap
                 try:
+                    if i < 2:
+                        logger.info(f"[SVC_LOG][VID_STEP] Kare #{i} BEFORE content_analyzer.analyze_image")
                     # Her kategori için skorlar
                     violence_score, adult_content_score, harassment_score, weapon_score, drug_score, safe_score, safe_objects = content_analyzer_instance.analyze_image(
                         image
                     )
+                    if i < 2:
+                        logger.info(f"[SVC_LOG][VID_STEP] Kare #{i} AFTER content_analyzer.analyze_image")
                     
                     # Eğer herhangi bir kategoride yüksek risk varsa, yüksek riskli kare sayısını artır
                     if max(violence_score, adult_content_score, harassment_score, weapon_score, drug_score) > 0.7:

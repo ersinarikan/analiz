@@ -1,0 +1,36 @@
+[Unit]
+Description=WSANALIZ Worker (Redis queue consumer)
+After=network.target redis-server.service
+Wants=redis-server.service
+
+[Service]
+Type=simple
+User=ersin
+Group=ersin
+WorkingDirectory=/opt/wsanaliz
+
+Environment="PATH=/opt/wsanaliz/venv/bin:/usr/local/bin:/usr/bin:/bin"
+Environment="FLASK_ENV=production"
+Environment="FLASK_DEBUG=0"
+Environment="PYTHONUNBUFFERED=1"
+
+Environment="WSANALIZ_QUEUE_BACKEND=redis"
+Environment="WSANALIZ_REDIS_URL=redis://localhost:6379/0"
+
+# GPU lock path (opsiyonel)
+Environment="WSANALIZ_GPU_LOCK_PATH=/tmp/wsanaliz_gpu_analysis.lock"
+
+# CUDA/TensorFlow için (mevcut wsanaliz.service ile uyumlu tut)
+Environment="LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu:/opt/wsanaliz/venv/lib/python3.11/site-packages/nvidia/cublas/lib:/opt/wsanaliz/venv/lib/python3.11/site-packages/nvidia/cuda_cupti/lib:/opt/wsanaliz/venv/lib/python3.11/site-packages/nvidia/cuda_nvrtc/lib:/opt/wsanaliz/venv/lib/python3.11/site-packages/nvidia/cuda_runtime/lib:/opt/wsanaliz/venv/lib/python3.11/site-packages/nvidia/cudnn/lib:/opt/wsanaliz/venv/lib/python3.11/site-packages/nvidia/cufft/lib:/opt/wsanaliz/venv/lib/python3.11/site-packages/nvidia/curand/lib:/opt/wsanaliz/venv/lib/python3.11/site-packages/nvidia/cusolver/lib:/opt/wsanaliz/venv/lib/python3.11/site-packages/nvidia/cusparse/lib:/opt/wsanaliz/venv/lib/python3.11/site-packages/nvidia/nccl/lib:/opt/wsanaliz/venv/lib/python3.11/site-packages/nvidia/nvjitlink/lib:/opt/wsanaliz/venv/lib/python3.11/site-packages/nvidia/nvtx/lib"
+
+ExecStart=/opt/wsanaliz/venv/bin/python -m app.services.queue_worker
+
+Restart=always
+RestartSec=2
+
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+

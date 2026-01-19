@@ -103,10 +103,12 @@ class Config:
     # CONTENT_ANALYSIS_PROFILE = "balanced" # Analiz profili: balanced, fast, detailed (KALDIRILDI)
     # VIDEO_FRAME_SAMPLING_RATE = 1 # Videolardan saniyede kaç kare analiz edileceği (KALDIRILDI)
 
-    # Yeni Global Analiz Parametreleri (Kullanıcının resmindeki)
-    FACE_DETECTION_CONFIDENCE = 0.5 # (0.1 - 1.0) - Daha hassas yüz tespiti
+    # Yeni Global Analiz Parametreleri (önerilen fabrika varsayılanları ile uyumlu)
+    # Not: 0.1 çok agresifti (false positive artışı). 0.25 daha dengeli başlangıç.
+    FACE_DETECTION_CONFIDENCE = 0.25 # (0.1 - 1.0)
     TRACKING_RELIABILITY_THRESHOLD = 0.5 # (0.1 - 0.9)
     ID_CHANGE_THRESHOLD = 0.45 # (0.1 - 0.8)
+    # Not: 1 FPS gibi senaryolarda 30 frame ~= 30sn. 45 daha stabil takip sağlar.
     MAX_LOST_FRAMES = 45 # (5 - 300)
     EMBEDDING_DISTANCE_THRESHOLD = 0.4 # (0.1 - 0.8)
 
@@ -130,10 +132,10 @@ class Config:
 
     # Merkezi fabrika ayarları (ör: settings_routes.py ve analysis_service.py'de kullanılıyor)
     FACTORY_DEFAULTS = {
-        "FACE_DETECTION_CONFIDENCE": 0.1,  # Daha hassas yüz tespiti için güncellendi
+        "FACE_DETECTION_CONFIDENCE": 0.25,
         "TRACKING_RELIABILITY_THRESHOLD": 0.5,
         "ID_CHANGE_THRESHOLD": 0.45,
-        "MAX_LOST_FRAMES": 30,
+        "MAX_LOST_FRAMES": 45,
         "EMBEDDING_DISTANCE_THRESHOLD": 0.4
     }
 
