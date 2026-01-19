@@ -7,7 +7,7 @@ import mimetypes
 import hashlib
 import logging
 from pathlib import Path
-from typing import Union, Optional, List, Dict, Any
+from typing import Dict, Any
 from werkzeug.utils import secure_filename
 from werkzeug.datastructures import FileStorage
 

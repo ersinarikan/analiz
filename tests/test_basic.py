@@ -1,7 +1,6 @@
 """
 Basic application tests
 """
-import pytest
 
 def test_app_creation(app):
     """Test that the app creates successfully"""

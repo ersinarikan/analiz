@@ -33,7 +33,7 @@ def main() -> int:
     from app import create_app
     from app.services import queue_service
 
-    app, _socketio = create_app()
+    app, _socketio = create_app(return_socketio=True)
 
     if not queue_service.is_redis_backend():
         logger.warning("Worker redis backend ile çalışmalı; WSANALIZ_QUEUE_BACKEND=redis değil.")

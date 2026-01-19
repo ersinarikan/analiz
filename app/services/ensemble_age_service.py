@@ -3,13 +3,11 @@ import json
 import logging
 import numpy as np
 import torch
-import torch.nn as nn
 from datetime import datetime
 from flask import current_app
 from app import db
 from app.models.feedback import Feedback
 from app.models.content import ModelVersion
-from app.utils.model_utils import save_torch_model
 
 logger = logging.getLogger('app.ensemble_age_service')
 

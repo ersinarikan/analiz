@@ -29,7 +29,7 @@ except ImportError:
 
 # Settings state'i import et (Flask debug mode bu dosyayı izleyecek)
 try:
-    from app.utils.settings_state import SETTINGS_STATE, LAST_UPDATE as SETTINGS_LAST_UPDATE
+    from app.utils.settings_state import LAST_UPDATE as SETTINGS_LAST_UPDATE
 except ImportError:
     SETTINGS_STATE = {}
     SETTINGS_LAST_UPDATE = None
@@ -99,6 +99,8 @@ class Config:
     # Analiz Ayarları
     DEFAULT_FRAMES_PER_SECOND = 1  # Video analizi için varsayılan saniyede kare sayısı
     DEFAULT_CONFIDENCE_THRESHOLD = 0.5  # Nesne tespiti için varsayılan güven eşiği
+    # Video kareleri için maksimum uzun kenar (px). 0 = orijinal çözünürlük.
+    VIDEO_FRAME_MAX_DIM = int(os.environ.get('VIDEO_FRAME_MAX_DIM', '720'))
     # MIN_FACE_SIZE = 20 # Piksel cinsinden minimum yüz boyutu (KALDIRILDI)
     # CONTENT_ANALYSIS_PROFILE = "balanced" # Analiz profili: balanced, fast, detailed (KALDIRILDI)
     # VIDEO_FRAME_SAMPLING_RATE = 1 # Videolardan saniyede kaç kare analiz edileceği (KALDIRILDI)

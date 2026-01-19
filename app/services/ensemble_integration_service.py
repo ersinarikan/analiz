@@ -1,6 +1,4 @@
-import os
 import logging
-from flask import current_app
 from app.services.ensemble_age_service import EnsembleAgeService
 from app.services.ensemble_clip_service import EnsembleClipService
 import numpy as np

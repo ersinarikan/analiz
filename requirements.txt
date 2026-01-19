@@ -41,7 +41,7 @@ redis>=5.0.0
 # ============================================================================
 tensorflow[and-cuda]==2.16.1  # GPU desteği için CUDA ve cuDNN dahil
 onnx>=1.20.1  # ml_dtypes uyumluluğu için güncel sürüm gerekli
-onnxruntime>=1.18.0  # insightface için gerekli
+onnxruntime-gpu==1.23.2  # InsightFace GPU hızlandırma (CUDAExecutionProvider). Pinned to avoid pulling incompatible deps.
 ml-dtypes>=0.5.0  # onnx uyumluluğu için
 torch==2.4.1
 torchvision==0.19.1
@@ -54,7 +54,9 @@ scikit-learn==1.5.2
 opencv-python==4.8.0.74
 opencv-contrib-python==4.11.0.86
 Pillow==10.4.0
-numpy==1.24.4
+# Keep numpy<2 for tensorflow[and-cuda]==2.16.1 compatibility
+numpy==1.26.4
+protobuf==4.25.8
 
 # ============================================================================
 # 👤 FACE ANALYSIS & OBJECT DETECTION

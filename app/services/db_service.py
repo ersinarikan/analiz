@@ -1,17 +1,16 @@
 """Database service for optimized query operations"""
 
-import os
 import logging
 import time
 import threading
-from datetime import datetime, timedelta
-from typing import Optional, List, Dict, Any, Type
+from datetime import datetime
+from typing import List
 from contextlib import contextmanager
 from functools import wraps
 
 from flask import current_app
-from sqlalchemy.orm import joinedload, selectinload, subqueryload
-from sqlalchemy import text, and_, or_
+from sqlalchemy.orm import joinedload, selectinload
+from sqlalchemy import or_
 from app import db
 
 logger = logging.getLogger(__name__)

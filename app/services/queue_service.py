@@ -10,7 +10,7 @@ import fcntl
 from flask import current_app
 import traceback
 from contextlib import contextmanager
-from typing import Optional, Tuple
+from typing import Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -290,6 +290,16 @@ def process_one_analysis(analysis_id: str, app=None) -> Tuple[bool, str]:
                     logger.info(f"🚫 Analiz #{analysis_id} iptal edilmiş, atlanıyor")
                     return False, "Analiz iptal edildi"
 
+                # Mark as processing + set start_time for observability.
+                try:
+                    if getattr(analysis, "status", None) != "processing":
+                        analysis.status = "processing"
+                    if not getattr(analysis, "start_time", None):
+                        from datetime import datetime
+                        analysis.start_time = datetime.utcnow()
+                except Exception:
+                    pass
+
             start_time = time.time()
             gpu_lock_fd = None
             try:
@@ -297,26 +307,140 @@ def process_one_analysis(analysis_id: str, app=None) -> Tuple[bool, str]:
                 gpu_lock_fd = _acquire_gpu_lock()
                 logger.info(f"🔓 GPU lock alındı (analysis_id={analysis_id})")
 
-                proc = subprocess.run(
+                # NOTE:
+                # subprocess.run(...) blocks for the whole duration of the analysis.
+                # Our worker heartbeat keys in Redis have TTL (ex=60). For longer analyses (videos),
+                # the keys expire and /api/queue/stats shows worker_last_heartbeat=null although
+                # the worker is alive and processing. Use Popen + poll loop to refresh heartbeat.
+                logs_dir = os.environ.get("WSANALIZ_SUBPROCESS_LOG_DIR", "/opt/wsanaliz/logs")
+                os.makedirs(logs_dir, exist_ok=True)
+                stdout_path = os.path.join(logs_dir, f"analysis_subprocess_{analysis_id}.stdout.log")
+                stderr_path = os.path.join(logs_dir, f"analysis_subprocess_{analysis_id}.stderr.log")
+
+                proc = subprocess.Popen(
                     [sys.executable, "-m", "app.services.analysis_subprocess_runner", str(analysis_id)],
-                    capture_output=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
                     text=True,
-                    timeout=60 * 60,
+                    bufsize=1,
                 )
-                stdout = (proc.stdout or "").strip().splitlines()
-                payload = stdout[-1] if stdout else ""
-                if payload:
+
+                stdout_lines: list[str] = []
+                stderr_lines: list[str] = []
+                stdout_file = None
+                stderr_file = None
+
+                try:
+                    stdout_file = open(stdout_path, "w", encoding="utf-8")
+                    stderr_file = open(stderr_path, "w", encoding="utf-8")
+                except Exception:
+                    stdout_file = None
+                    stderr_file = None
+
+                def _stream_reader(stream, lines, file_obj):
                     try:
-                        import json as _json
-                        out = _json.loads(payload)
-                        success = bool(out.get("success", False))
-                        message = str(out.get("message", ""))
+                        for line in iter(stream.readline, ""):
+                            lines.append(line.rstrip("\n"))
+                            if file_obj:
+                                file_obj.write(line)
+                                file_obj.flush()
                     except Exception:
-                        success = False
-                        message = f"Subprocess çıktı parse edilemedi (rc={proc.returncode}). Son satır: {payload[:400]}"
+                        pass
+                    finally:
+                        try:
+                            stream.close()
+                        except Exception:
+                            pass
+
+                if proc.stdout is not None:
+                    threading.Thread(
+                        target=_stream_reader,
+                        args=(proc.stdout, stdout_lines, stdout_file),
+                        daemon=True,
+                    ).start()
+                if proc.stderr is not None:
+                    threading.Thread(
+                        target=_stream_reader,
+                        args=(proc.stderr, stderr_lines, stderr_file),
+                        daemon=True,
+                    ).start()
+
+                start_wait = time.time()
+                while True:
+                    rc = proc.poll()
+                    if rc is not None:
+                        break
+
+                    # Refresh heartbeat while processing (best effort)
+                    _set_worker_state(True, 1)
+
+                    # Hard timeout (1 hour)
+                    if (time.time() - start_wait) > (60 * 60):
+                        try:
+                            proc.kill()
+                        except Exception:
+                            pass
+                        raise subprocess.TimeoutExpired(cmd=proc.args, timeout=60 * 60)
+
+                    time.sleep(5)
+
+                # Ensure process is fully terminated and streams drained
+                try:
+                    proc.wait(timeout=5)
+                except Exception:
+                    pass
+
+                # NOTE: Some native deps (e.g. insightface/onnxruntime) can print to stdout,
+                # which can break the "last-line-is-JSON" assumption. Parse the LAST valid JSON
+                # object we can find in stdout, and fall back to stderr if needed.
+                # We already streamed outputs into stdout_lines/stderr_lines.
+
+                try:
+                    if stdout_file:
+                        stdout_file.flush()
+                        stdout_file.close()
+                    if stderr_file:
+                        stderr_file.flush()
+                        stderr_file.close()
+                except Exception:
+                    pass
+
+                def _extract_last_json(lines: list[str]):
+                    import json as _json
+
+                    last_obj = None
+                    for line in lines:
+                        line_s = (line or "").strip()
+                        if not line_s:
+                            continue
+                        if not (line_s.startswith("{") and line_s.endswith("}")):
+                            continue
+                        try:
+                            obj = _json.loads(line_s)
+                            if isinstance(obj, dict) and ("success" in obj or "message" in obj):
+                                last_obj = obj
+                        except Exception:
+                            continue
+                    return last_obj
+
+                out = _extract_last_json(stdout_lines) or _extract_last_json(stderr_lines)
+                if out is not None:
+                    success = bool(out.get("success", False))
+                    message = str(out.get("message", ""))
                 else:
+                    # Give a helpful debug snippet (last non-empty line).
+                    last_line = ""
+                    for line in reversed(stdout_lines):
+                        if (line or "").strip():
+                            last_line = (line or "").strip()
+                            break
+                    if not last_line:
+                        for line in reversed(stderr_lines):
+                            if (line or "").strip():
+                                last_line = (line or "").strip()
+                                break
                     success = False
-                    message = f"Subprocess boş çıktı döndürdü (rc={proc.returncode}). stderr: {(proc.stderr or '')[:400]}"
+                    message = f"Subprocess çıktı parse edilemedi (rc={proc.returncode}). Son satır: {last_line[:400]}"
             except subprocess.TimeoutExpired:
                 success = False
                 message = "Analiz subprocess timeout (1 saat)"
@@ -336,12 +460,21 @@ def process_one_analysis(analysis_id: str, app=None) -> Tuple[bool, str]:
             # Final durumu güncelle
             with database_session(target_app) as session:
                 analysis = Analysis.query.get(analysis_id)
-                if analysis and not success:
-                    analysis.status = 'failed'
+                if analysis:
+                    from datetime import datetime
+
+                    if success:
+                        analysis.status = "completed"
+                    else:
+                        analysis.status = "failed"
+                        # keep message for UI/debugging
+                        try:
+                            analysis.error_message = message
+                        except Exception:
+                            pass
+
                     if not getattr(analysis, "end_time", None):
-                        from datetime import datetime
-                        analysis.end_time = datetime.now()
-                session.commit()
+                        analysis.end_time = datetime.utcnow()
 
             _emit_analysis_completion(analysis_id, analysis_file_id, success, elapsed_time, message)
             return success, message
@@ -355,11 +488,14 @@ def process_one_analysis(analysis_id: str, app=None) -> Tuple[bool, str]:
                 analysis = Analysis.query.get(analysis_id)
                 error_analysis_file_id = analysis.file_id if analysis else None
                 if analysis:
+                    from datetime import datetime
                     analysis.status = 'failed'
+                    try:
+                        analysis.error_message = f"İşlem hatası: {str(e)}"
+                    except Exception:
+                        pass
                     if not getattr(analysis, "end_time", None):
-                        from datetime import datetime
-                        analysis.end_time = datetime.now()
-                session.commit()
+                        analysis.end_time = datetime.utcnow()
             _emit_analysis_completion(analysis_id, error_analysis_file_id, False, 0, f"İşlem hatası: {str(e)}")
         except Exception as db_err:
             logger.error(f"Hata durumunda DB güncelleme hatası: {str(db_err)}")
@@ -389,7 +525,7 @@ def _emit_analysis_completion(analysis_id, file_id, success, elapsed_time, messa
     except Exception as e:
         logger.warning(f"Analiz tamamlanma WebSocket bildirimi hatası: {str(e)}")
 
-def remove_cancelled_from_queue():
+def remove_cancelled_from_queue(app=None):
     """
     Kuyruktaki iptal edilmiş analizleri temizler
     
@@ -397,14 +533,29 @@ def remove_cancelled_from_queue():
         int: Temizlenen analiz sayısı
     """
     try:
+        # Prefer existing Flask app context if available; otherwise use provided app or global fallback.
+        from flask import current_app as _current_app, has_app_context
+        target_app = None
+        if has_app_context():
+            target_app = _current_app
+        else:
+            try:
+                from app import global_flask_app as _global_flask_app
+            except Exception:
+                _global_flask_app = None
+            target_app = app or _global_flask_app
+
+        if target_app is None:
+            logger.warning("remove_cancelled_from_queue: Flask app bulunamadı (no app_context, app param None, global_flask_app None)")
+            return 0
+
         if is_redis_backend():
             # Redis list üzerinde basit bir filtreleme (küçük kuyruklarda yeterli)
-            from app import global_flask_app
             from app.models.analysis import Analysis
             r = _get_redis()
             removed_count = 0
 
-            with global_flask_app.app_context():
+            if has_app_context():
                 items = r.lrange(REDIS_QUEUE_KEY, 0, -1) or []
                 kept = []
                 for analysis_id in items:
@@ -420,19 +571,35 @@ def remove_cancelled_from_queue():
                     if kept:
                         pipe.rpush(REDIS_QUEUE_KEY, *kept)
                     pipe.execute()
+            else:
+                with target_app.app_context():
+                    items = r.lrange(REDIS_QUEUE_KEY, 0, -1) or []
+                    kept = []
+                    for analysis_id in items:
+                        analysis = Analysis.query.get(analysis_id)
+                        if analysis and analysis.is_cancelled:
+                            removed_count += 1
+                        else:
+                            kept.append(analysis_id)
+
+                    if removed_count:
+                        pipe = r.pipeline()
+                        pipe.delete(REDIS_QUEUE_KEY)
+                        if kept:
+                            pipe.rpush(REDIS_QUEUE_KEY, *kept)
+                        pipe.execute()
 
             if removed_count:
                 logger.info(f"✅ Redis kuyruğundan {removed_count} iptal edilmiş analiz temizlendi")
             return removed_count
 
-        from app import global_flask_app
         from app.models.analysis import Analysis
         
         removed_count = 0
         temp_queue = queue.Queue()
         
         # Kuyruktaki tüm analizleri kontrol et
-        with global_flask_app.app_context():
+        if has_app_context():
             while not analysis_queue.empty():
                 try:
                     analysis_id = analysis_queue.get_nowait()
@@ -455,6 +622,30 @@ def remove_cancelled_from_queue():
             # Temizlenmiş kuyruğu geri yükle
             while not temp_queue.empty():
                 analysis_queue.put(temp_queue.get())
+        else:
+            with target_app.app_context():
+                while not analysis_queue.empty():
+                    try:
+                        analysis_id = analysis_queue.get_nowait()
+
+                        # Analizin iptal edilip edilmediğini kontrol et
+                        analysis = Analysis.query.get(analysis_id)
+                        if analysis and analysis.is_cancelled:
+                            logger.info(f"🗑️ Kuyruktan iptal edilmiş analiz temizlendi: #{analysis_id}")
+                            removed_count += 1
+                        else:
+                            # İptal edilmemişse geri kuyruğa koy
+                            temp_queue.put(analysis_id)
+
+                    except queue.Empty:
+                        break
+                    except Exception as e:
+                        logger.error(f"Kuyruk temizleme hatası: {str(e)}")
+                        break
+
+                # Temizlenmiş kuyruğu geri yükle
+                while not temp_queue.empty():
+                    analysis_queue.put(temp_queue.get())
         
         if removed_count > 0:
             logger.info(f"✅ Kuyruktan {removed_count} iptal edilmiş analiz temizlendi")

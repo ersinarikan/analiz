@@ -7,7 +7,7 @@ import logging
 from functools import wraps
 from collections import defaultdict, deque
 from flask import request, jsonify, g
-from app.utils.security import sanitize_html_input, SecurityError
+from app.utils.security import sanitize_html_input
 
 logger = logging.getLogger(__name__)
 

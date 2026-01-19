@@ -8,7 +8,6 @@ from flask import current_app
 from app import db
 from app.models.feedback import Feedback
 from app.models.content import ModelVersion
-from app.utils.model_utils import save_torch_model
 
 logger = logging.getLogger('app.ensemble_clip_service')
 

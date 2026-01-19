@@ -10,10 +10,8 @@ import torch
 import open_clip
 from PIL import Image  # CLIP için PIL gerekiyor
 import time
-import json
 import threading
 from app.utils.serialization_utils import convert_numpy_types_to_python
-from config import Config
 
 logger = logging.getLogger(__name__)
 
@@ -110,14 +108,23 @@ class ContentAnalyzer:
             return
             
         try:
+            # Sanity mode: offline prompt evaluation should be lightweight and avoid GPU OOM.
+            # When enabled, we skip YOLO + ensemble initialization and do CLIP-only scoring.
+            self.sanity_mode = (os.environ.get("WSANALIZ_SANITY_MODE", "") or "").strip().lower() in {"1", "true", "yes", "y", "on"}
+
             # Model klasörünü belirle
             model_folder = current_app.config.get('MODELS_FOLDER', os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'storage', 'models'))
             
             # YOLOv8 modelini yükle - nesne tespiti için hala faydalı
-            self.yolo_model = self._load_yolo_model(model_folder)
+            if self.sanity_mode:
+                self.yolo_model = None
+                logger.info("WSANALIZ_SANITY_MODE=1 -> YOLO yükleme atlandı (CLIP-only)")
+            else:
+                self.yolo_model = self._load_yolo_model(model_folder)
             
             # CLIP modelini yükle - daha büyük ve daha doğru olan versiyonu seçiyoruz
-            self.clip_model, self.clip_preprocess = self._load_clip_model()
+            # NOTE: Always keep a single device source of truth for tensors to avoid CPU/GPU dtype mismatches.
+            self.clip_model, self.clip_preprocess, self.device = self._load_clip_model()
 
             # Tokenizer'ı yükle (OpenCLIP için)
             logger.info("OpenCLIP tokenizer (ViT-H-14-378-quickgelu) yükleniyor...")
@@ -128,93 +135,133 @@ class ContentAnalyzer:
             self.classification_head = self._load_classification_head()
             
             # Ensemble service'i yükle
-            try:
-                self.ensemble_service = get_ensemble_service()
-                logger.info("Ensemble service başarıyla yüklendi")
-            except Exception as e:
-                logger.warning(f"Ensemble service yüklenemedi: {str(e)}")
+            if self.sanity_mode:
                 self.ensemble_service = None
+            else:
+                try:
+                    self.ensemble_service = get_ensemble_service()
+                    logger.info("Ensemble service başarıyla yüklendi")
+                except Exception as e:
+                    logger.warning(f"Ensemble service yüklenemedi: {str(e)}")
+                    self.ensemble_service = None
             
+            # Prompt template'leri (template ensembling)
+            # Not: ağırlıklandırma yok; template'ler eşit ağırlıklı ortalanır.
+            self.prompt_templates = [
+                "a photo of {x}",
+                "an image containing {x}",
+                "a scene showing {x}",
+                "a video frame showing {x}",
+            ]
+
             # Kategori tanımlayıcıları - Pozitif ve zıt (negatif) promptlar
             self.category_prompts = {
                 "violence": {
                     "positive": [
-                        "physical violence",
-                        "fighting and aggression", 
-                        "violent confrontation",
-                        "attack or assault",
-                        "dangerous physical behavior"
+                        # Kavga/dövüş odaklı (görsel olarak somut)
+                        "a physical fight",
+                        "a fistfight",
+                        "people punching and kicking",
+                        "a violent street fight",
+                        "a brawl in a crowd",
+                        "a person being attacked",
+                        "a violent assault",
+                        "blood or visible injury"
                     ],
                     "negative": [
-                        "peaceful interaction",
-                        "calm and safe environment",
-                        "non-violent activity",
-                        "friendly gathering",
-                        "relaxed atmosphere"
+                        # Kavga değil: sözlü tartışma, spor, yanlış tetikleyen temas türleri
+                        "argument without physical contact",
+                        "people arguing",
+                        "a sports match",
+                        "boxing in a ring (sport)",
+                        "martial arts competition (sport)",
+                        "playful interaction",
+                        # Harassment (handsy) violence değil (ayrıştırma için)
+                        "unwanted touching"
                     ]
                 },
                 "adult_content": {
                     "positive": [
+                        # Yetişkin içerik (görsel olarak net)
+                        "explicit nudity",
+                        "full nudity",
+                        "pornographic content",
                         "sexually explicit content",
-                        "inappropriate adult material",
-                        "sexual activity or nudity",
-                        "adult-only content",
-                        "mature sexual themes"
+                        "sexual activity"
                     ],
                     "negative": [
-                        "family-friendly content",
-                        "appropriate for all ages",
-                        "wholesome activity",
-                        "clean and safe content",
-                        "innocent interaction"
+                        # Hard-negative: adult ile en sık karışan benign "skin + person" sahneleri
+                        "a family-friendly scene",
+                        "people wearing normal everyday clothing",
+                        "a beach scene in swimwear",
+                        "a swimsuit photoshoot (non-explicit)",
+                        "shirtless athlete in a sports context",
+                        "fitness workout scene",
+                        "underwear advertisement (non-explicit)",
+                        "a medical exam (non-sexual)"
                     ]
                 },
                 "harassment": {
                     "positive": [
-                        "bullying or intimidation",
-                        "threatening behavior",
-                        "aggressive confrontation",
-                        "hostile interaction",
-                        "verbal or emotional abuse"
+                        # Sadece fiziksel elle taciz/groping
+                        "unwanted touching",
+                        "groping or handsy behavior",
+                        "inappropriate touching in a crowd",
+                        "touching someone's body without consent",
+                        "sexual harassment by touching",
+                        "molestation in a public place"
                     ],
                     "negative": [
-                        "respectful interaction",
-                        "supportive environment", 
-                        "positive communication",
-                        "friendly conversation",
-                        "harmonious relationship"
+                        # Kavga/dövüş harassment değildir (ayrıştırma için)
+                        "a physical fight",
+                        "punching or kicking",
+                        # Benign temas/etkileşim
+                        "polite handshake",
+                        "friendly hug",
+                        "respectful greeting",
+                        "personal space respected",
+                        "helping someone up"
                     ]
                 },
                 "weapon": {
                     "positive": [
-                        "firearms or guns",
-                        "knives or bladed weapons",
-                        "dangerous weapons",
-                        "threatening with weapons",
-                        "armed confrontation"
+                        "a person holding a gun",
+                        "a handgun",
+                        "a rifle",
+                        "a weapon pointed at someone",
+                        "a knife used as a weapon",
+                        "a blade or knife in hand",
+                        "an armed person"
                     ],
                     "negative": [
-                        "weapon-free environment",
-                        "peaceful situation without weapons",
-                        "safe and unarmed",
-                        "no threatening objects",
-                        "secure environment"
+                        "no weapon visible",
+                        "a peaceful scene",
+                        "a kitchen knife used for cooking",
+                        "a tool in a workshop",
+                        "harmless tool in use",
+                        "toy gun",
+                        "sports equipment"
                     ]
                 },
                 "drug": {
                     "positive": [
+                        "drug paraphernalia",
+                        "a syringe used for drugs",
+                        "injecting drugs",
+                        "smoking a joint",
+                        "marijuana use",
                         "illegal drug use",
-                        "substance abuse activity",
-                        "drug consumption",
-                        "narcotic substances",
-                        "intoxication or drug impairment"
+                        "cocaine or methamphetamine",
+                        "drug deal"
                     ],
                     "negative": [
-                        "drug-free activity",
+                        "medical syringe in a clinical setting",
+                        "a vaccination shot",
+                        "people holding a beverage",
+                        "drinking water",
+                        "medicine packaging in a pharmacy",
                         "healthy lifestyle",
-                        "sober behavior",
-                        "clean living environment",
-                        "substance-free interaction"
+                        "drug-free environment"
                     ]
                 }
             }
@@ -223,7 +270,10 @@ class ContentAnalyzer:
             try:
                 for category, prompts in self.category_prompts.items():
                     logger.info(f"Text features hazırlanıyor: {category}")
-                    text_input = self.tokenizer(prompts["positive"][0]).to("cuda" if torch.cuda.is_available() else "cpu")
+                    # Template ensembling var; burada debug için ilk template + ilk positive kullanıyoruz
+                    seed_prompt = self.prompt_templates[0].format(x=prompts["positive"][0])
+                    device = getattr(self, "device", ("cuda" if torch.cuda.is_available() else "cpu"))
+                    text_input = self.tokenizer(seed_prompt).to(device)
                     with torch.no_grad():
                         text_feature = self.clip_model.encode_text(text_input)
                         text_feature = text_feature / text_feature.norm(dim=-1, keepdim=True)
@@ -282,10 +332,10 @@ class ContentAnalyzer:
             
             # Thread-safe cache'e kaydet
             with _cache_lock:
-                _models_cache[cache_key] = (model, preprocess_val)
+                _models_cache[cache_key] = (model, preprocess_val, device)
             
             logger.info(f"✅ CLIP modeli başarıyla yüklendi! Device: {device}")
-            return model, preprocess_val
+            return model, preprocess_val, device
                 
         except Exception as e:
             logger.error(f"CLIP model yükleme hatası: {str(e)}")
@@ -402,22 +452,24 @@ class ContentAnalyzer:
                 cv_rgb = cv2.cvtColor(cv_image, cv2.COLOR_BGR2RGB)
                 pil_image = Image.fromarray(cv_rgb)
             
-            # YOLOv8 ile nesne tespiti (devre dışı bırakılmıyor)
-            results = self.yolo_model(cv_image)
+            # YOLOv8 ile nesne tespiti (sanity-mode'da kapalı: GPU/CPU overhead ve OOM azalt)
             detected_objects = []
-            for r in results:
-                boxes = r.boxes
-                for box in boxes:
-                    x1, y1, x2, y2 = box.xyxy[0]
-                    x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2)
-                    w, h = x2 - x1, y2 - y1
-                    conf = float(box.conf[0])
-                    cls_id = int(box.cls[0])
-                    label = self.yolo_model.names[cls_id]
-                    detected_objects.append({'label': label, 'confidence': conf, 'box': [x1, y1, w, h]})
+            if getattr(self, "yolo_model", None) is not None and not getattr(self, "sanity_mode", False):
+                results = self.yolo_model(cv_image)
+                for r in results:
+                    boxes = r.boxes
+                    for box in boxes:
+                        x1, y1, x2, y2 = box.xyxy[0]
+                        x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2)
+                        w, h = x2 - x1, y2 - y1
+                        conf = float(box.conf[0])
+                        cls_id = int(box.cls[0])
+                        label = self.yolo_model.names[cls_id]
+                        detected_objects.append({'label': label, 'confidence': conf, 'box': [x1, y1, w, h]})
             
             # CLIP ile görüntü özelliklerini çıkar
-            preprocessed_image = self.clip_preprocess(pil_image).unsqueeze(0).to("cuda" if torch.cuda.is_available() else "cpu")
+            device = getattr(self, "device", ("cuda" if torch.cuda.is_available() else "cpu"))
+            preprocessed_image = self.clip_preprocess(pil_image).unsqueeze(0).to(device)
             with torch.no_grad():
                 image_features = self.clip_model.encode_image(preprocessed_image)
                 image_features = image_features / image_features.norm(dim=-1, keepdim=True)
@@ -469,57 +521,48 @@ class ContentAnalyzer:
                 logger.info("Prompt-based analiz yapılıyor")
                 # Orijinal prompt-based yaklaşım
                 for cat in categories:
-                    pos_prompts = [f"Is there {p} in this frame?" for p in self.category_prompts[cat]["positive"]]
-                    neg_prompts = [f"Is there {p} in this frame?" for p in self.category_prompts[cat]["negative"]]
+                    # Template ensembling (ağırlıklandırma yok): her concept için 2–4 template üret
+                    pos_prompts = [
+                        tpl.format(x=p)
+                        for p in self.category_prompts[cat]["positive"]
+                        for tpl in self.prompt_templates
+                    ]
+                    neg_prompts = [
+                        tpl.format(x=p)
+                        for p in self.category_prompts[cat]["negative"]
+                        for tpl in self.prompt_templates
+                    ]
                     all_prompts = pos_prompts + neg_prompts
-                    text_inputs = self.tokenizer(all_prompts).to("cuda" if torch.cuda.is_available() else "cpu")
+                    device = getattr(self, "device", ("cuda" if torch.cuda.is_available() else "cpu"))
+                    text_inputs = self.tokenizer(all_prompts).to(device)
                     with torch.no_grad():
                         text_features = self.clip_model.encode_text(text_inputs)
                         text_features = text_features / text_features.norm(dim=-1, keepdim=True)
                         similarities = (image_features @ text_features.T).squeeze(0).cpu().numpy()  # len = len(all_prompts)
                     
                     pos_score = float(np.mean(similarities[:len(pos_prompts)]))
-                    neg_score = float(np.mean(similarities[len(pos_prompts):]))
+                    neg_sims = similarities[len(pos_prompts):]
+                    # For adult_content, false positives are costly. Using a "hard negative" aggregation
+                    # (max similarity) makes the score drop if ANY benign-negative strongly matches.
+                    if cat == "adult_content" and len(neg_sims) > 0:
+                        neg_score = float(np.max(neg_sims))
+                    else:
+                        neg_score = float(np.mean(neg_sims)) if len(neg_sims) > 0 else 0.0
                     fark = pos_score - neg_score
 
-                    # Score calculation (existing logic)
-                    import random
+                    # Score calculation (prompt-based):
+                    # We already map the pos-neg difference into [0..1] via tanh.
+                    # The previous "MIN/MAX normalization" band (0.42..0.58) caused extreme saturation
+                    # (many frames becoming 1.0), making prompt comparisons meaningless.
                     import math
-                    
-                    SQUASH_FACTOR = 4.0
-                    
-                    abs_pos_score = abs(pos_score)
-                    abs_neg_score = abs(neg_score)
-                    
-                    if abs_pos_score < 0.02 and abs_neg_score < 0.02:
-                        raw_score = 0.5
-                        squashed_fark = 0.0
-                        logger.info(f"  BELIRSIZLIK DURUMU: Her iki skor da çok düşük")
-                    else:
-                        squashed_fark = math.tanh(fark * SQUASH_FACTOR)
-                        raw_score = (squashed_fark + 1) / 2
-                        
-                        if pos_score > 0.05 and fark > 0.02:
-                            boost_factor = 1.2
-                            raw_score = min(raw_score * boost_factor, 1.0)
-                            logger.info(f"  POZITIF BOOST uygulandı: x{boost_factor}")
-                        elif neg_score > 0.05 and fark < -0.02:
-                            reduction_factor = 0.8
-                            raw_score = max(raw_score * reduction_factor, 0.0)
-                            logger.info(f"  NEGATIF REDUCTION uygulandı: x{reduction_factor}")
-                    
-                    # Normalization
-                    MIN_CLIP_SCORE = 0.42
-                    MAX_CLIP_SCORE = 0.58
-                    
-                    if raw_score < MIN_CLIP_SCORE:
-                        normalized_score = 0.0
-                    elif raw_score > MAX_CLIP_SCORE:
-                        normalized_score = 1.0
-                    else:
-                        normalized_score = (raw_score - MIN_CLIP_SCORE) / (MAX_CLIP_SCORE - MIN_CLIP_SCORE)
-                    
-                    base_score = max(0.0, min(1.0, normalized_score))
+
+                    SQUASH_FACTOR = 6.0
+                    squashed_fark = math.tanh(fark * SQUASH_FACTOR)
+                    # IMPORTANT: For "risk" categories, neutral evidence (pos≈neg) must map to ~0,
+                    # not 0.5. Otherwise benign content (e.g. baby photos) gets 30–50% "risk"
+                    # bars just from noise. We clamp negative evidence to 0 and keep only
+                    # positive evidence.
+                    base_score = max(0.0, min(1.0, float(max(0.0, squashed_fark))))
                     
                     # Ensemble düzeltmesi uygula
                     if self.ensemble_service:
@@ -555,9 +598,9 @@ class ContentAnalyzer:
             # Tespit edilen nesneleri Python tiplerine dönüştür
             safe_objects = convert_numpy_types_to_python(detected_objects)
             
-            # Bağlamsal ayarlamaları uygula - tespit edilen nesnelere ve kişi sayısına göre skorları düzenle
-            person_count = len([obj for obj in safe_objects if obj['label'] == 'person'])
-            object_labels = [obj['label'] for obj in safe_objects]
+            # Bağlamsal ayarlamalar (sanity-mode'da kapalı)
+            person_count = len([obj for obj in safe_objects if obj.get('label') == 'person'])
+            object_labels = [obj.get('label') for obj in safe_objects if obj.get('label')]
             
             # _apply_contextual_adjustments çağrılmadan önce tüm kategorilerin (safe dahil) final_scores içinde olduğundan emin olalım.
             # 'categories' listesi artık self.category_prompts.keys() ile aynı (safe hariç)
@@ -565,7 +608,8 @@ class ContentAnalyzer:
             # Dönüş değerinde de tüm kategoriler bekleniyor.
             all_category_keys_for_return = list(self.category_prompts.keys()) + ['safe'] # safe'i manuel ekle
 
-            final_scores = self._apply_contextual_adjustments(final_scores, object_labels, person_count)
+            if not getattr(self, "sanity_mode", False):
+                final_scores = self._apply_contextual_adjustments(final_scores, object_labels, person_count)
             
             # Düzenlenen skorları döndür
             return (*[final_scores[cat] for cat in all_category_keys_for_return], safe_objects)

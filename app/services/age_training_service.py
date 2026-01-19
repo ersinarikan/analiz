@@ -14,8 +14,6 @@ from app.models.feedback import Feedback
 from app.models.content import ModelVersion
 from app.ai.insightface_age_estimator import CustomAgeHead
 from config import Config
-from app.utils.model_utils import save_torch_model
-from app.utils.file_utils import ensure_dir, safe_copytree, safe_remove, write_json, read_json, get_folder_size
 
 # Root logger'ı kullan (terminalde görünmesi için)
 logger = logging.getLogger('app.age_training')

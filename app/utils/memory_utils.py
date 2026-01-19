@@ -6,9 +6,9 @@ import torch
 import logging
 import time
 import threading
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 from contextlib import contextmanager
-from datetime import datetime, timedelta
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 

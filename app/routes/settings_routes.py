@@ -359,7 +359,7 @@ def restart_server():
                 else:
                     # Linux/Mac için restart (systemd yoksa)
                     current_app.logger.info("Systemd servisi bulunamadı, process restart yapılıyor...")
-            os.kill(os.getpid(), signal.SIGTERM)
+                    os.kill(os.getpid(), signal.SIGTERM)
             except Exception as restart_err:
                 current_app.logger.error(f"Restart hatası: {restart_err}")
                 # Restart başarısız olursa en azından process'i kill et

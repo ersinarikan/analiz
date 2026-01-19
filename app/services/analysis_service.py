@@ -7,14 +7,12 @@ import cv2
 import threading
 import time
 import concurrent.futures
-from queue import Queue
 
 from flask import current_app
 from app import db
 from app.ai.content_analyzer import ContentAnalyzer
 from app.ai.insightface_age_estimator import InsightFaceAgeEstimator
 from app.utils.model_state import get_content_analyzer
-from app.utils.model_state import get_age_estimator as model_state_get_age_estimator
 from app.models.analysis import Analysis, ContentDetection, AgeEstimation
 from app.models.feedback import Feedback
 from app.models.file import File
@@ -29,6 +27,22 @@ from app.utils.path_utils import to_rel_path
 
 logger = logging.getLogger(__name__)
 
+# Robust overall scoring helpers (no external deps)
+def _percentile_90(scores):
+    if not scores:
+        return 0.0
+    ordered = sorted(scores)
+    idx = int(0.9 * (len(ordered) - 1))
+    return float(ordered[idx])
+
+def _robust_overall_score(scores, peak_weight=0.7):
+    if not scores:
+        return 0.0
+    avg = sum(scores) / len(scores)
+    p90 = _percentile_90(scores)
+    blended = (p90 * peak_weight) + (avg * (1 - peak_weight))
+    return max(avg, min(1.0, max(0.0, blended)))
+
 # Thread-safe session management
 _session_lock = threading.Lock()
 
@@ -37,6 +51,22 @@ _age_estimation_executor = concurrent.futures.ThreadPoolExecutor(
     max_workers=2, 
     thread_name_prefix="AgeEstimation"
 )
+
+# 🚀 ASYNC FACE DETECTION: ThreadPoolExecutor for non-blocking face detection
+_face_detection_executor = concurrent.futures.ThreadPoolExecutor(
+    max_workers=1,  # Only one face detection at a time to avoid resource contention
+    thread_name_prefix="FaceDetection"
+)
+
+# 🚀 ASYNC CONTENT ANALYSIS: ThreadPoolExecutor for non-blocking content analysis
+_content_analysis_executor = concurrent.futures.ThreadPoolExecutor(
+    max_workers=1,  # Only one content analysis at a time to avoid GPU contention
+    thread_name_prefix="ContentAnalysis"
+)
+
+def _async_face_detection(age_estimator_instance, image):
+    """Face detection işlemini background thread'de yapar."""
+    return age_estimator_instance.model.get(image)
 
 def _async_age_estimation(age_estimator, image, face, face_idx, analysis_id, person_id, app_context=None):
     """
@@ -741,26 +771,75 @@ def analyze_video(analysis):
         frame_skip = max(1, int(fps / frames_per_second_config))
         
         # Kare indekslerini oluştur (istenen FPS'e göre)
-        frame_indices = range(0, frame_count, frame_skip)
-        
-        # Video'dan işlenecek kareleri oku ve kaydet (ilk 30 kare için)
+        # NOTE: VideoCapture'da cap.set(CAP_PROP_POS_FRAMES, idx) ile her karede random seek yapmak
+        # MP4 gibi codec'lerde çok yavaş olabiliyor ve UI'da "%6'da takıldı" gibi görünüyor.
+        # Bu yüzden kareleri sequential grab/read ile örnekleyip diske yazıyoruz.
+        frame_indices = list(range(0, frame_count, frame_skip))
+
+        # Video'dan işlenecek kareleri oku ve kaydet
         frame_paths = []
         frames_dir = os.path.join(current_app.config['PROCESSED_FOLDER'], f"frames_{analysis.id}")
         os.makedirs(frames_dir, exist_ok=True)
-        
-        for i_frame, frame_idx in enumerate(frame_indices):
-            if i_frame >= 30: # Sadece ilk 30 kareyi önceden kaydet
-                break
-            cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
-            ret, frame = cap.read()
-            if not ret:
-                break
-            timestamp = frame_idx / fps
-            # Timestamp'i tutarlı formatta kaydet (her zaman .XX formatı)
-            timestamp_str = f"{timestamp:.2f}" if timestamp % 1 != 0 else f"{timestamp:.0f}.00"
-            frame_path = os.path.join(frames_dir, f"frame_{frame_idx:06d}_{timestamp_str}.jpg")
-            cv2.imwrite(frame_path, frame)
-            frame_paths.append(frame_path)
+
+        max_frame_dim = current_app.config.get('VIDEO_FRAME_MAX_DIM', 1280)
+        if frame_indices:
+            current_pos = 0
+            for i_frame, frame_idx in enumerate(frame_indices):
+                # İptal kontrolünü seyrek yap (DB'yi her karede yormayalım)
+                if i_frame % 25 == 0:
+                    try:
+                        analysis_db = Analysis.query.get(analysis.id)
+                        if analysis_db and analysis_db.check_if_cancelled():
+                            logger.info(f"Analiz #{analysis.id} iptal edilmiş, frame extraction durduruluyor.")
+                            cap.release()
+                            return False, "Analiz iptal edildi"
+                    except Exception:
+                        pass
+
+                while current_pos < frame_idx:
+                    ok = cap.grab()
+                    if not ok:
+                        break
+                    current_pos += 1
+
+                ret, frame = cap.read()
+                if not ret or frame is None:
+                    break
+                current_pos = frame_idx + 1
+
+                # High-resolution frame downscale (keeps aspect ratio)
+                try:
+                    if isinstance(max_frame_dim, int) and max_frame_dim > 0:
+                        h, w = frame.shape[:2]
+                        long_edge = max(h, w)
+                        if long_edge > max_frame_dim:
+                            scale = max_frame_dim / float(long_edge)
+                            new_w = max(1, int(w * scale))
+                            new_h = max(1, int(h * scale))
+                            frame = cv2.resize(frame, (new_w, new_h), interpolation=cv2.INTER_AREA)
+                            if i_frame == 0:
+                                logger.info(
+                                    f"[SVC_LOG][VID] Frame downscale enabled: {w}x{h} -> {new_w}x{new_h} (max_dim={max_frame_dim})"
+                                )
+                except Exception as resize_err:
+                    logger.warning(f"[SVC_LOG][VID] Frame resize failed: {resize_err}")
+
+                timestamp = frame_idx / fps
+                timestamp_str = f"{timestamp:.2f}" if timestamp % 1 != 0 else f"{timestamp:.0f}.00"
+                frame_path = os.path.join(frames_dir, f"frame_{frame_idx:06d}_{timestamp_str}.jpg")
+                cv2.imwrite(frame_path, frame)
+                frame_paths.append(frame_path)
+
+                # Extraction progress: 0..10%
+                try:
+                    if i_frame % 25 == 0:
+                        pct = min(10, int((i_frame / max(1, len(frame_indices))) * 10))
+                        analysis.update_progress(pct, f"Kareler hazırlanıyor... ({i_frame+1}/{len(frame_indices)})")
+                except Exception:
+                    pass
+
+        # Extraction bitti; artık cap.seek maliyetini tamamen kaldırmak için VideoCapture'ı kapatıyoruz.
+        cap.release()
         
         # İçerik analizi için model yükle
         try:
@@ -832,53 +911,64 @@ def analyze_video(analysis):
         track_genders = {}
         processed_persons_with_data = set() # Keep this to know which persons to process later
         
-        # Video'yu baştan sonra kadar işle
+        # Video'yu baştan sonra kadar işle (kareleri diskten okuyarak)
         for i, frame_idx in enumerate(frame_indices):
             try: # ADDED MAIN TRY FOR FRAME PROCESSING
-                # İptal kontrolü - her kare öncesi
-                analysis = Analysis.query.get(analysis.id)  # En güncel durumu al
-                if analysis.check_if_cancelled():
-                    logger.info(f"Analiz #{analysis.id} iptal edilmiş, video analizi durduruluyor (kare {i+1}/{total_frames_to_process})")
-                    return False, "Analiz iptal edildi"
+                # frames_analyzed güncellemesi
+                analysis.frames_analyzed = i + 1
                 
-                progress = min(100, int((i / total_frames_to_process) * 100))
-                analysis.update_progress(progress)  # Bu metot zaten commit yapıyor
+                # İptal kontrolü - her karede DB hit yapma; periyodik kontrol yeterli
+                if i % 10 == 0:
+                    try:
+                        analysis_db = Analysis.query.get(analysis.id)
+                        if analysis_db and analysis_db.check_if_cancelled():
+                            logger.info(f"Analiz #{analysis.id} iptal edilmiş, video analizi durduruluyor (kare {i+1}/{total_frames_to_process})")
+                            return False, "Analiz iptal edildi"
+                    except Exception:
+                        pass
+
+                progress = min(100, int((i / max(1, total_frames_to_process)) * 100))
+                analysis.update_progress(progress, f"Kare #{i+1}/{total_frames_to_process} işleniyor...")
                 timestamp = frame_idx / fps
                 status_message = f"Kare #{i+1}/{total_frames_to_process} işleniyor ({timestamp:.1f}s)"
                 
-                # Kareyi oku
-                if i < 2:
-                    logger.info(f"[SVC_LOG][VID_STEP] Kare #{i} BEFORE cap.set (frame_idx={frame_idx})")
-                cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
-                if i < 2:
-                    logger.info(f"[SVC_LOG][VID_STEP] Kare #{i} AFTER cap.set (frame_idx={frame_idx})")
-                ret, image = cap.read()
-                if i < 2:
-                    logger.info(f"[SVC_LOG][VID_STEP] Kare #{i} AFTER cap.read ret={ret} shape={getattr(image, 'shape', None)}")
-                if not ret:
-                    logger.warning(f"Kare okunamadı: #{frame_idx}, işlem sonlandırıldı")
-                    break
+                # Kareyi diskten oku (extraction adımında kaydedildi)
+                if i >= len(frame_paths):
+                    logger.warning(f"Kare yolu bulunamadı (frame_paths kısa): i={i}, len(frame_paths)={len(frame_paths)}")
+                    continue
+                frame_path = frame_paths[i]
+                if not frame_path or not os.path.exists(frame_path):
+                    logger.warning(f"Kare dosyası bulunamadı: {frame_path}")
+                    continue
+                image = cv2.imread(frame_path)
+                if image is None:
+                    logger.warning(f"Kare okunamadı (cv2.imread None): {frame_path}")
+                    continue
                 
-                # Kareyi kaydet
-                if i >= 30:  # İlk 30 kare zaten kaydedilmişti
-                    # Timestamp'i tutarlı formatta kaydet
-                    timestamp_str = f"{timestamp:.2f}" if timestamp % 1 != 0 else f"{timestamp:.0f}.00"
-                    frame_path = os.path.join(frames_dir, f"frame_{frame_idx:06d}_{timestamp_str}.jpg")
-                    cv2.imwrite(frame_path, image)
-                    frame_paths.append(frame_path)
-                else:
-                    frame_path = frame_paths[i]
-                
-                # İçerik analizi yap
+                # İçerik analizi yap (timeout koruması ile)
                 try:
-                    if i < 2:
-                        logger.info(f"[SVC_LOG][VID_STEP] Kare #{i} BEFORE content_analyzer.analyze_image")
-                    # Her kategori için skorlar
-                    violence_score, adult_content_score, harassment_score, weapon_score, drug_score, safe_score, safe_objects = content_analyzer_instance.analyze_image(
-                        image
+                    logger.info(f"[SVC_LOG][VID] Kare #{i} ({timestamp:.2f}s): İçerik analizi başlatılıyor...")
+                    # Content analysis'i async yap - GPU blocking'i önle
+                    # CRITICAL: Use shorter timeout (30s) to detect GPU hangs faster
+                    content_analysis_future = _content_analysis_executor.submit(
+                        content_analyzer_instance.analyze_image, image
                     )
-                    if i < 2:
-                        logger.info(f"[SVC_LOG][VID_STEP] Kare #{i} AFTER content_analyzer.analyze_image")
+                    logger.info(f"[SVC_LOG][VID] Kare #{i}: Content analysis future submitted, waiting for result (timeout=30s)...")
+                    try:
+                        # Her kategori için skorlar (30 saniye timeout - GPU hang detection için daha kısa)
+                        result = content_analysis_future.result(timeout=30.0)
+                        violence_score, adult_content_score, harassment_score, weapon_score, drug_score, safe_score, safe_objects = result
+                        logger.info(f"[SVC_LOG][VID] Kare #{i} ({timestamp:.2f}s): İçerik analizi tamamlandı.")
+                    except concurrent.futures.TimeoutError:
+                        logger.error(f"[SVC_LOG][VID] Kare #{i}: ⚠️ İçerik analizi zaman aşımına uğradı (30s) - GPU takılıyor olabilir! Default değerlerle devam ediliyor.")
+                        # Cancel the future to free resources
+                        content_analysis_future.cancel()
+                        violence_score, adult_content_score, harassment_score, weapon_score, drug_score, safe_score = 0.0, 0.0, 0.0, 0.0, 0.0, 1.0
+                        safe_objects = []
+                    except Exception as content_analysis_err:
+                        logger.error(f"[SVC_LOG][VID] Kare #{i}: İçerik analizi hatası: {str(content_analysis_err)}", exc_info=True)
+                        violence_score, adult_content_score, harassment_score, weapon_score, drug_score, safe_score = 0.0, 0.0, 0.0, 0.0, 0.0, 1.0
+                        safe_objects = []
                     
                     # Eğer herhangi bir kategoride yüksek risk varsa, yüksek riskli kare sayısını artır
                     if max(violence_score, adult_content_score, harassment_score, weapon_score, drug_score) > 0.7:
@@ -916,9 +1006,22 @@ def analyze_video(analysis):
                 
                 # Yaş analizi yapılacaksa yüz tespiti ve yaş tahmini yap
                 if age_estimator and tracker:
+                    logger.info(f"[SVC_LOG][VID] Kare #{i} ({timestamp:.2f}s): Yüz tespiti başlatılıyor (age_estimator={age_estimator is not None}, tracker={tracker is not None})...")
                     try:
-                        faces = age_estimator.model.get(image)
-                        logger.info(f"[SVC_LOG][VID] Kare #{i} ({timestamp:.2f}s): {len(faces) if faces else 0} yüz tespit edildi.")
+                        # InsightFace model.get() çağrısına timeout ekle - takılmayı önle
+                        # Thread pool executor kullanarak timeout ekle (thread-safe)
+                        logger.info(f"[SVC_LOG][VID] Kare #{i}: _async_face_detection submit ediliyor...")
+                        face_detection_future = _face_detection_executor.submit(_async_face_detection, age_estimator, image)
+                        logger.info(f"[SVC_LOG][VID] Kare #{i}: _async_face_detection submit edildi, result bekleniyor (timeout=30s)...")
+                        try:
+                            faces = face_detection_future.result(timeout=30.0)  # 30 saniye timeout
+                            logger.info(f"[SVC_LOG][VID] Kare #{i} ({timestamp:.2f}s): {len(faces) if faces else 0} yüz tespit edildi.")
+                        except concurrent.futures.TimeoutError:
+                            logger.error(f"[SVC_LOG][VID] Kare #{i}: Yüz tespiti zaman aşımına uğradı (30s). Bu kare için yüz analizi atlanıyor.")
+                            faces = []  # Timeout durumunda boş liste ile devam et
+                        except Exception as face_det_err:
+                            logger.error(f"[SVC_LOG][VID] Kare #{i}: Yüz tespiti sırasında hata: {str(face_det_err)}", exc_info=True)
+                            faces = []  # Hata durumunda boş liste ile devam et
                         
                         if not faces or len(faces) == 0:
                             logger.warning(f"[SVC_LOG][VID] Karede hiç yüz tespit edilemedi: {frame_path}, overlay oluşturulmayacak.")
@@ -1038,9 +1141,9 @@ def analyze_video(analysis):
                                     age_estimator, image, face_obj, i, analysis.id, track_id_str, current_app._get_current_object()
                                 )
                                 
-                                # Video için makul timeout - yaş tahmini tamamlansın
+                                # Video için makul timeout - yaş tahmini tamamlansın (CLIP inference GPU kullanmıyorsa uzun sürebilir)
                                 try:
-                                    result = future.result(timeout=2.0)  # 2 saniye bekle - video frame için makul
+                                    result = future.result(timeout=10.0)  # 10 saniye bekle - CLIP inference için yeterli
                                     
                                     # İptal edilmiş thread kontrolü
                                     if result.get('cancelled', False):
@@ -1053,7 +1156,7 @@ def analyze_video(analysis):
                                     logger.info(f"[SVC_LOG][VID] Kare #{i}: Track ID={track.track_id} SYNC sonuç: Yaş={estimated_age}, Güven={confidence}")
                                 except concurrent.futures.TimeoutError:
                                     # Age estimation timeout - fallback değerlerle devam et
-                                    logger.warning(f"[SVC_LOG][VID] Kare #{i}: Track ID={track.track_id} age estimation timeout (2s) - fallback kullanılıyor")
+                                    logger.warning(f"[SVC_LOG][VID] Kare #{i}: Track ID={track.track_id} age estimation timeout (10s) - fallback kullanılıyor")
                                     estimated_age = face_obj.age if hasattr(face_obj, 'age') and face_obj.age is not None else 25.0
                                     confidence = 0.4  # Düşük güven
                                     pseudo_data = None
@@ -1138,20 +1241,21 @@ def analyze_video(analysis):
                         logger.error(f"Yaş analizi hatası: {str(age_err)}")
                         continue
                 
-                # Progress güncellemesini her 3 karede bir yap (daha responsive)
-                if i % 3 == 0:
+                # Progress güncellemesini her karede bir yap (frames_analyzed güncellemesi için)
+                # Her karede commit yaparak frames_analyzed'in güncellenmesini sağla
+                try:
                     db.session.commit()
-                    
-                    # Progress bilgisi - her 3 karede bir
+                except Exception as commit_err:
+                    logger.error(f"DB commit hatası (kare {i+1}): {str(commit_err)}")
+                    db.session.rollback()
+                
+                # Progress bilgisi - her 3 karede bir log
+                if i % 3 == 0:
                     try:
                         # İlerleme durumunu logla
                         logger.info(f"Analiz #{analysis.id}: Kare {i+1}/{len(frame_indices)} ({progress:.1f}%) - Risk: {high_risk_frames_count} kare")
                     except Exception as progress_err:
                         logger.warning(f"İlerleme bildirimi hatası: {str(progress_err)}")
-                
-                # Büyük işlemleri her 10 karede bir kaydet
-                elif i % 10 == 0:
-                    db.session.commit()
             
             except Exception as frame_err: # ALIGNED WITH THE NEW MAIN TRY BLOCK
                 logger.error(f"Kare #{i} ({frame_path}) analiz hatası: {str(frame_err)}")
@@ -1303,6 +1407,7 @@ def analyze_video(analysis):
             categories = ['violence', 'adult_content', 'harassment', 'weapon', 'drug', 'safe']
             category_scores_sum = {cat: 0 for cat in categories}
             category_counts = {cat: 0 for cat in categories} # Her kategoride skoru olan kare sayısı
+            category_scores_list = {cat: [] for cat in categories}
             
             category_specific_highest_risks = {
                 cat: {'score': -1, 'frame_path': None, 'timestamp': None, 'detection_id': None} for cat in categories
@@ -1323,6 +1428,7 @@ def analyze_video(analysis):
                     if score is not None:
                         category_scores_sum[category] += score
                         category_counts[category] += 1
+                        category_scores_list[category].append(score)
                         
                         if score > category_specific_highest_risks[category]['score']:
                             category_specific_highest_risks[category]['score'] = score
@@ -1330,11 +1436,11 @@ def analyze_video(analysis):
                             category_specific_highest_risks[category]['timestamp'] = detection.frame_timestamp
                             category_specific_highest_risks[category]['detection_id'] = detection.id
 
-            # Genel skorları basit aritmetik ortalama alarak hesapla
+            # Genel skorları hesapla (violence/harassment için peak ağırlıklı)
             avg_scores = {}
-            avg_scores['violence'] = category_scores_sum['violence'] / category_counts['violence'] if category_counts['violence'] > 0 else 0
+            avg_scores['violence'] = _robust_overall_score(category_scores_list['violence'])
+            avg_scores['harassment'] = _robust_overall_score(category_scores_list['harassment'])
             avg_scores['adult_content'] = category_scores_sum['adult_content'] / category_counts['adult_content'] if category_counts['adult_content'] > 0 else 0
-            avg_scores['harassment'] = category_scores_sum['harassment'] / category_counts['harassment'] if category_counts['harassment'] > 0 else 0
             avg_scores['weapon'] = category_scores_sum['weapon'] / category_counts['weapon'] if category_counts['weapon'] > 0 else 0
             avg_scores['drug'] = category_scores_sum['drug'] / category_counts['drug'] if category_counts['drug'] > 0 else 0
             # avg_scores['safe'] = category_scores_sum['safe'] / category_counts['safe'] if category_counts['safe'] > 0 else 0 # Eski safe hesaplaması
@@ -1452,6 +1558,7 @@ def calculate_overall_scores(analysis):
         categories = ['violence', 'adult_content', 'harassment', 'weapon', 'drug', 'safe']
         category_scores_sum = {cat: 0 for cat in categories}
         category_counts = {cat: 0 for cat in categories} # Her kategoride skoru olan kare sayısı
+        category_scores_list = {cat: [] for cat in categories}
         
         category_specific_highest_risks = {
             cat: {'score': -1, 'frame_path': None, 'timestamp': None, 'detection_id': None} for cat in categories
@@ -1472,6 +1579,7 @@ def calculate_overall_scores(analysis):
                 if score is not None:
                     category_scores_sum[category] += score
                     category_counts[category] += 1
+                    category_scores_list[category].append(score)
                     
                     if score > category_specific_highest_risks[category]['score']:
                         category_specific_highest_risks[category]['score'] = score
@@ -1479,11 +1587,11 @@ def calculate_overall_scores(analysis):
                         category_specific_highest_risks[category]['timestamp'] = detection.frame_timestamp
                         category_specific_highest_risks[category]['detection_id'] = detection.id
 
-        # Genel skorları basit aritmetik ortalama alarak hesapla
+        # Genel skorları hesapla (violence/harassment için peak ağırlıklı)
         avg_scores = {}
-        avg_scores['violence'] = category_scores_sum['violence'] / category_counts['violence'] if category_counts['violence'] > 0 else 0
+        avg_scores['violence'] = _robust_overall_score(category_scores_list['violence'])
+        avg_scores['harassment'] = _robust_overall_score(category_scores_list['harassment'])
         avg_scores['adult_content'] = category_scores_sum['adult_content'] / category_counts['adult_content'] if category_counts['adult_content'] > 0 else 0
-        avg_scores['harassment'] = category_scores_sum['harassment'] / category_counts['harassment'] if category_counts['harassment'] > 0 else 0
         avg_scores['weapon'] = category_scores_sum['weapon'] / category_counts['weapon'] if category_counts['weapon'] > 0 else 0
         avg_scores['drug'] = category_scores_sum['drug'] / category_counts['drug'] if category_counts['drug'] > 0 else 0
         # avg_scores['safe'] = category_scores_sum['safe'] / category_counts['safe'] if category_counts['safe'] > 0 else 0 # Eski safe hesaplaması

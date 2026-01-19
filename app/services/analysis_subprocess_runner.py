@@ -13,8 +13,6 @@ Usage:
 Outputs a single JSON line to stdout.
 """
 
-from __future__ import annotations
-
 import json
 import sys
 import traceback
@@ -31,7 +29,7 @@ def main(argv: list[str]) -> int:
         from app import create_app
         from app.services.analysis_service import analyze_file
 
-        app, _socketio = create_app()
+        app, _socketio = create_app(return_socketio=True)
         with app.app_context():
             success, message = analyze_file(analysis_id)
 

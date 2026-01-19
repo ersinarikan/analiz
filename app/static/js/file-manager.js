@@ -341,7 +341,11 @@ export function updateFileStatus(fileId, status, progress, message = null, error
     const progressBar = fileCard.querySelector('.progress-bar');
     
     if (statusText) {
-        statusText.textContent = message || getStatusMessage(status);
+        let nextStatusText = message || getStatusMessage(status);
+        if (typeof progress === 'number' && status === 'processing' && nextStatusText && !nextStatusText.includes('%')) {
+            nextStatusText = `${nextStatusText} (%${Math.max(0, Math.min(100, progress))})`;
+        }
+        statusText.textContent = nextStatusText;
         console.log(`[DEBUG] statusText güncellendi: ${statusText.textContent}`);
     }
     
@@ -360,7 +364,7 @@ export function updateFileStatus(fileId, status, progress, message = null, error
         progressBar.setAttribute('aria-valuenow', safeProgress);
         
         // Progress bar text content (önemli!)
-        // progressBar.textContent = `${safeProgress}%`; // Removed as per edit hint
+        progressBar.textContent = safeProgress > 0 ? `${safeProgress}%` : '';
         
         // CSS classes for animation (processing status için)
         if (status === 'processing') {

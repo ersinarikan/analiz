@@ -2,7 +2,6 @@ from flask import Blueprint, jsonify, current_app
 import logging
 from app.services.debug_service import test_numpy_serialization, debug_object
 import numpy as np
-import json
 import os
 import sys
 import subprocess
@@ -20,7 +19,6 @@ import tensorflow as tf
 tf.get_logger().setLevel('ERROR')
 
 from app.models.analysis import Analysis
-from app.services.analysis_service import AnalysisService
 from app.services.queue_service import get_queue_status
 
 logger = logging.getLogger(__name__)

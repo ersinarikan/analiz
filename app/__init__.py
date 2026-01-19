@@ -3,19 +3,15 @@ WSANALIZ Flask Uygulaması - Ana Modül
 """
 import logging
 import os
-import signal
-import sys
 import shutil
 import importlib
-from datetime import datetime, timedelta
+from datetime import datetime
 
-from flask import Flask, request, send_from_directory, current_app
+from flask import Flask, send_from_directory, current_app
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
 from config import config
 
-# ERSIN 🎯 SocketIO'yu ayrı dosyadan import et (circular import önleme)
-from app.socketio_instance import socketio
 from app.json_encoder import CustomJSONEncoder
 
 # Global minimal socketio reference (runtime'da set edilecek)
@@ -31,6 +27,30 @@ except ImportError:
 # ERSIN Global Flask eklentileri
 db = SQLAlchemy()
 migrate = Migrate()
+
+# SQLite robustness in multi-process (web + worker) setups:
+# - Reduce "database is locked" by enabling WAL + busy_timeout and letting SQLite wait.
+# - Safe no-op for non-SQLite databases.
+try:
+    import sqlite3
+    from sqlalchemy import event
+    from sqlalchemy.engine import Engine
+
+    @event.listens_for(Engine, "connect")
+    def _set_sqlite_pragmas(dbapi_connection, connection_record):  # type: ignore[no-redef]
+        try:
+            if not isinstance(dbapi_connection, sqlite3.Connection):
+                return
+            cursor = dbapi_connection.cursor()
+            cursor.execute("PRAGMA journal_mode=WAL;")
+            cursor.execute("PRAGMA synchronous=NORMAL;")
+            cursor.execute("PRAGMA busy_timeout=30000;")  # 30s
+            cursor.close()
+        except Exception:
+            # Best-effort; do not prevent boot.
+            pass
+except Exception:
+    pass
 
 logger = logging.getLogger("wsanaliz.app_init")
 logging.basicConfig(level=logging.INFO)
@@ -76,26 +96,70 @@ def register_blueprints_from_list(app, blueprint_defs):
     logger.info(f"Total blueprints registered: {len(blueprints_to_register)}")
     return blueprints_to_register
 
-def create_app(config_name='default'):
+def create_app(config_name='default', return_socketio: bool = False):
     """
     Flask uygulaması fabrikası.
     Args:
         config_name (str): Kullanılacak konfigürasyon adı.
     Returns:
-        Flask: Yapılandırılmış Flask uygulaması.
+        Flask | tuple[Flask, SocketIO]:
+            - Varsayılan: sadece Flask app (geriye uyumluluk).
+            - return_socketio=True ise: (flask_app, minimal_socketio)
     """
     flask_app = Flask(__name__)
     flask_app.config.from_object(config[config_name])
+
+    # Set global app reference as early as possible for background/SocketIO helpers.
+    # NOTE: Some helpers historically relied on `global_flask_app` (legacy). Keep it safe.
+    global global_flask_app
+    global_flask_app = flask_app
     
     # ERSIN Flask uzantılarını başlat
     db.init_app(flask_app)
+    # Flask-Migrate'ı da initialize et (CLI migrations için gerekli)
+    migrate.init_app(flask_app, db)
     
     # ERSIN ✅ MİNİMAL PATTERN: Optimize SocketIO kurulumu
     from flask_socketio import SocketIO
 
-    # Cross-process SocketIO events (analysis runs in subprocess):
-    # Use Redis message queue so emits from subprocess can reach connected clients.
-    socketio_message_queue = os.environ.get("SOCKETIO_MESSAGE_QUEUE", "redis://localhost:6379/0")
+    # Cross-process SocketIO events:
+    # - If analysis runs in another process, you may want a message_queue (Redis) so emits propagate.
+    # - But Redis must be optional for backward compatibility.
+    def _parse_bool_env(name: str) -> bool | None:
+        if name not in os.environ:
+            return None
+        val = (os.environ.get(name) or "").strip().lower()
+        if val in {"1", "true", "yes", "y", "on"}:
+            return True
+        if val in {"0", "false", "no", "n", "off", ""}:
+            return False
+        return None
+
+    require_redis = _parse_bool_env("SOCKETIO_REQUIRE_REDIS") is True
+
+    socketio_message_queue: str | None = None
+    if os.environ.get("SOCKETIO_MESSAGE_QUEUE"):
+        socketio_message_queue = os.environ.get("SOCKETIO_MESSAGE_QUEUE")
+    else:
+        # Auto-enable Redis message_queue only when queue backend is Redis.
+        if (os.environ.get("WSANALIZ_QUEUE_BACKEND") or "").lower() == "redis":
+            socketio_message_queue = os.environ.get("WSANALIZ_REDIS_URL", "redis://localhost:6379/0")
+
+    # Validate Redis availability if message_queue is configured.
+    if socketio_message_queue:
+        try:
+            import redis  # type: ignore
+
+            r = redis.from_url(socketio_message_queue, socket_timeout=0.2, socket_connect_timeout=0.2)
+            r.ping()
+        except Exception as e:
+            if require_redis:
+                raise
+            logger.warning(
+                f"SocketIO message_queue devre dışı bırakıldı (Redis erişilemiyor): {socketio_message_queue}. Hata: {e}"
+            )
+            socketio_message_queue = None
+
     minimal_socketio = SocketIO(
         flask_app,
         cors_allowed_origins="*",
@@ -108,8 +172,9 @@ def create_app(config_name='default'):
     )
     
     # ERSIN Global instance'ı güncelleyelim - emit_analysis_progress için
-    import app.socketio_instance
-    app.socketio_instance.set_socketio(minimal_socketio)  # TEK NOKTA SET!
+    # socketio_instance is intentionally tiny to avoid circular imports.
+    from app.socketio_instance import set_socketio
+    set_socketio(minimal_socketio)  # TEK NOKTA SET!
     
     # ERSIN ✅ MİNİMAL PATTERN: Event handler kayıtları
     
@@ -123,9 +188,8 @@ def create_app(config_name='default'):
     @minimal_socketio.on('disconnect')  
     def handle_disconnect():
         from flask import request
-        from app.models.analysis import Analysis
-        from app import db
         import logging
+        from flask import current_app, has_app_context
         logger = logging.getLogger(__name__)
         
         session_id = request.sid
@@ -133,32 +197,96 @@ def create_app(config_name='default'):
         
         # ERSIN Bu WebSocket session'ı ile ilişkili çalışan analizleri bul ve iptal et
         try:
-            # ERSIN 1. Veritabanındaki ilişkili analizleri bul
-            active_analyses = Analysis.query.filter(
-                Analysis.websocket_session_id == session_id,
-                Analysis.status.in_(['pending', 'processing'])
-            ).all()
-            
-            cancelled_count = 0
-            for analysis in active_analyses:
-                logger.info(f"🚫 WebSocket session {session_id} kesildi - Analiz #{analysis.id} iptal ediliyor")
-                analysis.cancel_analysis("WebSocket bağlantısı kesildi")
-                cancelled_count += 1
-            
-            # ERSIN 2. Kuyruktaki analizleri de kontrol et
-            from app.services.queue_service import remove_cancelled_from_queue
-            queue_removed = remove_cancelled_from_queue()
-            
-            if cancelled_count > 0 or queue_removed > 0:
-                db.session.commit()
-                total_cancelled = cancelled_count + queue_removed
-                logger.info(f"✅ WebSocket disconnect: {total_cancelled} analiz iptal edildi (DB: {cancelled_count}, Queue: {queue_removed}) (session: {session_id})")
+            # SocketIO event handler'ları her zaman Flask request/app context garantisi vermeyebilir.
+            # Prefer Flask context proxy if available; otherwise fall back to global app instance.
+            if has_app_context():
+                app_obj = current_app._get_current_object()
             else:
-                logger.info(f"ℹ️ WebSocket disconnect: Bu session ile ilişkili aktif analiz yok (session: {session_id})")
+                from app import global_flask_app as app_obj
+
+            if app_obj is None:
+                logger.warning(
+                    "WebSocket disconnect cleanup: Flask app bulunamadı (no app_context + global_flask_app None). "
+                    "Shutdown sırasında normal olabilir; cleanup atlanıyor."
+                )
+                return
+
+            # Validate app_obj looks like a Flask app instance (avoid calling app_context() on a bad object).
+            try:
+                from flask import Flask as _Flask
+                if not isinstance(app_obj, _Flask):
+                    logger.error(
+                        f"WebSocket disconnect cleanup: app_obj Flask değil (type={type(app_obj)}). "
+                        "Cleanup atlanıyor."
+                    )
+                    return
+            except Exception:
+                # If Flask import/type-check fails, still attempt best-effort below.
+                pass
+
+            # DB işlemlerini explicit app_context içinde yap.
+            try:
+                app_ctx = app_obj.app_context()
+            except Exception as ctx_err:
+                logger.warning(f"WebSocket disconnect cleanup: app_context oluşturulamadı (muhtemel shutdown). Hata: {ctx_err}")
+                return
+
+            with app_ctx:
+                from app.models.analysis import Analysis
+                from sqlalchemy.exc import OperationalError
+
+                # ERSIN 1. Veritabanındaki ilişkili analizleri bul
+                try:
+                    active_analyses = Analysis.query.filter(
+                        Analysis.websocket_session_id == session_id,
+                        Analysis.status.in_(['pending', 'processing'])
+                    ).all()
+                except OperationalError as op_err:
+                    # Schema drift case (e.g., websocket_session_id missing) should not crash the service.
+                    logger.warning(
+                        f"WebSocket disconnect cleanup: DB sorgusu çalışmadı (muhtemel schema eksikliği). "
+                        f"Session: {session_id}. Hata: {op_err}"
+                    )
+                    return
+                
+                cancelled_count = 0
+                for analysis in active_analyses:
+                    logger.info(f"🚫 WebSocket session {session_id} kesildi - Analiz #{analysis.id} iptal ediliyor")
+                    analysis.cancel_analysis("WebSocket bağlantısı kesildi")
+                    cancelled_count += 1
+                
+                # ERSIN 2. Kuyruktaki analizleri de kontrol et
+                from app.services.queue_service import remove_cancelled_from_queue
+                queue_removed = remove_cancelled_from_queue(app=app_obj)
+                
+                if cancelled_count > 0 or queue_removed > 0:
+                    db.session.commit()
+                    total_cancelled = cancelled_count + queue_removed
+                    logger.info(f"✅ WebSocket disconnect: {total_cancelled} analiz iptal edildi (DB: {cancelled_count}, Queue: {queue_removed}) (session: {session_id})")
+                else:
+                    logger.info(f"ℹ️ WebSocket disconnect: Bu session ile ilişkili aktif analiz yok (session: {session_id})")
                 
         except Exception as e:
             logger.error(f"❌ WebSocket disconnect cleanup hatası: {str(e)}")
-            db.session.rollback()
+            # Rollback must run inside an app context; otherwise Flask-SQLAlchemy may raise
+            # "Working outside of application context" and hide the original error.
+            try:
+                from flask import current_app as _current_app, has_app_context as _has_app_context
+                if _has_app_context():
+                    _app_obj = _current_app._get_current_object()
+                else:
+                    from app import global_flask_app as _app_obj
+
+                if _app_obj is None:
+                    return
+
+                with _app_obj.app_context():
+                    try:
+                        db.session.rollback()
+                    except Exception:
+                        pass
+            except Exception:
+                pass
         
     @minimal_socketio.on('ping')
     def handle_ping(data):
@@ -201,20 +329,10 @@ def create_app(config_name='default'):
     logger.info("[OK] Minimal pattern SocketIO handlers registered!")
     print("[OK] Minimal pattern SocketIO handlers registered!")
     
-    # ERSIN Minimal SocketIO'yu app'e attach et ki emit_analysis_progress bulabilsin
-    app.minimal_socketio = minimal_socketio
-    
-    # ERSIN Global referans da tut
-    import app as app_module
-    app_module._current_minimal_socketio = minimal_socketio
-    
-    # ERSIN Global modül-level referansı da set et
-    global _current_running_socketio
-    _current_running_socketio = minimal_socketio
-    
-    # ERSIN Ana Flask app nesnesini global değişkene ata
-    global global_flask_app
-    global_flask_app = flask_app
+    # Backward-compatible attachment: some code may look this up from the Flask app object.
+    # The canonical reference for cross-module usage should be via app.socketio_instance (proxy),
+    # which is set above via set_socketio(minimal_socketio).
+    flask_app.minimal_socketio = minimal_socketio
     
     # ERSIN JSON encoder'ı ayarla
     flask_app.json_encoder = CustomJSONEncoder
@@ -225,9 +343,15 @@ def create_app(config_name='default'):
     
     # ERSIN Performans için memory management başlat
     try:
+        # Offline tools / one-shot scripts (e.g. prompt_sanity_check) may run on machines where
+        # CUDA init is slow or undesired. Allow opting out via env.
+        disable_mm = (os.environ.get("WSANALIZ_DISABLE_MEMORY_MANAGEMENT", "") or "").strip().lower() in {"1", "true", "yes", "y", "on"}
         if initialize_memory_management:
-            initialize_memory_management()
-            logger.info("Memory management initialized")
+            if disable_mm:
+                logger.warning("Memory management disabled via WSANALIZ_DISABLE_MEMORY_MANAGEMENT=1")
+            else:
+                initialize_memory_management()
+                logger.info("Memory management initialized")
         else:
             logger.warning("Memory management not available (optional dependency)")
     except Exception as e:
@@ -249,6 +373,14 @@ def create_app(config_name='default'):
         ("app.routes.clip_training_routes", "clip_training_bp", None),
     ]
     register_blueprints_from_list(flask_app, blueprint_defs)
+
+    # Error handlers (404/500) – previously disabled for circular-import concerns
+    # NOTE: This function is self-contained and only imports jsonify inside handlers.
+    register_error_handlers(flask_app)
+
+    # Global/static routes (e.g. serving processed artifacts) should be registered at app creation time,
+    # not only when initialize_app() is called, otherwise some entrypoints/tests will miss them.
+    register_global_routes(flask_app)
     
     # ERSIN WebSocket event handlers registration - ESKİ YÖNTEM DEVRE DIŞI
     # ERSIN Error handlers - geçici olarak kapalı (circular import)
@@ -258,15 +390,20 @@ def create_app(config_name='default'):
         try:
             db.create_all()
             logger.info("Veritabanı tabloları oluşturuldu/kontrol edildi")
-            
-            # Model versiyonlarını senkronize et
-            sync_age_model_versions_startup()
-            sync_clip_model_versions_startup()
-            
         except Exception as e:
             logger.error(f"Startup görevleri hatası: {str(e)}", exc_info=True)
     
-    return flask_app, minimal_socketio
+    # Geriye uyumluluk: default sadece Flask app döndür.
+    # SocketIO instance'a ihtiyaç olan yerler return_socketio=True ile tuple alabilir.
+    return (flask_app, minimal_socketio) if return_socketio else flask_app
+
+
+# NOTE:
+# `initialize_app()` calls `check_and_run_migrations()`. While defining the function later in the file
+# is valid in Python (module is fully loaded first), some reviewers flag this as confusing.
+# Keep a small wrapper here so the function name is defined before `initialize_app()`.
+def check_and_run_migrations():
+    return _check_and_run_migrations()
 
 def initialize_app(app):
     """
@@ -326,8 +463,7 @@ def initialize_app(app):
         except Exception as e:
             logger.warning(f"Queue processor init atlandı: {e}")
 
-    # Global route'ları kaydet
-    register_global_routes(app)
+    # Global routes are registered in create_app().
 
 def clean_folder(folder_path):
     """
@@ -358,56 +494,110 @@ def clean_folder(folder_path):
     else:
         os.makedirs(folder_path, exist_ok=True)
 
-def check_and_run_migrations():
+def _check_and_run_migrations():
     """
     Veritabanı migration kontrolü yapar ve gerekli kolumları ekler.
     """
+    from flask import current_app
+
+    conn = None
+
+    def _parse_bool_env(name: str) -> bool | None:
+        if name not in os.environ:
+            return None
+        val = (os.environ.get(name) or "").strip().lower()
+        if val in {"1", "true", "yes", "y", "on"}:
+            return True
+        if val in {"0", "false", "no", "n", "off", ""}:
+            return False
+        return None
+
+    strict_env = _parse_bool_env("WSANALIZ_MIGRATIONS_STRICT")
+    strict = (not current_app.config.get("TESTING", False)) if strict_env is None else bool(strict_env)
     try:
-        import sqlite3
-        from flask import current_app
-        
-        db_path = current_app.config.get('SQLALCHEMY_DATABASE_URI', '').replace('sqlite:///', '')
-        if not os.path.isabs(db_path):
-            db_path = os.path.join(current_app.root_path, db_path)
-        
         logger.info("🔄 Veritabanı migration kontrolü yapılıyor...")
-        
-        conn = sqlite3.connect(db_path)
+
+        # Use SQLAlchemy's engine connection to avoid separate sqlite3 path handling/locking surprises.
+        conn = db.engine.raw_connection()
         cursor = conn.cursor()
-        
+
         # analyses tablosundaki kolonları kontrol et
         cursor.execute("PRAGMA table_info(analyses)")
         columns = [column[1] for column in cursor.fetchall()]
-        
+
         migrations_needed = []
-        
+        errors: list[str] = []
+
         # websocket_session_id kolonu var mı?
         if 'websocket_session_id' not in columns:
             migrations_needed.append(('websocket_session_id', 'TEXT'))
-        
+
         # is_cancelled kolonu var mı?
         if 'is_cancelled' not in columns:
-            migrations_needed.append(('is_cancelled', 'BOOLEAN DEFAULT 0'))
-        
+            # SQLite has no native BOOLEAN; use INTEGER affinity.
+            migrations_needed.append(('is_cancelled', 'INTEGER DEFAULT 0'))
+
         # Migration'ları uygula
+        applied = 0
         for column_name, column_def in migrations_needed:
             try:
                 sql = f"ALTER TABLE analyses ADD COLUMN {column_name} {column_def}"
                 cursor.execute(sql)
+                applied += 1
                 logger.info(f"✅ Migration: {column_name} kolonu eklendi")
             except Exception as e:
-                logger.error(f"❌ Migration hatası ({column_name}): {str(e)}")
-        
-        conn.commit()
-        conn.close()
-        
+                msg = str(e)
+                # Duplicate column is safe to ignore. Any other error can leave schema inconsistent.
+                if "duplicate column name" in msg.lower():
+                    logger.info(f"ℹ️ Migration: {column_name} zaten var (duplicate), atlanıyor")
+                else:
+                    logger.error(f"❌ Migration hatası ({column_name}): {msg}", exc_info=True)
+                    errors.append(f"{column_name}: {msg}")
+
+        # commit sırasında hata olursa connection kapanmadan kalmasın
+        try:
+            conn.commit()
+        except Exception as commit_err:
+            logger.error(f"❌ Migration commit hatası: {commit_err}", exc_info=True)
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+            raise
+
         if migrations_needed:
-            logger.info(f"🎉 {len(migrations_needed)} migration başarıyla uygulandı!")
+            logger.info(f"🎉 {applied}/{len(migrations_needed)} migration uygulandı!")
         else:
             logger.info("✅ Veritabanı şeması güncel, migration gerekmiyor")
-            
+
+        # Verify columns exist after migrations (db.create_all() won't add columns).
+        cursor.execute("PRAGMA table_info(analyses)")
+        final_cols = {column[1] for column in cursor.fetchall()}
+        # These columns are used for cancellation/session tracking, but the app can still boot without them.
+        # We treat them as optional to avoid bringing down production on an imperfect schema; functionality
+        # that relies on them should degrade gracefully.
+        optional_cols = {"websocket_session_id", "is_cancelled"}
+        missing_optional = sorted(optional_cols - final_cols)
+        if missing_optional:
+            errors.append(f"missing optional columns after migration: {missing_optional}")
+
+        if errors:
+            err_msg = f"Database migrations incomplete/failed: {errors}"
+            # Do not crash the app for optional-column issues; log loudly.
+            logger.error(f"⚠️ {err_msg}")
+
     except Exception as e:
         logger.error(f"❌ Migration kontrolü hatası: {str(e)}", exc_info=True)
+        # Only fail-fast for truly fatal migration issues (e.g., broken DB). Optional column drift should not
+        # prevent the service from starting.
+        if strict:
+            raise
+    finally:
+        try:
+            if conn is not None:
+                conn.close()
+        except Exception:
+            pass
 
 def recover_stuck_analyses():
     """
@@ -418,6 +608,30 @@ def recover_stuck_analyses():
     """
     try:
         from app.models.analysis import Analysis
+
+        # In Redis queue architecture, a dedicated worker is responsible for processing.
+        # If the worker heartbeat is fresh, do NOT auto-fail "processing" analyses on web startup;
+        # this causes false-failures + SQLite lock contention.
+        try:
+            if (os.environ.get("WSANALIZ_QUEUE_BACKEND") or "").strip().lower() == "redis":
+                import time as _time
+                import redis  # type: ignore
+
+                redis_url = (os.environ.get("WSANALIZ_REDIS_URL") or "redis://localhost:6379/0").strip()
+                heartbeat_key = (os.environ.get("WSANALIZ_WORKER_HEARTBEAT_KEY") or "wsanaliz:worker:last_heartbeat").strip()
+                r = redis.Redis.from_url(redis_url, decode_responses=True)
+                hb = r.get(heartbeat_key)
+                if hb:
+                    try:
+                        hb_ts = float(hb)
+                        if (_time.time() - hb_ts) < 30:
+                            logger.info("🔍 Worker crash recovery: Worker heartbeat taze (Redis). Recovery atlandı (false-fail + DB lock önleme).")
+                            return
+                    except Exception:
+                        pass
+        except Exception:
+            # Best-effort; if Redis is unavailable, fall back to DB-only recovery.
+            pass
         
         # "processing" durumunda olan analizleri bul
         stuck_analyses = Analysis.query.filter(
@@ -431,24 +645,67 @@ def recover_stuck_analyses():
         recovered_count = 0
         timeout_minutes = 10  # 10 dakikadan fazla "processing" durumunda olan analizler takılı sayılır
         
+        # Use UTC consistently; stored timestamps should be naive-UTC.
+        now = datetime.utcnow()
         for analysis in stuck_analyses:
-            if analysis.start_time:
-                elapsed = datetime.now() - analysis.start_time
-                elapsed_minutes = elapsed.total_seconds() / 60
-                
-                if elapsed_minutes > timeout_minutes:
-                    logger.warning(
-                        f"🔧 Worker crash recovery: Analiz #{analysis.id} "
-                        f"{elapsed_minutes:.1f} dakikadır 'processing' durumunda, "
-                        f"'failed' olarak işaretleniyor (muhtemelen worker crash)."
-                    )
-                    analysis.status = 'failed'
-                    analysis.error_message = (
-                        f"Worker process crash nedeniyle analiz başarısız oldu. "
-                        f"Analiz {elapsed_minutes:.1f} dakikadır işleniyordu."
-                    )
-                    analysis.end_time = datetime.now()
-                    recovered_count += 1
+            # start_time can be NULL in existing DBs; fall back to created_at (or updated_at if present)
+            start_time = analysis.start_time
+            created_at = getattr(analysis, "created_at", None)
+            updated_at = getattr(analysis, "updated_at", None)
+
+            # Prefer start_time, but guard against mixed timezone origins (older DBs used datetime.now()).
+            ref_time = start_time or created_at or updated_at
+            if not ref_time:
+                # Extremely rare/corrupt case: no timestamps at all -> fail to avoid indefinite stuck state.
+                logger.warning(
+                    f"⚠️ Worker crash recovery: Analiz #{analysis.id} 'processing' ama timestamp yok "
+                    f"(start_time/created_at/updated_at NULL). 'failed' olarak işaretleniyor."
+                )
+                analysis.status = 'failed'
+                analysis.error_message = "Analiz takılı kaldı (timestamp bulunamadı) ve otomatik olarak başarısız işaretlendi."
+                analysis.end_time = now
+                recovered_count += 1
+                continue
+
+            # If ref_time is in the future (common when start_time was saved as localtime),
+            # fall back to a safer timestamp.
+            if ref_time > now and (created_at and created_at <= now):
+                ref_time = created_at
+            elif ref_time > now and (updated_at and updated_at <= now):
+                ref_time = updated_at
+
+            # If all known timestamps are still in the future, treat as corruption and recover.
+            # Otherwise elapsed would be negative and the analysis would never be marked as stuck.
+            if ref_time > now:
+                logger.warning(
+                    f"⚠️ Worker crash recovery: Analiz #{analysis.id} 'processing' ama timestamp gelecekte "
+                    f"(ref_time={ref_time}, now={now}). Muhtemel timezone/clock corruption; 'failed' olarak işaretleniyor."
+                )
+                analysis.status = 'failed'
+                analysis.error_message = (
+                    "Analiz takılı kaldı (timestamp gelecekte görünüyor; muhtemel timezone/clock corruption) "
+                    "ve otomatik olarak başarısız işaretlendi."
+                )
+                analysis.end_time = now
+                recovered_count += 1
+                continue
+
+            elapsed = now - ref_time
+            elapsed_minutes = elapsed.total_seconds() / 60
+
+            if elapsed_minutes > timeout_minutes:
+                logger.warning(
+                    f"🔧 Worker crash recovery: Analiz #{analysis.id} "
+                    f"{elapsed_minutes:.1f} dakikadır 'processing' durumunda, "
+                    f"'failed' olarak işaretleniyor (muhtemelen worker crash)."
+                )
+                analysis.status = 'failed'
+                analysis.error_message = (
+                    f"Worker process crash nedeniyle analiz başarısız oldu. "
+                    f"Analiz {elapsed_minutes:.1f} dakikadır işleniyordu."
+                )
+                analysis.end_time = now
+                recovered_count += 1
         
         if recovered_count > 0:
             db.session.commit()
@@ -458,7 +715,10 @@ def recover_stuck_analyses():
             
     except Exception as e:
         logger.error(f"❌ Worker crash recovery hatası: {e}", exc_info=True)
-        db.session.rollback()
+        try:
+            db.session.rollback()
+        except Exception:
+            pass
 
 def cleanup_old_analysis_results(days_old=7):
     """
@@ -467,104 +727,143 @@ def cleanup_old_analysis_results(days_old=7):
     Args:
         days_old: Kaç günden eski analizlerin temizleneceği (varsayılan: 7)
     """
+    from flask import current_app as _current_app, has_app_context as _has_app_context
+
+    def _resolve_app_obj():
+        if _has_app_context():
+            return _current_app._get_current_object()
+        try:
+            from app import global_flask_app as _global_flask_app
+            return _global_flask_app
+        except Exception:
+            return None
+
+    app_obj = _resolve_app_obj()
+    if app_obj is None:
+        logger.warning("cleanup_old_analysis_results: Flask app bulunamadı (no app_context + global_flask_app None). Atlanıyor.")
+        return
+
     try:
-        from datetime import datetime, timedelta
-        from app.models.analysis import Analysis, ContentDetection, AgeEstimation
-        from app.models.file import File
-        from app.models.clip_training import CLIPTrainingSession  # CLIP training model import
-        
-        cutoff_date = datetime.utcnow() - timedelta(days=days_old)
-        logger.info(f"Eski analiz sonuçları temizleniyor: {cutoff_date} tarihinden eski olanlar")
-        
-        # Eski analizleri bul (created_at yerine start_time kullan)
-        old_analyses = Analysis.query.filter(Analysis.start_time < cutoff_date).all()
-        
-        if not old_analyses:
-            logger.info("Temizlenecek eski analiz bulunamadı.")
-            return
-        
-        logger.info(f"{len(old_analyses)} eski analiz bulundu, temizleniyor...")
-        
-        # Her analiz için ilgili dosyaları temizle
-        for analysis in old_analyses:
-            try:
-                # Analiz klasörünü bul ve sil (app context içinde olduğumuz için current_app kullanabiliriz)
-                from flask import current_app
-                analysis_folder = os.path.join(current_app.config['PROCESSED_FOLDER'], f"frames_{analysis.id}")
-                if os.path.exists(analysis_folder):
-                    shutil.rmtree(analysis_folder)
-                    logger.info(f"Analiz klasörü silindi: {analysis_folder}")
-                
-                # İşlenmiş resim dosyasını sil (alan mevcutsa)
-                processed_image_rel = getattr(analysis, 'processed_image_path', None)
-                if processed_image_rel:
-                    processed_file = os.path.join(current_app.config['PROCESSED_FOLDER'], processed_image_rel)
-                    if os.path.exists(processed_file):
-                        os.unlink(processed_file)
-                        logger.info(f"İşlenmiş resim silindi: {processed_file}")
-                
-                # En yüksek riskli kare dosyasını sil
-                if analysis.highest_risk_frame:
-                    risk_frame_file = os.path.join(current_app.config['PROCESSED_FOLDER'], analysis.highest_risk_frame)
-                    if os.path.exists(risk_frame_file):
-                        os.unlink(risk_frame_file)
-                        logger.info(f"En yüksek riskli kare silindi: {risk_frame_file}")
-                
-                # Veritabanından analizi sil (cascade ile ilgili kayıtlar da silinir)
-                db.session.delete(analysis)
-                
-            except Exception as e:
-                logger.warning(f"Analiz {analysis.id} temizlenirken hata: {e}", exc_info=True)
-                continue
-        
-        # Değişiklikleri kaydet
-        db.session.commit()
-        logger.info(f"{len(old_analyses)} eski analiz başarıyla temizlendi.")
-        
-        # Artık kullanılmayan dosyaları da temizle
-        cleanup_orphaned_files()
-        
+        with app_obj.app_context():
+            from datetime import datetime, timedelta
+            from app.models.analysis import Analysis
+            from app.models.clip_training import CLIPTrainingSession  # CLIP training model import
+
+            cutoff_date = datetime.utcnow() - timedelta(days=days_old)
+            logger.info(f"Eski analiz sonuçları temizleniyor: {cutoff_date} tarihinden eski olanlar")
+
+            # Eski analizleri bul (created_at yerine start_time kullan)
+            old_analyses = Analysis.query.filter(Analysis.start_time < cutoff_date).all()
+
+            if not old_analyses:
+                logger.info("Temizlenecek eski analiz bulunamadı.")
+                return
+
+            logger.info(f"{len(old_analyses)} eski analiz bulundu, temizleniyor...")
+
+            processed_root = app_obj.config['PROCESSED_FOLDER']
+
+            # Her analiz için ilgili dosyaları temizle
+            for analysis in old_analyses:
+                try:
+                    analysis_folder = os.path.join(processed_root, f"frames_{analysis.id}")
+                    if os.path.exists(analysis_folder):
+                        shutil.rmtree(analysis_folder)
+                        logger.info(f"Analiz klasörü silindi: {analysis_folder}")
+
+                    # İşlenmiş resim dosyasını sil (alan mevcutsa)
+                    processed_image_rel = getattr(analysis, 'processed_image_path', None)
+                    if processed_image_rel:
+                        processed_file = os.path.join(processed_root, processed_image_rel)
+                        if os.path.exists(processed_file):
+                            os.unlink(processed_file)
+                            logger.info(f"İşlenmiş resim silindi: {processed_file}")
+
+                    # En yüksek riskli kare dosyasını sil
+                    if analysis.highest_risk_frame:
+                        risk_frame_file = os.path.join(processed_root, analysis.highest_risk_frame)
+                        if os.path.exists(risk_frame_file):
+                            os.unlink(risk_frame_file)
+                            logger.info(f"En yüksek riskli kare silindi: {risk_frame_file}")
+
+                    # Veritabanından analizi sil (cascade ile ilgili kayıtlar da silinir)
+                    db.session.delete(analysis)
+
+                except Exception as e:
+                    logger.warning(f"Analiz {analysis.id} temizlenirken hata: {e}", exc_info=True)
+                    continue
+
+            # Değişiklikleri kaydet
+            db.session.commit()
+            logger.info(f"{len(old_analyses)} eski analiz başarıyla temizlendi.")
+
+            # Artık kullanılmayan dosyaları da temizle
+            cleanup_orphaned_files()
+
     except Exception as e:
         logger.error(f"Eski analiz sonuçları temizlenirken hata: {e}", exc_info=True)
-        if 'db' in locals():
-            db.session.rollback()
+        try:
+            with app_obj.app_context():
+                try:
+                    db.session.rollback()
+                except Exception:
+                    pass
+        except Exception:
+            pass
 
 def cleanup_orphaned_files():
     """
     Veritabanında kaydı olmayan yetim dosyaları temizler.
     """
+    from flask import current_app as _current_app, has_app_context as _has_app_context
+
+    def _resolve_app_obj():
+        if _has_app_context():
+            return _current_app._get_current_object()
+        try:
+            from app import global_flask_app as _global_flask_app
+            return _global_flask_app
+        except Exception:
+            return None
+
+    app_obj = _resolve_app_obj()
+    if app_obj is None:
+        logger.warning("cleanup_orphaned_files: Flask app bulunamadı (no app_context + global_flask_app None). Atlanıyor.")
+        return
+
     try:
-        from app.models.analysis import Analysis
-        
-        processed_folder = current_app.config['PROCESSED_FOLDER']
-        
-        if not os.path.exists(processed_folder):
-            return
-        
-        # Processed klasöründeki tüm dosya ve klasörleri kontrol et
-        for item in os.listdir(processed_folder):
-            item_path = os.path.join(processed_folder, item)
-            
-            # Logs klasörünü atla
-            if item == 'logs':
-                continue
-            
-            # frames_ ile başlayan klasörleri kontrol et
-            if os.path.isdir(item_path) and item.startswith('frames_'):
-                analysis_id = item.replace('frames_', '')
-                
-                # Bu analiz ID'si veritabanında var mı kontrol et
-                analysis_exists = Analysis.query.filter_by(id=analysis_id).first()
-                
-                if not analysis_exists:
-                    logger.warning(f"Yetim analiz klasörü bulundu, siliniyor: {item_path}")
-                    try:
-                        shutil.rmtree(item_path)
-                    except Exception as e:
-                        logger.warning(f"Yetim klasör silinirken hata: {e}", exc_info=True)
-        
-        logger.info("Yetim dosya temizliği tamamlandı.")
-        
+        with app_obj.app_context():
+            from app.models.analysis import Analysis
+
+            processed_folder = app_obj.config['PROCESSED_FOLDER']
+
+            if not os.path.exists(processed_folder):
+                return
+
+            # Processed klasöründeki tüm dosya ve klasörleri kontrol et
+            for item in os.listdir(processed_folder):
+                item_path = os.path.join(processed_folder, item)
+
+                # Logs klasörünü atla
+                if item == 'logs':
+                    continue
+
+                # frames_ ile başlayan klasörleri kontrol et
+                if os.path.isdir(item_path) and item.startswith('frames_'):
+                    analysis_id = item.replace('frames_', '')
+
+                    # Bu analiz ID'si veritabanında var mı kontrol et
+                    analysis_exists = Analysis.query.filter_by(id=analysis_id).first()
+
+                    if not analysis_exists:
+                        logger.warning(f"Yetim analiz klasörü bulundu, siliniyor: {item_path}")
+                        try:
+                            shutil.rmtree(item_path)
+                        except Exception as e:
+                            logger.warning(f"Yetim klasör silinirken hata: {e}", exc_info=True)
+
+            logger.info("Yetim dosya temizliği tamamlandı.")
+
     except Exception as e:
         logger.error(f"Yetim dosya temizliği sırasında hata: {e}", exc_info=True)
 

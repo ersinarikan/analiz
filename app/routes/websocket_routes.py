@@ -7,7 +7,6 @@ import logging
 from datetime import datetime
 from flask import request
 from flask_socketio import emit, join_room, disconnect
-from threading import Timer
 
 from app.socketio_instance import get_socketio
 

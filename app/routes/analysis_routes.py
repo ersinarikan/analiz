@@ -1,12 +1,11 @@
 import logging
-from flask import Blueprint, request, jsonify, current_app
+from flask import Blueprint, request, jsonify
 from werkzeug.exceptions import BadRequest
 from app import db
 from app.models.file import File
-from app.models.analysis import Analysis, ContentDetection, AgeEstimation
+from app.models.analysis import Analysis
 from app.models.feedback import Feedback
 from app.services.analysis_service import AnalysisService, get_analysis_results
-from app.json_encoder import json_dumps_numpy
 from app.utils.security import (
     validate_request_params, validate_json_input,
     SecurityError, sanitize_html_input

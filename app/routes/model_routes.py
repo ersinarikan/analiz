@@ -3,9 +3,7 @@ from app.services.model_service import ModelService
 import logging
 import threading
 import uuid
-from app.models.content import ModelVersion
 from app.models.feedback import Feedback
-from app import db
 from datetime import datetime
 from app.socketio_instance import get_socketio
 

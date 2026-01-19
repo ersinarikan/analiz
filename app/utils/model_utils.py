@@ -2,7 +2,6 @@ import os
 import torch
 import logging
 import json
-from datetime import datetime
 
 def load_torch_model(model_path, model_class, config_keys=None, device='cpu', default_config=None):
     """

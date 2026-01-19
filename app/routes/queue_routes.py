@@ -1,6 +1,6 @@
 """Queue management routes for analysis processing"""
 
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, jsonify
 import logging
 import os
 import shutil
@@ -104,7 +104,6 @@ def force_stop_and_restart():
     """
     try:
         import os
-        import signal
         import sys
         from app.models.analysis import Analysis
         from app.models.file import File

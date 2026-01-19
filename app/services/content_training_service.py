@@ -1,7 +1,7 @@
 import os
 import json
 import logging
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 from datetime import datetime, timedelta
 from flask import current_app
 

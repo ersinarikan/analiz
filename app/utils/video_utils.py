@@ -1,7 +1,6 @@
 import os
 import cv2
 import tempfile
-import numpy as np
 from datetime import timedelta
 from flask import current_app
 from moviepy.editor import VideoFileClip

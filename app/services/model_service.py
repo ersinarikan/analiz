@@ -20,7 +20,7 @@ from config import Config
 from app.models.content import ModelVersion
 from app.services import db_service
 from app.ai.insightface_age_estimator import CustomAgeHead
-from app.utils.file_utils import ensure_dir, safe_copytree, safe_remove, write_json, read_json, get_folder_size
+from app.utils.file_utils import ensure_dir, safe_copytree, safe_remove, write_json
 from sqlalchemy import text
 from app.models.analysis import Analysis, ContentDetection
 

@@ -5,7 +5,6 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader
-import numpy as np
 import open_clip
 import PIL.Image as Image
 from datetime import datetime
@@ -16,8 +15,6 @@ from sklearn.model_selection import train_test_split
 from app import db
 from app.models.feedback import Feedback
 from app.models.clip_training import CLIPTrainingSession
-from app.models.content import ModelVersion
-from app.utils.image_utils import load_image
 
 logger = logging.getLogger('app.clip_training_service')
 

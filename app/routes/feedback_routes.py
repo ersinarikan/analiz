@@ -1,12 +1,10 @@
-from flask import Blueprint, request, jsonify, current_app
+from flask import Blueprint, request, jsonify
 from app.models.feedback import Feedback
 from app.models.analysis import AgeEstimation
 from app import db
 import logging
-import os
 from app.utils.path_utils import to_rel_path
 import json
-from app.utils.security import sanitize_html_input, validate_request_params, SecurityError
 
 feedback_bp = Blueprint('feedback', __name__, url_prefix='/api/feedback')
 """

@@ -178,7 +178,7 @@ def main():
     
     try:
         # Flask uygulama bağlamı oluştur
-        app, socketio_direct = create_app()  # Tuple'ı unpack et
+        app, socketio_direct = create_app(return_socketio=True)  # (app, socketio)
         
         with app.app_context():
             logger.info("🚀 CLIP training script başlatılıyor...")

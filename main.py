@@ -11,7 +11,6 @@ import os
 import logging
 import signal
 import threading
-import atexit
 
 # Thread-safe logging lock
 _log_lock = threading.Lock()
@@ -31,11 +30,10 @@ except ImportError:
 
 # Flask uygulamasını import et
 try:
-    from app import create_app, initialize_app, socketio
+    from app import create_app, initialize_app
 except ImportError as import_err:
     create_app = None
     initialize_app = None
-    socketio = None
     logger.error(f"Flask uygulaması import edilemedi: {import_err}")
     logger.error("Virtual environment'ı aktifleştirip tekrar deneyin:")
     logger.error("   venv\\Scripts\\activate  (Windows)")
@@ -96,7 +94,7 @@ if __name__ == "__main__":
             write_pid()
             logger.info("WSANALIZ Flask Uygulaması Başlatılıyor...")
             
-            app, socketio_direct = create_app()  # Hem app hem socketio döndürülüyor
+            app, socketio_direct = create_app(return_socketio=True)  # (app, socketio)
             initialize_app(app)  # Sadece ana süreçte çalıştırılacak
             
             # Werkzeug HTTP request loglarını aç (debug için)

@@ -2,7 +2,6 @@ import os
 import uuid
 import mimetypes
 from flask import Blueprint, request, jsonify, current_app, send_from_directory, g, send_file
-from werkzeug.utils import secure_filename
 import logging
 
 from app import db

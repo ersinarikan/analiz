@@ -14,7 +14,7 @@ from app.models.feedback import Feedback
 from app.models.content import ModelVersion
 from app.ai.insightface_age_estimator import CustomAgeHead
 from config import Config
-from app.utils.model_utils import load_torch_model, save_torch_model
+from app.utils.model_utils import load_torch_model
 
 logger = logging.getLogger('app.incremental_age_training')
 

@@ -1,7 +1,6 @@
 import pytest
 from unittest.mock import patch, MagicMock
 import numpy as np
-import torch
 
 from app.ai import insightface_age_estimator
 

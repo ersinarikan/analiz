@@ -3,13 +3,9 @@ import numpy as np
 import cv2
 import os
 import torch
-import re
 import logging
-from config import Config
 from PIL import Image  # PIL kütüphanesini ekliyoruz
-import math
 from flask import current_app # current_app import edildi
-import open_clip # ADDED IMPORT
 import time
 
 # Logger oluştur
@@ -90,13 +86,24 @@ class InsightFaceAgeEstimator:
 
         # Modeli yerel dosyadan yükle
         try:
+            # Prefer GPU execution provider if available (requires onnxruntime-gpu)
+            try:
+                import onnxruntime as ort  # type: ignore
+                available = set(ort.get_available_providers() or [])
+            except Exception:
+                available = set()
+
+            providers = ['CUDAExecutionProvider', 'CPUExecutionProvider'] if 'CUDAExecutionProvider' in available else ['CPUExecutionProvider']
+            ctx_id = 0 if 'CUDAExecutionProvider' in providers else -1
+            logger.info(f"InsightFace providers: {providers} (ctx_id={ctx_id})")
+
             self.model = insightface.app.FaceAnalysis(
                 name='buffalo_l', # Bu isim, root içindeki alt klasörlerle eşleşebilir veya sadece genel bir addır.
                 root=insightface_root_to_load, # Güncellenmiş yol
-                providers=['CPUExecutionProvider'],
+                providers=providers,
                 det_thresh=face_detection_thresh # Dinamik olarak okunan değeri kullan
             )
-            self.model.prepare(ctx_id=0, det_size=det_size)
+            self.model.prepare(ctx_id=ctx_id, det_size=det_size)
             logger.info(f"InsightFace temel modeli başarıyla yüklendi (det_thresh={face_detection_thresh} ile)")
         except Exception as e:
             logger.error(f"InsightFace model yükleme hatası: {str(e)}")
@@ -109,7 +116,7 @@ class InsightFaceAgeEstimator:
         # Performance optimization flags
         self.initialized = True
         self._last_cleanup = time.time()
-        self._memory_threshold_mb = 500  # Memory cleanup threshold
+        self._memory_threshold_mb = 14000  # Memory cleanup threshold (14GB - GPU memory'nin %85'i, çok agresif cleanup'ı önler)
         
         # Model load and initialize tracking for performance
         logger.info(f"InsightFaceAgeEstimator device: {self.device}")
@@ -364,7 +371,7 @@ class InsightFaceAgeEstimator:
         if self.age_model is not None and embedding_current is not None:
             try:
                 with torch.no_grad():
-                    emb_tensor = torch.tensor(embedding_current, dtype=torch.float32).unsqueeze(0)
+                    emb_tensor = torch.tensor(embedding_current, dtype=torch.float32).unsqueeze(0).to(self.device)
                     # NORMALIZE EMBEDDING (Custom model eğitimi sırasında eksik olan adım)
                     emb_tensor = emb_tensor / torch.norm(emb_tensor, dim=1, keepdim=True)
                     age_custom_pred = self.age_model(emb_tensor).item()
@@ -485,28 +492,78 @@ class InsightFaceAgeEstimator:
             preprocessed_image = self.clip_preprocess(pil_image).unsqueeze(0).to(self.clip_device)
             
             # DİREKT YAŞ SORUSU: "this face is X years old"
+            # Not: CLIP sayısal yaşta sınırlı; 18 eşiğinde (under18 vs adult) daha hassas olması için
+            # karşıt prompt setini 17–21 bandına yakınlaştırıyoruz ve ayrıca under18 vs adult promptları ile
+            # ek bir ayrım skoru logluyoruz.
             age = int(round(estimated_age))
             
             # Spesifik yaş sorusu
             target_prompt = f"this face is {age} years old"
             
+            def _uniq_ints(values):
+                out = []
+                seen = set()
+                for v in values:
+                    try:
+                        iv = int(v)
+                    except Exception:
+                        continue
+                    if iv in seen:
+                        continue
+                    if iv < 1 or iv > 90:
+                        continue
+                    if iv == age:
+                        continue
+                    out.append(iv)
+                    seen.add(iv)
+                return out
+
             # Karşıt yaş soruları (farklı yaş aralıklarından)
-            opposing_ages = []
-            if age < 10:
-                opposing_ages = [25, 45, 65, 16]  # Bebek/çocuk için yetişkin yaşları
+            # 18 eşiğine yakın yaşlarda ayrımı güçlendirmek için 17–21 bandını dahil et.
+            if 13 <= age <= 22:
+                opposing_ages = _uniq_ints(
+                    [
+                        age - 4,
+                        age - 2,
+                        17,
+                        18,
+                        19,
+                        20,
+                        21,
+                        age + 2,
+                        age + 4,
+                        8,
+                        30,
+                        50,
+                    ]
+                )[:8]
+            elif age < 10:
+                opposing_ages = _uniq_ints([25, 45, 65, 16])  # Bebek/çocuk için yetişkin yaşları
             elif age < 20:
-                opposing_ages = [5, 30, 50, 70]   # Genç için diğer yaşlar
+                opposing_ages = _uniq_ints([5, 30, 50, 70])   # Genç için diğer yaşlar
             elif age < 30:
-                opposing_ages = [8, 45, 65, 15]   # Genç yetişkin için diğer yaşlar
+                opposing_ages = _uniq_ints([8, 45, 65, 15])   # Genç yetişkin için diğer yaşlar
             elif age < 50:
-                opposing_ages = [10, 20, 65, 75]  # Orta yaş için diğer yaşlar
+                opposing_ages = _uniq_ints([10, 20, 65, 75])  # Orta yaş için diğer yaşlar
             else:
-                opposing_ages = [8, 18, 30, 45]   # Yaşlı için genç yaşlar
-            
+                opposing_ages = _uniq_ints([8, 18, 30, 45])   # Yaşlı için genç yaşlar
+
             opposing_prompts = [f"this face is {opp_age} years old" for opp_age in opposing_ages]
-            
-            # Tüm prompt'ları birleştir
-            all_prompts = [target_prompt] + opposing_prompts
+
+            # Under18 vs Adult (18+) ayrımı için ek prompt seti (confidence doğrulama için)
+            under18_prompts = [
+                "this face is under 18 years old",
+                "this person is a minor (under 18)",
+                "a teenage person (under 18)",
+            ]
+            adult_prompts = [
+                "this face is 18 years old or older",
+                "this person is an adult (18 or older)",
+                "an adult person (18+)",
+            ]
+
+            # Tüm prompt'ları birleştir (tek encode_text çağrısı için)
+            all_prompts = [target_prompt] + opposing_prompts + under18_prompts + adult_prompts
             
             # CLIP ile benzerlik hesapla
             with torch.no_grad():
@@ -521,7 +578,7 @@ class InsightFaceAgeEstimator:
                 similarities = (100.0 * image_features @ text_features.T).squeeze(0).cpu().numpy()
             
             target_score = float(similarities[0])
-            opposing_scores = similarities[1:]
+            opposing_scores = similarities[1: 1 + len(opposing_prompts)]
             avg_opposing = float(np.mean(opposing_scores))
             max_opposing = float(np.max(opposing_scores))
             
@@ -535,6 +592,25 @@ class InsightFaceAgeEstimator:
                 # Softmax-style confidence
                 confidence_score = 1.0 / (1.0 + np.exp(-score_diff * 2))
                 confidence_score = max(0.1, min(0.9, confidence_score))
+
+            # Under18 vs Adult için ek skor (log + 18 eşiğinde stabilizasyon)
+            u_start = 1 + len(opposing_prompts)
+            u_end = u_start + len(under18_prompts)
+            a_start = u_end
+            a_end = a_start + len(adult_prompts)
+
+            under18_scores = similarities[u_start:u_end]
+            adult_scores = similarities[a_start:a_end]
+            under18_mean = float(np.mean(under18_scores))
+            adult_mean = float(np.mean(adult_scores))
+            under18_diff = under18_mean - adult_mean
+            prob_under18 = float(1.0 / (1.0 + np.exp(-under18_diff * 0.8)))
+            side_conf = prob_under18 if age < 18 else (1.0 - prob_under18)
+
+            # 18 bandında (13–22) confidence'i under18 ekseni ile harmanla
+            if 13 <= age <= 22:
+                confidence_score = (confidence_score * 0.5) + (side_conf * 0.5)
+                confidence_score = max(0.1, min(0.9, float(confidence_score)))
             
             end_time = time.time()
             elapsed_time = end_time - start_time
@@ -546,6 +622,10 @@ class InsightFaceAgeEstimator:
             logger.info(f"[AGE_LOG] Opposing Skorlar: {[f'{s:.4f}' for s in opposing_scores]}")
             logger.info(f"[AGE_LOG] Opposing Ort: {avg_opposing:.4f}, Max: {max_opposing:.4f}")
             logger.info(f"[AGE_LOG] Skor Farkı (Target - Max): {score_diff:.4f}")
+            logger.info(
+                f"[AGE_LOG] Under18 vs Adult: under18_mean={under18_mean:.4f} adult_mean={adult_mean:.4f} "
+                f"diff={under18_diff:.4f} prob_under18={prob_under18:.3f} side_conf={side_conf:.3f}"
+            )
             logger.info(f"[AGE_LOG] Final Güven: {confidence_score:.4f}")
             logger.info(f"[AGE_LOG] CLIP hesaplama süresi: {elapsed_time:.3f} saniye")
             

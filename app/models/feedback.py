@@ -1,8 +1,7 @@
-import uuid
 from datetime import datetime
 from app import db
-from sqlalchemy.dialects.postgresql import JSON, UUID
-from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, Text, ForeignKey, LargeBinary
+from sqlalchemy.dialects.postgresql import JSON
+from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, Text
 
 class Feedback(db.Model):
     """

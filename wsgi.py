@@ -31,7 +31,7 @@ def _ensure_app_initialized():
     if _flask_app is not None:
         return
 
-    _flask_app, _socketio = _create_app()  # Tuple'ı unpack et
+    _flask_app, _socketio = _create_app(return_socketio=True)  # Tuple'ı unpack et
 
     # Worker içinde app init (DB, klasörler, queue processor vs.)
     try:

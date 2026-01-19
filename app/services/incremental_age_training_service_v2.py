@@ -1,17 +1,14 @@
 import os
-import json
 import logging
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.utils.data import DataLoader, TensorDataset
 from sklearn.model_selection import train_test_split
 from datetime import datetime
 from flask import current_app
 from app import db
 from app.models.feedback import Feedback
-from app.models.content import ModelVersion
 from app.ai.insightface_age_estimator import CustomAgeHead
 from config import Config
 from app.utils.model_utils import load_torch_model

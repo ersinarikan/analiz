@@ -5,7 +5,6 @@
 import threading
 import time
 from datetime import datetime
-import weakref
 import logging
 
 logger = logging.getLogger(__name__)

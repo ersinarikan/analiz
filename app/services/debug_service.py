@@ -9,8 +9,6 @@ from datetime import datetime, timedelta
 import json
 import numpy as np
 import traceback
-import sys
-import os
 
 logger = logging.getLogger(__name__)
 

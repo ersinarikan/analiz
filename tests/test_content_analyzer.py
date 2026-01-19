@@ -1,5 +1,5 @@
 import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 import numpy as np
 from app.ai.content_analyzer import ContentAnalyzer
 

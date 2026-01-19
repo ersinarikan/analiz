@@ -4,13 +4,8 @@ from app import db
 from app.models.file import File
 import logging
 from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, Text, Boolean, JSON, func
-from app.json_encoder import json_dumps_numpy, NumPyJSONEncoder
-import numpy as np
-from sqlalchemy.ext.declarative import declarative_base
+from app.json_encoder import NumPyJSONEncoder
 from sqlalchemy.orm import relationship
-import traceback
-from flask import current_app
-from app.utils.serialization_utils import convert_numpy_types_to_python, debug_serialization
 import uuid
 
 logger = logging.getLogger(__name__)
@@ -26,7 +21,8 @@ class Analysis(db.Model):
     file_id = db.Column(db.String(36), db.ForeignKey('files.id'), nullable=False)
     status = db.Column(db.String(20), default='pending')  # 'pending', 'processing', 'completed', 'failed'
     
-    start_time = db.Column(db.DateTime, default=datetime.now)
+    # Use naive-UTC timestamps consistently across the app.
+    start_time = db.Column(db.DateTime, default=datetime.utcnow)
     end_time = db.Column(db.DateTime, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     
@@ -68,20 +64,24 @@ class Analysis(db.Model):
     age_estimations = db.relationship('AgeEstimation', backref='analysis', lazy=True, cascade="all, delete-orphan")
     
     def start_analysis(self):
-        """Analiz sürecini başlatır ve durumu 'processing' olarak günceller."""
+        """Analiz sürecini başlatır ve durumu 'processing' olarak günceller.
+
+        NOTE: Model methods should not commit implicitly. Caller owns the transaction.
+        """
         self.status = 'processing'
         # start_time default'u var, ama bazı path'lerde eski değer kalabiliyor; güvenli şekilde güncelle.
         if not self.start_time:
-            self.start_time = datetime.now()
-        db.session.commit()
+            self.start_time = datetime.utcnow()
     
     def cancel_analysis(self, reason="WebSocket bağlantısı kesildi"):
-        """Analizi iptal eder ve durumu günceller."""
+        """Analizi iptal eder ve durumu günceller.
+
+        NOTE: This method intentionally does NOT commit. Caller owns the transaction.
+        """
         self.is_cancelled = True
         self.status = 'cancelled'
         self.error_message = reason
-        self.end_time = datetime.now()
-        db.session.commit()
+        self.end_time = datetime.utcnow()
     
     def check_if_cancelled(self):
         """Analizin iptal edilip edilmediğini kontrol eder."""
@@ -110,12 +110,14 @@ class Analysis(db.Model):
             logger.warning(f"WebSocket progress event hatası: {str(ws_err)}")
     
     def complete_analysis(self):
-        """Analizi başarıyla tamamlandı olarak işaretler."""
+        """Analizi başarıyla tamamlandı olarak işaretler.
+
+        NOTE: This method intentionally does NOT commit. Caller owns the transaction.
+        """
         self.status = 'completed'
         # completed_at / recent endpoint için end_time'ı mutlaka doldur
         if not self.end_time:
-            self.end_time = datetime.now()
-        db.session.commit()
+            self.end_time = datetime.utcnow()
     
     def fail_analysis(self, message: str):
         """
@@ -128,8 +130,7 @@ class Analysis(db.Model):
         self.error_message = message
         # failed analizlerde de bitiş zamanı yazılsın
         if not self.end_time:
-            self.end_time = datetime.now()
-        db.session.commit()
+            self.end_time = datetime.utcnow()
     
     def to_dict(self) -> dict:
         """
@@ -155,7 +156,12 @@ class Analysis(db.Model):
             'file_id': self.file_id,
             'file_info': file_info,
             'status': self.status,
+            'start_time': self.start_time.isoformat() if self.start_time else None,
+            'end_time': self.end_time.isoformat() if self.end_time else None,
+            'created_at': self.created_at.isoformat() if getattr(self, "created_at", None) else None,
+            'error_message': self.error_message,
             'frames_per_second': self.frames_per_second,
+            'frames_analyzed': self.frames_analyzed,
             'include_age_analysis': self.include_age_analysis,
             'websocket_session_id': self.websocket_session_id,
             'is_cancelled': self.is_cancelled,

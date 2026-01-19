@@ -1,4 +1,4 @@
-from flask import Blueprint, jsonify, request, current_app
+from flask import Blueprint, jsonify
 from app.services.ensemble_integration_service import get_ensemble_service
 import logging
 

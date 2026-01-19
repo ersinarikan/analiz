@@ -1,9 +1,6 @@
-import enum
 from datetime import datetime
-import json
 from app import db
-from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, Text, JSON, ForeignKey
-from sqlalchemy.orm import relationship
+from sqlalchemy import Column, Integer, String, DateTime, Boolean, JSON
 
 class ModelVersion(db.Model):
     """
