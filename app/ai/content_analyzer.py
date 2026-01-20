@@ -665,15 +665,30 @@ class ContentAnalyzer:
                     else:
                         final_scores[cat] = base_score
 
-            # "safe" skorunu diğer risklerin ortalamasından türet
+            # "safe" skorunu diğer risklerden türet
+            # CRITICAL: Basit ortalama yerine maksimum risk veya ağırlıklı ortalama kullan
+            # Çünkü tek bir yüksek risk (örn: adult_content=0.87) safe skorunu düşürmeli
             risk_categories_for_safe_calculation = ['violence', 'adult_content', 'harassment', 'weapon', 'drug']
-            sum_of_risk_scores = sum(final_scores.get(rc, 0) for rc in risk_categories_for_safe_calculation)
-            average_risk_score = sum_of_risk_scores / len(risk_categories_for_safe_calculation) if risk_categories_for_safe_calculation else 0
-            final_scores['safe'] = max(0.0, 1.0 - average_risk_score) # Skorun negatif olmamasını sağla
+            
+            # Yöntem 1: Maksimum risk skorunu kullan (en güvenli yaklaşım)
+            max_risk_score = max(final_scores.get(rc, 0) for rc in risk_categories_for_safe_calculation) if risk_categories_for_safe_calculation else 0
+            
+            # Yöntem 2: Güç dönüşümü ile ağırlıklı ortalama (video analizi ile tutarlı)
+            power_value = 1.5  # Video analizi ile aynı değer
+            enhanced_risk_scores = {rc: (final_scores.get(rc, 0) ** power_value) for rc in risk_categories_for_safe_calculation}
+            sum_of_enhanced_risk_scores = sum(enhanced_risk_scores.values())
+            average_enhanced_risk_score = sum_of_enhanced_risk_scores / len(risk_categories_for_safe_calculation) if risk_categories_for_safe_calculation else 0
+            
+            # Yöntem 3: Maksimum ve ağırlıklı ortalamanın kombinasyonu (daha dengeli)
+            # Maksimum risk %70, ağırlıklı ortalama %30 ağırlıkta
+            combined_risk_score = (max_risk_score * 0.7) + (average_enhanced_risk_score * 0.3)
+            
+            # Safe skorunu hesapla
+            final_scores['safe'] = max(0.0, 1.0 - combined_risk_score) # Skorun negatif olmamasını sağla
             
             # Debug: Tüm skorları logla
             logger.info(f"[SCORE_SUMMARY] Final scores: {dict(final_scores)}")
-            logger.info(f"[SAFE_SCORE_CALC] Average risk: {average_risk_score:.4f}, Calculated safe score: {final_scores['safe']:.4f}")
+            logger.info(f"[SAFE_SCORE_CALC] Max risk: {max_risk_score:.4f}, Enhanced avg risk: {average_enhanced_risk_score:.4f}, Combined risk: {combined_risk_score:.4f}, Calculated safe score: {final_scores['safe']:.4f}")
 
             # Tespit edilen nesneleri Python tiplerine dönüştür
             safe_objects = convert_numpy_types_to_python(detected_objects)

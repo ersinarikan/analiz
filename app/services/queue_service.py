@@ -114,6 +114,9 @@ def database_session(app):
     """
     Thread-safe database session context manager
     Her thread için ayrı session yönetimi sağlar
+    
+    CRITICAL: SQLite WAL mode'da, farklı process'ler arasında transaction isolation olabilir.
+    Bu yüzden session'ı expire_all() ile yenileyerek en güncel veriyi görmesini sağlıyoruz.
     """
     try:
         with app.app_context():
@@ -124,9 +127,12 @@ def database_session(app):
             
             # İşlem başlangıcında session'ı temizle
             session.rollback()  # Önceki işlemlerden kalan uncommitted changes'i temizle
-            session.close()     # Connection pool'a geri döndür
             
-            # Fresh session başlat
+            # CRITICAL: SQLite WAL mode'da diğer process'lerin commit'lerini görmek için
+            # session'ı expire ederek fresh data çekmesini sağla
+            session.expire_all()
+            
+            # Yield session (close yapmadan önce)
             yield session
             
             # Başarılı işlem sonrası commit
@@ -142,7 +148,7 @@ def database_session(app):
         raise
         
     finally:
-        # Her durumda session'ı temizle
+        # Her durumda session'ı temizle (yield'den sonra)
         try:
             session.close()
         except:
