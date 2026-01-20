@@ -1449,23 +1449,27 @@ def analyze_video(analysis):
             
             logger.info(f"Analiz #{analysis.id} - Ham Ortalama Skorlar (safe hariç): {json.dumps({k: f'{v:.4f}' for k, v in avg_scores.items() if k != 'safe'})}")
 
-            # --- YENİ: Güç Dönüşümü ile Skorları Ayrıştırma ---
-            power_value = 1.5  # Bu değer ayarlanabilir (örneğin 1.5, 2, 2.5). Değer arttıkça ayrışma artar.
-            
-            enhanced_scores = {}
+            # --- UX PRINCIPLE: Safe skoru = maksimum risk skorundan türetilmeli ---
+            # Eğer herhangi bir risk kategorisi yüksekse, safe skoru düşük olmalı
             risk_categories_for_safe_calc = ['violence', 'adult_content', 'harassment', 'weapon', 'drug']
-
-            for category in risk_categories_for_safe_calc: # Sadece risk kategorileri için güç dönüşümü
-                avg_score_cat = avg_scores.get(category, 0) # .get() ile güvenli erişim
+            
+            # Güç dönüşümü ile risk kategorilerini ayrıştır (görselleştirme için)
+            power_value = 1.5
+            enhanced_scores = {}
+            for category in risk_categories_for_safe_calc:
+                avg_score_cat = avg_scores.get(category, 0)
                 enhanced_scores[category] = avg_score_cat ** power_value
             
-            # Şimdi "safe" skorunu diğerlerinin geliştirilmiş ortalamasından türet
-            sum_of_enhanced_risk_scores = sum(enhanced_scores.get(rc, 0) for rc in risk_categories_for_safe_calc)
-            average_enhanced_risk_score = sum_of_enhanced_risk_scores / len(risk_categories_for_safe_calc) if risk_categories_for_safe_calc else 0
-            enhanced_scores['safe'] = max(0.0, 1.0 - average_enhanced_risk_score) # Skorun negatif olmamasını sağla
+            # Safe skorunu maksimum risk skorundan hesapla (UX: yüksek risk = düşük safe)
+            max_risk_score = max(avg_scores.get(rc, 0) for rc in risk_categories_for_safe_calc) if risk_categories_for_safe_calc else 0
+            enhanced_scores['safe'] = max(0.0, 1.0 - max_risk_score)
+            
+            # Eğer maksimum risk çok yüksekse (>0.8), safe skorunu daha da düşür
+            if max_risk_score > 0.8:
+                enhanced_scores['safe'] = max(0.0, 1.0 - (max_risk_score ** 1.2))
             
             logger.info(f"Analiz #{analysis.id} - Güç Dönüşümü Sonrası Skorlar (p={power_value}): {json.dumps({k: f'{v:.4f}' for k, v in enhanced_scores.items()})}")
-            logger.info(f"[SAFE_OVERALL_CALC] Average ENHANCED risk for overall: {average_enhanced_risk_score:.4f}, Calculated overall safe score: {enhanced_scores['safe']:.4f}")
+            logger.info(f"[SAFE_OVERALL_CALC] Max risk: {max_risk_score:.4f}, Calculated overall safe score: {enhanced_scores['safe']:.4f}")
 
             # Genel skorları güncelle (geliştirilmiş skorlarla)
             analysis.overall_violence_score = enhanced_scores['violence']
@@ -1600,23 +1604,27 @@ def calculate_overall_scores(analysis):
             
         logger.info(f"Analiz #{analysis.id} - Ham Ortalama Skorlar (safe hariç): {json.dumps({k: f'{v:.4f}' for k, v in avg_scores.items() if k != 'safe'})}")
 
-        # --- YENİ: Güç Dönüşümü ile Skorları Ayrıştırma ---
-        power_value = 1.5  # Bu değer ayarlanabilir (örneğin 1.5, 2, 2.5). Değer arttıkça ayrışma artar.
-            
-        enhanced_scores = {}
+        # --- UX PRINCIPLE: Safe skoru = maksimum risk skorundan türetilmeli ---
+        # Eğer herhangi bir risk kategorisi yüksekse, safe skoru düşük olmalı
         risk_categories_for_safe_calc = ['violence', 'adult_content', 'harassment', 'weapon', 'drug']
-
-        for category in risk_categories_for_safe_calc: # Sadece risk kategorileri için güç dönüşümü
-            avg_score_cat = avg_scores.get(category, 0) # .get() ile güvenli erişim
+        
+        # Güç dönüşümü ile risk kategorilerini ayrıştır (görselleştirme için)
+        power_value = 1.5
+        enhanced_scores = {}
+        for category in risk_categories_for_safe_calc:
+            avg_score_cat = avg_scores.get(category, 0)
             enhanced_scores[category] = avg_score_cat ** power_value
         
-        # Şimdi "safe" skorunu diğerlerinin geliştirilmiş ortalamasından türet
-        sum_of_enhanced_risk_scores = sum(enhanced_scores.get(rc, 0) for rc in risk_categories_for_safe_calc)
-        average_enhanced_risk_score = sum_of_enhanced_risk_scores / len(risk_categories_for_safe_calc) if risk_categories_for_safe_calc else 0
-        enhanced_scores['safe'] = max(0.0, 1.0 - average_enhanced_risk_score) # Skorun negatif olmamasını sağla
+        # Safe skorunu maksimum risk skorundan hesapla (UX: yüksek risk = düşük safe)
+        max_risk_score = max(avg_scores.get(rc, 0) for rc in risk_categories_for_safe_calc) if risk_categories_for_safe_calc else 0
+        enhanced_scores['safe'] = max(0.0, 1.0 - max_risk_score)
+        
+        # Eğer maksimum risk çok yüksekse (>0.8), safe skorunu daha da düşür
+        if max_risk_score > 0.8:
+            enhanced_scores['safe'] = max(0.0, 1.0 - (max_risk_score ** 1.2))
             
         logger.info(f"Analiz #{analysis.id} - Güç Dönüşümü Sonrası Skorlar (p={power_value}): {json.dumps({k: f'{v:.4f}' for k, v in enhanced_scores.items()})}")
-        logger.info(f"[SAFE_OVERALL_CALC] Average ENHANCED risk for overall: {average_enhanced_risk_score:.4f}, Calculated overall safe score: {enhanced_scores['safe']:.4f}")
+        logger.info(f"[SAFE_OVERALL_CALC] Max risk: {max_risk_score:.4f}, Calculated overall safe score: {enhanced_scores['safe']:.4f}")
 
         # Genel skorları güncelle (geliştirilmiş skorlarla)
         analysis.overall_violence_score = enhanced_scores['violence']

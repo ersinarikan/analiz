@@ -666,29 +666,28 @@ class ContentAnalyzer:
                         final_scores[cat] = base_score
 
             # "safe" skorunu diğer risklerden türet
-            # CRITICAL: Basit ortalama yerine maksimum risk veya ağırlıklı ortalama kullan
-            # Çünkü tek bir yüksek risk (örn: adult_content=0.87) safe skorunu düşürmeli
+            # UX PRINCIPLE: Eğer herhangi bir risk kategorisi yüksekse, safe skoru düşük olmalı
+            # Örnek: adult_content=0.93 ise safe kesinlikle <0.2 olmalı
             risk_categories_for_safe_calculation = ['violence', 'adult_content', 'harassment', 'weapon', 'drug']
             
-            # Yöntem 1: Maksimum risk skorunu kullan (en güvenli yaklaşım)
+            # Maksimum risk skorunu bul (en yüksek risk kategori)
             max_risk_score = max(final_scores.get(rc, 0) for rc in risk_categories_for_safe_calculation) if risk_categories_for_safe_calculation else 0
             
-            # Yöntem 2: Güç dönüşümü ile ağırlıklı ortalama (video analizi ile tutarlı)
-            power_value = 1.5  # Video analizi ile aynı değer
-            enhanced_risk_scores = {rc: (final_scores.get(rc, 0) ** power_value) for rc in risk_categories_for_safe_calculation}
-            sum_of_enhanced_risk_scores = sum(enhanced_risk_scores.values())
-            average_enhanced_risk_score = sum_of_enhanced_risk_scores / len(risk_categories_for_safe_calculation) if risk_categories_for_safe_calculation else 0
+            # UX: Maksimum risk skorunu direkt kullan - eğer bir kategori yüksekse safe düşük olmalı
+            # Örnek: adult_content=0.93 → safe=0.07 (mantıklı)
+            # Önceki yöntem: adult_content=0.93 → safe=0.78 (mantıksız!)
+            final_scores['safe'] = max(0.0, 1.0 - max_risk_score)
             
-            # Yöntem 3: Maksimum ve ağırlıklı ortalamanın kombinasyonu (daha dengeli)
-            # Maksimum risk %70, ağırlıklı ortalama %30 ağırlıkta
-            combined_risk_score = (max_risk_score * 0.7) + (average_enhanced_risk_score * 0.3)
-            
-            # Safe skorunu hesapla
-            final_scores['safe'] = max(0.0, 1.0 - combined_risk_score) # Skorun negatif olmamasını sağla
+            # Eğer maksimum risk çok yüksekse (>0.8), safe skorunu daha da düşür
+            # Bu, kullanıcıya net bir mesaj verir: yüksek risk = düşük güvenlik
+            if max_risk_score > 0.8:
+                # Çok yüksek risk durumunda safe skorunu maksimum risk'in karesi ile hesapla
+                # Örnek: max_risk=0.93 → safe = 1 - (0.93^1.2) = 1 - 0.92 = 0.08
+                final_scores['safe'] = max(0.0, 1.0 - (max_risk_score ** 1.2))
             
             # Debug: Tüm skorları logla
             logger.info(f"[SCORE_SUMMARY] Final scores: {dict(final_scores)}")
-            logger.info(f"[SAFE_SCORE_CALC] Max risk: {max_risk_score:.4f}, Enhanced avg risk: {average_enhanced_risk_score:.4f}, Combined risk: {combined_risk_score:.4f}, Calculated safe score: {final_scores['safe']:.4f}")
+            logger.info(f"[SAFE_SCORE_CALC] Max risk: {max_risk_score:.4f}, Calculated safe score: {final_scores['safe']:.4f}")
 
             # Tespit edilen nesneleri Python tiplerine dönüştür
             safe_objects = convert_numpy_types_to_python(detected_objects)
@@ -770,46 +769,36 @@ class ContentAnalyzer:
                  logger.info("Genel madde kullanımı göstergeleri (şişe/bardak) parti/bar bağlamında, madde skoru hafif artırıldı")
 
         # GÜVENLİ KATEGORİSİ İÇİN GÜÇLENDİRME
-        # Eğer belirgin bir riskli nesne yoksa ve kişi sayısı azsa 'safe' skorunu artır
-        no_immediate_risk_objects = not weapon_detected and not drug_related_detected
-        
-        # Diğer kategorilerin skorları genel olarak düşük mü kontrolü
-        # Eşikleri yeni risk seviyesi sistemine göre ayarlayalım
-        low_score_threshold = 0.35    # Düşük risk eşiği
-        medium_score_threshold = 0.55 # Belirsiz/orta eşik
-        high_score_threshold = 0.7    # Yüksek risk eşiği
-        
+        # UX PRINCIPLE: Eğer herhangi bir yüksek risk varsa, safe skorunu ASLA artırma
+        # Önce yüksek risk kontrolü yap
         other_categories_for_safe_check = ['violence', 'adult_content', 'harassment', 'weapon', 'drug']
+        high_risk_threshold = 0.5  # Eğer herhangi bir kategori >0.5 ise, safe artırma
+        any_high_risk_score = any(scores.get(cat, 0) > high_risk_threshold for cat in other_categories_for_safe_check)
+        
+        # Eğer yüksek risk varsa, safe skorunu artırma - zaten düşük olmalı
+        if any_high_risk_score:
+            logger.info(f"[ContextualAdjust] Yüksek risk tespit edildi, safe skoru artırılmayacak. Max risk: {max(scores.get(cat, 0) for cat in other_categories_for_safe_check):.2f}")
+            return scores  # Safe skorunu olduğu gibi bırak
+        
+        # Sadece tüm riskler düşükse safe skorunu artırabiliriz
+        no_immediate_risk_objects = not weapon_detected and not drug_related_detected
+        low_score_threshold = 0.3    # Düşük risk eşiği (daha sıkı)
         all_other_scores_truly_low = all(scores.get(cat, 0) < low_score_threshold for cat in other_categories_for_safe_check)
-        most_scores_medium_or_low = sum(1 for cat in other_categories_for_safe_check if scores.get(cat, 0) < medium_score_threshold) >= 4
-        any_high_risk_score = any(scores.get(cat, 0) > high_score_threshold for cat in other_categories_for_safe_check)
+        most_scores_medium_or_low = sum(1 for cat in other_categories_for_safe_check if scores.get(cat, 0) < 0.4) >= 4
 
-        logger.info(f"[ContextualAdjust] Gelişmiş güvenli kategori analizi -> all_low: {all_other_scores_truly_low}, most_medium_low: {most_scores_medium_or_low}, any_high: {any_high_risk_score}")
+        logger.info(f"[ContextualAdjust] Güvenli kategori analizi -> all_low: {all_other_scores_truly_low}, most_medium_low: {most_scores_medium_or_low}, any_high: {any_high_risk_score}")
 
-        if no_immediate_risk_objects and not any_high_risk_score:
-            if all_other_scores_truly_low and person_count <= 2:
-                # Çok güvenli durum - safe skorunu yüksek seviyeye çıkar
-                original_safe_score = scores.get('safe', 0)
-                scores['safe'] = 0.9  # Çok yüksek güven
+        if no_immediate_risk_objects and all_other_scores_truly_low and person_count <= 2:
+            # Çok güvenli durum - safe skorunu yüksek seviyeye çıkar
+            original_safe_score = scores.get('safe', 0)
+            scores['safe'] = min(0.9, scores.get('safe', 0) * 1.1)  # Maksimum %10 artır
+            logger.info(f"ÇOK GÜVENLİ: 'safe' skoru {original_safe_score:.2f} -> {scores['safe']:.2f}")
                 
-                # DEVRE DIŞI: Continuous scoring sistemini bozduğu için yorumlandı
-                # Diğer riskleri çok düşük seviyeye indir
-                # for category in other_categories_for_safe_check:
-                #     scores[category] = 0.1  # Çok düşük risk
-                logger.info(f"ÇOK GÜVENLİ: 'safe' skoru {original_safe_score:.2f} -> {scores['safe']:.2f}, diğer skorlar korundu")
-                
-            elif most_scores_medium_or_low and person_count <= 4:
-                # Orta güvenli durum - safe skorunu orta-yüksek seviyeye çıkar
-                original_safe_score = scores.get('safe', 0)
-                scores['safe'] = 0.8  # Yüksek güven
-                
-                # DEVRE DIŞI: Continuous scoring sistemini bozduğu için yorumlandı
-                # Diğer riskleri düşük seviyeye indir
-                # for category in other_categories_for_safe_check:
-                #     current_score = scores.get(category, 0)
-                #     if current_score > 0.35:  # Sadece orta ve üzeri olanları düşür
-                #         scores[category] = 0.25  # Düşük risk
-                logger.info(f"ORTA GÜVENLİ: 'safe' skoru {original_safe_score:.2f} -> {scores['safe']:.2f}, diğer skorlar korundu")
+        elif no_immediate_risk_objects and most_scores_medium_or_low and person_count <= 4:
+            # Orta güvenli durum - safe skorunu hafifçe artır
+            original_safe_score = scores.get('safe', 0)
+            scores['safe'] = min(0.8, scores.get('safe', 0) * 1.05)  # Maksimum %5 artır
+            logger.info(f"ORTA GÜVENLİ: 'safe' skoru {original_safe_score:.2f} -> {scores['safe']:.2f}")
         
         # YÜKSEK RİSK SKORLARINI YOLO ONAYI OLMADAN DÜŞÜRME
         high_clip_threshold = 0.6  # Belirsiz seviyenin üstü
