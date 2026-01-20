@@ -57,7 +57,8 @@ except Exception:
     pass
 
 logger = logging.getLogger("wsanaliz.app_init")
-logging.basicConfig(level=logging.INFO)
+# NOTE: logging.basicConfig() is called in main.py based on environment
+# Calling it here would prevent main.py from setting the correct level
 
 # ERSIN ===============================
 # ERSIN 🎯 STANDARD FLASK-SOCKETIO PATTERN
@@ -154,11 +155,19 @@ def create_app(config_name: str = "default", return_socketio: bool = False) -> F
         cors_origins = flask_app.config.get('CORS_ORIGINS', '*')
         if cors_origins == '*' or not cors_origins:
             # Development mode: allow all origins
-            CORS(flask_app, resources={r"/api/*": {"origins": "*"}}, supports_credentials=True)
-            logger.info("CORS initialized: All origins allowed (development mode)")
+            # CRITICAL: CORS spec forbids "origins: *" with "supports_credentials=True"
+            # Browsers will reject credentialed requests, breaking authentication
+            # Solution: Disable credentials support when allowing all origins
+            CORS(flask_app, resources={r"/api/*": {"origins": "*"}}, supports_credentials=False)
+            logger.info("CORS initialized: All origins allowed (development mode, credentials disabled per CORS spec)")
         else:
             # Production mode: specific origins
-            origins_list = cors_origins.split(',') if isinstance(cors_origins, str) else cors_origins
+            if isinstance(cors_origins, str):
+                # Split by comma and strip whitespace from each origin
+                # This prevents CORS validation failures due to leading/trailing spaces
+                origins_list = [origin.strip() for origin in cors_origins.split(',') if origin.strip()]
+            else:
+                origins_list = cors_origins
             CORS(flask_app, resources={r"/api/*": {"origins": origins_list}}, supports_credentials=True)
             logger.info(f"CORS initialized: Allowed origins: {origins_list}")
     except ImportError:
@@ -280,7 +289,28 @@ def create_app(config_name: str = "default", return_socketio: bool = False) -> F
         ("app.routes.ensemble_routes", "ensemble_bp", None),
         ("app.routes.clip_training_routes", "clip_training_bp", None),
     ]
-    register_blueprints_from_list(flask_app, blueprint_defs)
+    registered_blueprints = register_blueprints_from_list(flask_app, blueprint_defs)
+    
+    # CRITICAL: Verify auth routes blueprint was successfully registered
+    # If auth routes are missing but AuthMiddleware is active, users will be redirected
+    # to /login which doesn't exist, breaking authentication completely
+    auth_bp_registered = any(bp.name == 'auth' for bp in registered_blueprints)
+    if not auth_bp_registered:
+        error_msg = (
+            "❌ CRITICAL: Auth routes blueprint failed to import/register. "
+            "Authentication system is BROKEN - /login route is unavailable. "
+            "AuthMiddleware will not be initialized to prevent redirect loops."
+        )
+        logger.error(error_msg)
+        environment = os.environ.get('FLASK_ENV', 'development')
+        is_production = environment == 'production'
+        if is_production:
+            raise RuntimeError(error_msg)
+        else:
+            logger.warning(
+                "Development environment - application will continue but authentication is BROKEN. "
+                "Fix auth_routes import/registration before deploying to production."
+            )
     
     # ERSIN Security middleware başlat (AFTER blueprints to avoid circular imports)
     from app.middleware.security_middleware import SecurityMiddleware
@@ -289,8 +319,13 @@ def create_app(config_name: str = "default", return_socketio: bool = False) -> F
     # Auth middleware (redirects unauthenticated users to /login)
     # IMPORTANT: Initialize AFTER blueprint registration to ensure auth routes are available
     # when the middleware's before_request hook is registered
-    from app.middleware.auth_middleware import AuthMiddleware
-    AuthMiddleware(flask_app)
+    # CRITICAL: Only initialize if auth routes are successfully registered
+    if auth_bp_registered:
+        from app.middleware.auth_middleware import AuthMiddleware
+        AuthMiddleware(flask_app)
+        logger.info("AuthMiddleware initialized successfully (auth routes available)")
+    else:
+        logger.warning("AuthMiddleware NOT initialized - auth routes unavailable")
     
     # WebSocket event handlers registration
     # Register comprehensive WebSocket handlers from websocket_routes module
@@ -371,6 +406,9 @@ def initialize_app(app):
         # So we need to get the actual path from the engine after it's initialized
         db_uri = app.config.get('SQLALCHEMY_DATABASE_URI', '')
         is_sqlite = db_uri.startswith('sqlite:///')
+        
+        # Initialize db_path to None to prevent NameError if exception occurs
+        db_path = None
         
         if is_sqlite:
             # Extract path from SQLite URI
@@ -794,22 +832,36 @@ def recover_stuck_analyses(app=None):
         timeout_minutes = 10  # 10 dakikadan fazla "processing" durumunda olan analizler takılı sayılır
         
         # Use UTC consistently; stored timestamps should be naive-UTC.
-        now = datetime.utcnow()
+        # CRITICAL: Handle both naive and timezone-aware datetimes from database
+        # SQLAlchemy may return timezone-aware datetimes depending on database backend
+        # TypeError occurs when comparing naive and aware datetimes
+        from datetime import timezone
+        now_naive = datetime.utcnow()
+        
+        def normalize_datetime(dt):
+            """Convert timezone-aware datetime to naive UTC, or return naive datetime as-is"""
+            if dt is None:
+                return None
+            if dt.tzinfo is not None:
+                # Convert timezone-aware to naive UTC
+                return dt.replace(tzinfo=None)
+            return dt
+        
         for analysis in stuck_analyses:
             # start_time can be NULL in existing DBs; fall back to created_at (or updated_at if present)
-            start_time = analysis.start_time
-            created_at = getattr(analysis, "created_at", None)
-            updated_at = getattr(analysis, "updated_at", None)
+            start_time = normalize_datetime(analysis.start_time)
+            created_at = normalize_datetime(getattr(analysis, "created_at", None))
+            updated_at = normalize_datetime(getattr(analysis, "updated_at", None))
 
             # Prefer start_time (if sane, i.e., not in the future), then updated_at, then created_at.
             # Guard against mixed timezone origins / clock skew where timestamps can end up in the future.
             # Select the first timestamp that is <= now (not in the future)
             ref_time = None
-            if start_time and start_time <= now:
+            if start_time and start_time <= now_naive:
                 ref_time = start_time
-            elif updated_at and updated_at <= now:
+            elif updated_at and updated_at <= now_naive:
                 ref_time = updated_at
-            elif created_at and created_at <= now:
+            elif created_at and created_at <= now_naive:
                 ref_time = created_at
             
             # If no valid (non-future) timestamp found, check if all timestamps are in the future
@@ -842,12 +894,12 @@ def recover_stuck_analyses(app=None):
                         start_time,
                         updated_at,
                         created_at,
-                        now,
+                        now_naive,
                     )
                     # Skip this analysis - don't mark as failed to avoid corrupting legitimate work
                     continue
 
-            elapsed = now - ref_time
+            elapsed = now_naive - ref_time
             elapsed_minutes = elapsed.total_seconds() / 60
 
             if elapsed_minutes > timeout_minutes:
@@ -861,7 +913,7 @@ def recover_stuck_analyses(app=None):
                     f"Worker process crash nedeniyle analiz başarısız oldu. "
                     f"Analiz {elapsed_minutes:.1f} dakikadır işleniyordu."
                 )
-                analysis.end_time = now
+                analysis.end_time = now_naive
                 recovered_count += 1
         
         if recovered_count > 0:
@@ -1098,6 +1150,12 @@ def cleanup_orphaned_files():
             # frames_ ile başlayan klasörleri kontrol et
             if os.path.isdir(item_path) and item.startswith('frames_'):
                 analysis_id = item.replace('frames_', '')
+                
+                # Validate analysis_id: must be non-empty and valid UUID format (36 chars with dashes)
+                # This prevents deleting folders with invalid names like "frames_" or "frames_invalid"
+                if not analysis_id or len(analysis_id) != 36 or analysis_id.count('-') != 4:
+                    logger.warning(f"Geçersiz analiz ID formatı, klasör atlanıyor: {item_path} (extracted ID: '{analysis_id}')")
+                    continue
 
                 # Bu analiz ID'si veritabanında var mı kontrol et
                 analysis_exists = Analysis.query.filter_by(id=analysis_id).first()

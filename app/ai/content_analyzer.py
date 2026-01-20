@@ -146,122 +146,134 @@ class ContentAnalyzer:
                     self.ensemble_service = None
             
             # Prompt template'leri (template ensembling)
+            # OPTIMIZED: CLIP için daha etkili template'ler
             # Not: ağırlıklandırma yok; template'ler eşit ağırlıklı ortalanır.
             self.prompt_templates = [
                 "a photo of {x}",
-                "an image containing {x}",
-                "a scene showing {x}",
-                "a video frame showing {x}",
+                "an image of {x}",
+                "a picture showing {x}",
+                "a scene with {x}",
+                "{x}",
             ]
 
             # Kategori tanımlayıcıları - Pozitif ve zıt (negatif) promptlar
+            # OPTIMIZED: Daha spesifik, görsel olarak ayırt edilebilir prompt'lar
             self.category_prompts = {
                 "violence": {
                     "positive": [
-                        # Kavga/dövüş odaklı (görsel olarak somut)
-                        "a physical fight",
-                        "a fistfight",
-                        "people punching and kicking",
-                        "a violent street fight",
-                        "a brawl in a crowd",
-                        "a person being attacked",
-                        "a violent assault",
-                        "blood or visible injury"
+                        # Görsel olarak somut şiddet sahneleri
+                        "two people physically fighting with fists",
+                        "a person punching another person in the face",
+                        "a person being hit and falling down",
+                        "blood on someone's face from violence",
+                        "a violent physical altercation between people",
+                        "someone being attacked and injured",
+                        "a street fight with multiple people brawling",
+                        "visible injuries from physical violence",
+                        "aggressive physical confrontation"
                     ],
                     "negative": [
-                        # Kavga değil: sözlü tartışma, spor, yanlış tetikleyen temas türleri
-                        "argument without physical contact",
-                        "people arguing",
-                        "a sports match",
-                        "boxing in a ring (sport)",
-                        "martial arts competition (sport)",
-                        "playful interaction",
-                        # Harassment (handsy) violence değil (ayrıştırma için)
-                        "unwanted touching"
+                        # Şiddet değil: spor, tartışma, normal etkileşim
+                        "two people having a verbal argument",
+                        "professional boxing match in a ring",
+                        "martial arts training or competition",
+                        "people playing sports together",
+                        "friendly physical interaction",
+                        "helping someone stand up",
+                        "a handshake or greeting",
+                        "people exercising or working out together"
                     ]
                 },
                 "adult_content": {
                     "positive": [
-                        # Yetişkin içerik (görsel olarak net)
-                        "explicit nudity",
-                        "full nudity",
-                        "pornographic content",
-                        "sexually explicit content",
-                        "sexual activity"
+                        # Görsel olarak net yetişkin içerik - spesifik ve ayırt edilebilir
+                        "explicit sexual content with genitals visible",
+                        "pornographic scene with sexual activity",
+                        "naked person in sexual pose",
+                        "explicit sexual intercourse",
+                        "genitalia exposed in sexual context",
+                        "sexual act being performed",
+                        "explicit nudity in sexual situation",
+                        "adult sexual content"
                     ],
                     "negative": [
-                        # Hard-negative: adult ile en sık karışan benign "skin + person" sahneleri
-                        "a family-friendly scene",
-                        "people wearing normal everyday clothing",
-                        "a beach scene in swimwear",
-                        "a swimsuit photoshoot (non-explicit)",
-                        "shirtless athlete in a sports context",
-                        "fitness workout scene",
-                        "underwear advertisement (non-explicit)",
-                        "a medical exam (non-sexual)"
+                        # Yetişkin içerik ile karışan benign sahneler - güçlü negative'ler
+                        "person wearing normal clothes in everyday setting",
+                        "family photo with people fully clothed",
+                        "beach scene with people in swimwear",
+                        "athlete in sports uniform or workout clothes",
+                        "person in underwear for fashion or fitness",
+                        "medical examination with professional context",
+                        "artistic nude photography in gallery",
+                        "baby or child in normal clothing",
+                        "people in casual everyday clothing",
+                        "non-sexual context with minimal clothing"
                     ]
                 },
                 "harassment": {
                     "positive": [
-                        # Sadece fiziksel elle taciz/groping
-                        "unwanted touching",
-                        "groping or handsy behavior",
-                        "inappropriate touching in a crowd",
-                        "touching someone's body without consent",
-                        "sexual harassment by touching",
-                        "molestation in a public place"
+                        # Görsel olarak tespit edilebilir taciz davranışları
+                        "person touching another person inappropriately",
+                        "unwanted groping or sexual touching",
+                        "person's hand on someone's body without consent",
+                        "inappropriate touching in crowded place",
+                        "sexual harassment by physical contact",
+                        "person being touched against their will",
+                        "non-consensual physical contact"
                     ],
                     "negative": [
-                        # Kavga/dövüş harassment değildir (ayrıştırma için)
-                        "a physical fight",
-                        "punching or kicking",
-                        # Benign temas/etkileşim
-                        "polite handshake",
-                        "friendly hug",
-                        "respectful greeting",
-                        "personal space respected",
-                        "helping someone up"
+                        # Taciz değil: normal temas, şiddet, yardım
+                        "two people shaking hands politely",
+                        "friendly hug between people",
+                        "person helping someone stand up",
+                        "a physical fight with punching",
+                        "people exercising together",
+                        "normal social interaction",
+                        "respectful physical contact"
                     ]
                 },
                 "weapon": {
                     "positive": [
-                        "a person holding a gun",
-                        "a handgun",
-                        "a rifle",
-                        "a weapon pointed at someone",
-                        "a knife used as a weapon",
-                        "a blade or knife in hand",
-                        "an armed person"
+                        # Görsel olarak net silah tespiti
+                        "person holding a handgun or pistol",
+                        "person pointing a gun at someone",
+                        "rifle or firearm visible in hand",
+                        "knife being used as a weapon",
+                        "person armed with a visible weapon",
+                        "weapon being brandished or shown",
+                        "firearm in threatening context"
                     ],
                     "negative": [
-                        "no weapon visible",
-                        "a peaceful scene",
-                        "a kitchen knife used for cooking",
-                        "a tool in a workshop",
-                        "harmless tool in use",
-                        "toy gun",
-                        "sports equipment"
+                        # Silah değil: mutfak, alet, oyuncak
+                        "kitchen knife on cutting board",
+                        "person cooking with kitchen tools",
+                        "tool being used for work or construction",
+                        "toy gun or fake weapon",
+                        "sports equipment like baseball bat",
+                        "peaceful scene with no weapons",
+                        "harmless tool in workshop"
                     ]
                 },
                 "drug": {
                     "positive": [
-                        "drug paraphernalia",
-                        "a syringe used for drugs",
-                        "injecting drugs",
-                        "smoking a joint",
-                        "marijuana use",
-                        "illegal drug use",
-                        "cocaine or methamphetamine",
-                        "drug deal"
+                        # Görsel olarak tespit edilebilir uyuşturucu kullanımı
+                        "person injecting drugs with syringe",
+                        "drug paraphernalia like pipes or bongs",
+                        "person smoking marijuana or joint",
+                        "illegal drug use visible",
+                        "drugs being prepared or consumed",
+                        "syringe used for drug injection",
+                        "drug-related equipment and substances"
                     ],
                     "negative": [
-                        "medical syringe in a clinical setting",
-                        "a vaccination shot",
-                        "people holding a beverage",
-                        "drinking water",
-                        "medicine packaging in a pharmacy",
-                        "healthy lifestyle",
-                        "drug-free environment"
+                        # Uyuşturucu değil: tıbbi, normal içecek, ilaç
+                        "medical syringe in hospital or clinic",
+                        "person receiving vaccination",
+                        "people drinking beverages normally",
+                        "medicine bottles in pharmacy",
+                        "healthy lifestyle and exercise",
+                        "normal food and drink consumption",
+                        "medical equipment in clinical setting"
                     ]
                 }
             }
