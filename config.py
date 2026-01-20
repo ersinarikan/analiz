@@ -135,6 +135,13 @@ class Config:
     CLIP_ADULT_THRESHOLD = 0.6 # Örnek eşik değeri, ihtiyaca göre ayarlayın
     CLIP_VIOLENCE_THRESHOLD = 0.7
     CLIP_HARASSMENT_THRESHOLD = 0.7 # Yeni eklendi
+    
+    # NSFW Model Ayarları
+    NSFW_ENABLED = os.environ.get('NSFW_ENABLED', 'False').lower() in ('true', '1', 't')
+    NSFW_MODEL_PATH = os.path.join(MODELS_FOLDER, 'nsfw', 'nsfw-detector-384.onnx')
+    NSFW_THRESHOLD = float(os.environ.get('NSFW_THRESHOLD', '0.3'))  # NSFW pozitif eşiği (0.3-0.5 önerilir)
+    NSFW_USE_ONNX = True  # ONNX Runtime kullan (daha hızlı)
+    NSFW_INPUT_SIZE = 384  # Model input boyutu
 
     # Yaş tahmini için CLIP güven eşiği (sözde etiketleme veri kaydı için)
     PSEUDO_LABEL_RECORD_CLIP_THRESHOLD = 0.75 # Yeni İngilizce standart isim

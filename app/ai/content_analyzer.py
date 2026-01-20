@@ -2,6 +2,7 @@ import os
 import numpy as np
 import cv2
 import logging
+import json
 from flask import current_app
 import warnings
 warnings.filterwarnings('ignore', category=DeprecationWarning)
@@ -296,6 +297,11 @@ class ContentAnalyzer:
                 logger.warning(f"Text features hazırlanamadı: {text_feature_error}")
                 self.category_text_features = {}
             
+            # NSFW model lazy loading (sadece gerektiğinde yüklenecek)
+            self._nsfw_model = None
+            self._nsfw_model_loaded = False
+            self._nsfw_preprocess = None
+            
             self.initialized = True
             logger.info("ContentAnalyzer - CLIP modeli başarıyla yüklendi")
         except Exception as e:
@@ -408,6 +414,96 @@ class ContentAnalyzer:
             logger.error(f"YOLOv8 modeli yüklenemedi: {str(yolo_err)}")
             raise
     
+    def _load_nsfw_model(self):
+        """Thread-safe NSFW model lazy loading (ONNX Runtime)"""
+        if self._nsfw_model_loaded and self._nsfw_model is not None:
+            return self._nsfw_model
+        
+        try:
+            from flask import current_app
+            
+            # NSFW devre dışı mı kontrol et
+            if not current_app.config.get('NSFW_ENABLED', False):
+                logger.info("NSFW modeli devre dışı (NSFW_ENABLED=False)")
+                return None
+            
+            model_path = current_app.config.get('NSFW_MODEL_PATH')
+            if not model_path or not os.path.exists(model_path):
+                logger.warning(f"NSFW model dosyası bulunamadı: {model_path}")
+                return None
+            
+            logger.info(f"NSFW modeli yükleniyor: {model_path}")
+            
+            # ONNX Runtime ile model yükle
+            try:
+                import onnxruntime as ort
+            except ImportError:
+                logger.error("onnxruntime yüklü değil. Lütfen 'pip install onnxruntime-gpu' veya 'pip install onnxruntime' yükleyin.")
+                return None
+            
+            # Provider seçimi (CUDA varsa öncelikli)
+            providers = ['CUDAExecutionProvider', 'CPUExecutionProvider'] if torch.cuda.is_available() else ['CPUExecutionProvider']
+            
+            session_options = ort.SessionOptions()
+            session_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+            
+            ort_session = ort.InferenceSession(
+                str(model_path),
+                sess_options=session_options,
+                providers=providers
+            )
+            
+            # Metadata yükle
+            metadata_path = os.path.join(os.path.dirname(model_path), 'metadata.json')
+            metadata = {}
+            if os.path.exists(metadata_path):
+                with open(metadata_path, 'r') as f:
+                    metadata = json.load(f)
+            
+            # Preprocess fonksiyonu hazırla
+            input_size = metadata.get('input_size', 384)
+            normalization = metadata.get('normalization', {
+                'mean': [0.485, 0.456, 0.406],
+                'std': [0.229, 0.224, 0.225]
+            })
+            
+            def nsfw_preprocess(image):
+                """PIL Image'ı NSFW model input formatına dönüştür"""
+                from PIL import Image
+                import numpy as np
+                
+                # Resize
+                image = image.resize((input_size, input_size), Image.Resampling.LANCZOS)
+                
+                # PIL Image'ı numpy array'e çevir
+                img_array = np.array(image).astype(np.float32) / 255.0
+                
+                # Normalize
+                mean = np.array(normalization['mean']).reshape(1, 1, 3)
+                std = np.array(normalization['std']).reshape(1, 1, 3)
+                img_array = (img_array - mean) / std
+                
+                # HWC -> CHW
+                img_array = np.transpose(img_array, (2, 0, 1))
+                
+                # Batch dimension ekle
+                img_array = np.expand_dims(img_array, axis=0)
+                
+                return img_array.astype(np.float32)
+            
+            self._nsfw_model = ort_session
+            self._nsfw_preprocess = nsfw_preprocess
+            self._nsfw_model_loaded = True
+            
+            logger.info(f"✅ NSFW modeli başarıyla yüklendi (Provider: {ort_session.get_providers()})")
+            return self._nsfw_model
+            
+        except Exception as e:
+            logger.error(f"NSFW model yükleme hatası: {e}", exc_info=True)
+            self._nsfw_model = None
+            self._nsfw_model_loaded = False
+            return None
+    
     def _load_classification_head(self):
         """Eğitilmiş classification head'i yükle (varsa)"""
         try:
@@ -450,6 +546,67 @@ class ContentAnalyzer:
         except Exception as e:
             logger.warning(f"Classification head yüklenirken hata: {str(e)}, prompt-based yaklaşım kullanılacak")
             return None
+    
+    def _analyze_with_nsfw_model(self, image_path: str | np.ndarray) -> float:
+        """
+        NSFW modeli ile görüntü analizi yapar
+        
+        Args:
+            image_path: Görüntü yolu veya numpy array
+            
+        Returns:
+            float: NSFW skoru (0.0-1.0)
+        """
+        try:
+            # NSFW modeli yükle (lazy loading)
+            nsfw_model = self._load_nsfw_model()
+            if nsfw_model is None:
+                logger.warning("NSFW modeli yüklenemedi, 0.0 döndürülüyor")
+                return 0.0
+            
+            # Görüntüyü yükle
+            if isinstance(image_path, str):
+                pil_image = Image.open(image_path).convert("RGB")
+            else:
+                # numpy array'den PIL Image'a çevir
+                cv_rgb = cv2.cvtColor(image_path, cv2.COLOR_BGR2RGB)
+                pil_image = Image.fromarray(cv_rgb)
+            
+            # Preprocess
+            if self._nsfw_preprocess is None:
+                logger.error("NSFW preprocess fonksiyonu yüklenemedi")
+                return 0.0
+            
+            preprocessed = self._nsfw_preprocess(pil_image)
+            
+            # Inference
+            outputs = nsfw_model.run(None, {'input': preprocessed})
+            
+            # Output'u [0, 1] aralığına normalize et
+            # NSFW modeli binary classification, output genelde logits veya probabilities
+            # ONNX Runtime output'unu numpy array'e çevir
+            output_array = np.array(outputs[0])
+            if len(output_array.shape) > 1 and output_array.shape[1] > 1:
+                # Binary classification: [NSFW_prob, SFW_prob]
+                nsfw_score = float(output_array[0][1])
+            else:
+                # Single output: NSFW probability veya logit
+                nsfw_score = float(output_array[0][0]) if len(output_array[0]) > 0 else 0.0
+            
+            # Sigmoid uygula (logits ise)
+            if nsfw_score < 0 or nsfw_score > 1:
+                import math
+                nsfw_score = 1.0 / (1.0 + math.exp(-nsfw_score))
+            
+            # [0, 1] aralığına clamp
+            nsfw_score = max(0.0, min(1.0, nsfw_score))
+            
+            logger.debug(f"[NSFW_INFERENCE] NSFW skoru: {nsfw_score:.4f}")
+            return nsfw_score
+            
+        except Exception as e:
+            logger.error(f"NSFW inference hatası: {e}", exc_info=True)
+            return 0.0
     
     def analyze_image(self, image_path: str | np.ndarray, content_id: str | None = None, person_id: str | None = None) -> tuple[float, float, float, float, float, float, list[dict]]:
         """
@@ -513,7 +670,22 @@ class ContentAnalyzer:
                 image_features = getattr(self.clip_model, 'encode_image')(preprocessed_image)  # type: ignore[attr-defined]
                 image_features = image_features / image_features.norm(dim=-1, keepdim=True)
             
+            # NSFW kontrolü ve adult_content kategorisini çıkar
+            from flask import current_app
+            nsfw_enabled = current_app.config.get('NSFW_ENABLED', False)
+            nsfw_score = 0.0
+            
             categories = list(self.category_prompts.keys())
+            
+            # NSFW enabled ise adult_content'i categories listesinden çıkar
+            if nsfw_enabled:
+                # NSFW inference yap
+                nsfw_score = self._analyze_with_nsfw_model(image_path)
+                logger.info(f"[NSFW_FIRST] NSFW={nsfw_score:.2f}, adult_content kategorisi CLIP döngüsünden çıkarıldı")
+                
+                # adult_content'i categories listesinden çıkar (CLIP döngüsünde kullanılmayacak)
+                categories = [cat for cat in categories if cat != 'adult_content']
+            
             final_scores = {}
             
             # Eğitilmiş classification head varsa onu kullan, yoksa prompt-based yaklaşım
@@ -688,6 +860,11 @@ class ContentAnalyzer:
                     else:
                         final_scores[cat] = base_score
 
+            # adult_content skorunu NSFW'den al (eğer NSFW enabled ise)
+            if nsfw_enabled:
+                final_scores['adult_content'] = nsfw_score
+                logger.info(f"[NSFW_FIRST] adult_content={nsfw_score:.2f} (NSFW direkt), CLIP döngüsü atlandı")
+            
             # "safe" skorunu diğer risklerden türet
             # UX PRINCIPLE: Eğer herhangi bir risk kategorisi yüksekse, safe skoru düşük olmalı
             # Örnek: adult_content=0.93 ise safe kesinlikle <0.2 olmalı
