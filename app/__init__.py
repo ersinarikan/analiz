@@ -101,14 +101,14 @@ def register_blueprints_from_list(app, blueprint_defs):
     return blueprints_to_register
 
 @overload
-def create_app(config_name: str = "default", return_socketio: Literal[False] = False) -> Flask: ...
+def create_app(config_name: str = "default", *, return_socketio: Literal[False] = False) -> Flask: ...
 
 
 @overload
 def create_app(config_name: str = "default", *, return_socketio: Literal[True]) -> tuple[Flask, Any]: ...
 
 
-def create_app(config_name: str = "default", return_socketio: bool = False) -> Flask | tuple[Flask, Any]:
+def create_app(config_name: str = "default", *, return_socketio: bool = False) -> Flask | tuple[Flask, Any]:
     """
     Flask uygulaması fabrikası.
     Args:
@@ -680,7 +680,7 @@ def _check_and_run_migrations():
                 except Exception:
                     pass
             # Don't commit - schema would be inconsistent
-        elif not failed_migrations:
+        else:
             # All migrations succeeded (or were duplicates), safe to commit
             # CRITICAL: Only commit if no migrations failed, regardless of applied count
             if not conn_closed:
@@ -810,9 +810,20 @@ def recover_stuck_analyses(app=None):
                         # Redis get() returns str when decode_responses=True
                         if isinstance(hb, str):
                             hb_ts = float(hb)
-                            if (_time.time() - hb_ts) < 30:
+                            time_since_heartbeat = _time.time() - hb_ts
+                            # Validate time difference is within positive range (0-30 seconds)
+                            # This prevents negative values from clock skew (future timestamps) from incorrectly skipping recovery
+                            # Use <= 30 to include exactly 30 seconds old heartbeats as potentially stale
+                            # Accounts for clock skew and heartbeat intervals to avoid false negatives
+                            if 0 <= time_since_heartbeat <= 30:
                                 logger.info("🔍 Worker crash recovery: Worker heartbeat taze (Redis). Recovery atlandı (false-fail + DB lock önleme).")
                                 return
+                            elif time_since_heartbeat < 0:
+                                # Clock skew detected: heartbeat timestamp is in the future
+                                logger.warning(
+                                    f"⚠️ Worker crash recovery: Clock skew detected (heartbeat timestamp {hb_ts} is in the future, "
+                                    f"time difference: {time_since_heartbeat:.2f}s). Proceeding with recovery to prevent stuck analyses."
+                                )
                     except Exception:
                         pass
         except Exception:
@@ -843,8 +854,12 @@ def recover_stuck_analyses(app=None):
             if dt is None:
                 return None
             if dt.tzinfo is not None:
-                # Convert timezone-aware to naive UTC
-                return dt.replace(tzinfo=None)
+                # CRITICAL: Properly convert timezone-aware to UTC, then remove tzinfo
+                # Simply replacing tzinfo=None would keep the same wall time but wrong UTC moment
+                # Example: 2024-01-01 15:00:00+05:00 -> 2024-01-01 10:00:00 (UTC equivalent)
+                from datetime import timezone
+                utc_dt = dt.astimezone(timezone.utc)
+                return utc_dt.replace(tzinfo=None)
             return dt
         
         for analysis in stuck_analyses:

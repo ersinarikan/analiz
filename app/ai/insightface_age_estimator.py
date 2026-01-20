@@ -268,8 +268,20 @@ class InsightFaceAgeEstimator:
             # Device bilgisini güncelle
             if hasattr(clip_model, 'device') and clip_model.device:
                 self.clip_device = clip_model.device
+            elif clip_model is not None:
+                try:
+                    # Model parametrelerinden device'ı al
+                    params = list(clip_model.parameters())
+                    if params:
+                        self.clip_device = params[0].device
+                    else:
+                        # Parametre yoksa varsayılan device'ı kullan
+                        self.clip_device = "cuda" if torch.cuda.is_available() else "cpu"
+                except Exception as device_err:
+                    logger.warning(f"CLIP model device tespit edilemedi: {device_err}, varsayılan kullanılıyor")
+                    self.clip_device = "cuda" if torch.cuda.is_available() else "cpu"
             else:
-                self.clip_device = next(clip_model.parameters()).device if clip_model else "cpu"
+                self.clip_device = "cpu"
             
             logger.info(f"✅ Shared CLIP model başarıyla inject edildi! Device: {self.clip_device}")
             
