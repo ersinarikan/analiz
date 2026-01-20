@@ -30,9 +30,8 @@ def remove_pid():
 
 def stop_app():
     if sys.platform == "win32":
-        # Komut satırında 'app.py' geçen tüm python.exe süreçlerini bul ve öldür
-        import subprocess
-        result = subprocess.check_output('wmic process where "CommandLine like \'%app.py%\' and Name=\'python.exe\'" get ProcessId', shell=True)
+        # Komut satırında 'main.py' geçen tüm python.exe süreçlerini bul ve öldür
+        result = subprocess.check_output('wmic process where "CommandLine like \'%main.py%\' and Name=\'python.exe\'" get ProcessId', shell=True)
         lines = result.decode().splitlines()
         pids = [line.strip() for line in lines if line.strip().isdigit()]
         if not pids:
@@ -56,7 +55,7 @@ def stop_app():
             print("PID dosyası bulunamadı veya geçersiz.")
 
 def start_app():
-    subprocess.Popen([sys.executable, "app.py"])
+    subprocess.Popen([sys.executable, "main.py"])
     print("Yeni uygulama başlatıldı.")
 
 def restart_application(delay=1):
@@ -74,7 +73,7 @@ def restart_application(delay=1):
         current_path = os.path.dirname(os.path.abspath(__file__))
         # app/utils -> app -> project_root
         project_root = os.path.dirname(os.path.dirname(current_path))
-        app_path = os.path.join(project_root, 'app.py')
+        app_path = os.path.join(project_root, 'main.py')
         
         logger.info(f"Uygulama yeniden başlatılıyor... Root: {project_root}")
         
@@ -119,7 +118,7 @@ def restart_application(delay=1):
         try:
             subprocess.Popen([
                 sys.executable, 
-                os.path.join(project_root, 'app.py')
+                os.path.join(project_root, 'main.py')
             ], cwd=project_root)
             return True
         except Exception as fallback_error:

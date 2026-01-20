@@ -29,15 +29,25 @@ def _pam_via_socket(username: str, password: str) -> bool | None:
         path = "/run/wsanaliz-pamauth/socket"
     try:
         s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        s.settimeout(5.0)
-        s.connect(path)
-        buf = f"AUTH\n{username}\n{password}\n"
-        s.sendall(buf.encode("utf-8"))
-        data = b""
-        while len(data) < 8 and (chunk := s.recv(64)):
-            data += chunk
-        s.close()
-        return "OK" in (data.decode("utf-8", errors="replace").split("\n")[0] or "")
+        try:
+            s.settimeout(5.0)
+            s.connect(path)
+            buf = f"AUTH\n{username}\n{password}\n"
+            s.sendall(buf.encode("utf-8"))
+            data = b""
+            while len(data) < 16 and (chunk := s.recv(64)):
+                data += chunk
+        finally:
+            try:
+                s.close()
+            except Exception:
+                pass
+
+        first_line = (data.decode("utf-8", errors="replace").splitlines()[0] if data else "").strip()
+        if not first_line:
+            return None
+        # Exact match: avoid substring false-positives.
+        return first_line == "OK"
     except FileNotFoundError:
         logger.debug("pamauth socket not found, using direct PAM")
         return None

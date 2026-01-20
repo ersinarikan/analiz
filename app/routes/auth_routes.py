@@ -42,7 +42,9 @@ def login_page():
         return render_template("login.html", next=next_url, error="Kullanıcı adı veya şifre hatalı.")
 
     session["pam_user"] = username
-    session.permanent = True
+    # "Beni Hatırla" checkbox'ı işaretliyse session'ı kalıcı yap
+    remember_me = request.form.get("remember_me") == "1"
+    session.permanent = remember_me
     return redirect(next_url)
 
 

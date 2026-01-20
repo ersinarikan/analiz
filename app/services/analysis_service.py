@@ -1440,7 +1440,9 @@ def analyze_video(analysis):
             avg_scores = {}
             avg_scores['violence'] = _robust_overall_score(category_scores_list['violence'])
             avg_scores['harassment'] = _robust_overall_score(category_scores_list['harassment'])
-            avg_scores['adult_content'] = category_scores_sum['adult_content'] / category_counts['adult_content'] if category_counts['adult_content'] > 0 else 0
+            # Adult içerik videolarda "seyrek ama ağır" olabilir; ortalama yerine peak ağırlıklı (p90+avg blend)
+            # kullanmak overall'ı daha doğru yükseltir.
+            avg_scores['adult_content'] = _robust_overall_score(category_scores_list['adult_content'], peak_weight=0.85)
             avg_scores['weapon'] = category_scores_sum['weapon'] / category_counts['weapon'] if category_counts['weapon'] > 0 else 0
             avg_scores['drug'] = category_scores_sum['drug'] / category_counts['drug'] if category_counts['drug'] > 0 else 0
             # avg_scores['safe'] = category_scores_sum['safe'] / category_counts['safe'] if category_counts['safe'] > 0 else 0 # Eski safe hesaplaması

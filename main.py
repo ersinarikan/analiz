@@ -75,7 +75,6 @@ def signal_handler(_signum, _frame):
         sys.exit(0)  # Force exit
 
 if __name__ == "__main__":
-    import sys
     if len(sys.argv) > 1:
         if sys.argv[1] == "-stop":
             from app.utils.restart_helper import stop_app

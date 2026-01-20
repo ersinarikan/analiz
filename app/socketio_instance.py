@@ -29,9 +29,13 @@ class _NullSocketIO:
         print(f"⚠️ SocketIO not initialized yet; ignoring call: socketio.{name}(...)")
 
     def emit(self, *args: Any, **kwargs: Any) -> None:
+        _ = args
+        _ = kwargs
         self._warn("emit")
 
     def on(self, *args: Any, **kwargs: Any):
+        _ = args
+        _ = kwargs
         # decorator form: @socketio.on('event')
         def decorator(fn):
             self._warn("on")
@@ -40,17 +44,25 @@ class _NullSocketIO:
         return decorator
 
     def run(self, *args: Any, **kwargs: Any) -> None:
+        _ = args
+        _ = kwargs
         self._warn("run")
 
     def start_background_task(self, *args: Any, **kwargs: Any) -> None:
+        _ = args
+        _ = kwargs
         self._warn("start_background_task")
 
     def sleep(self, *args: Any, **kwargs: Any) -> None:
+        _ = args
+        _ = kwargs
         self._warn("sleep")
 
     def __getattr__(self, name: str) -> Any:
         # best-effort no-op for unknown attributes
         def _noop(*args: Any, **kwargs: Any) -> None:
+            _ = args
+            _ = kwargs
             self._warn(name)
 
         return _noop

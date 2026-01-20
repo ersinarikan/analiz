@@ -439,7 +439,7 @@ class ContentAnalyzer:
             logger.warning(f"Classification head yüklenirken hata: {str(e)}, prompt-based yaklaşım kullanılacak")
             return None
     
-    def analyze_image(self, image_path: str | np.ndarray, content_id: str | None = None, person_id: str | None = None) -> tuple[float, float, float, float, float, float, float, float, float, float, list[dict]]:
+    def analyze_image(self, image_path: str | np.ndarray, content_id: str | None = None, person_id: str | None = None) -> tuple[float, float, float, float, float, float, list[dict]]:
         """
         Bir resmi CLIP modeli ile analiz eder ve içerik skorlarını hesaplar.
         (YENİ: Ensemble desteği ile)
@@ -467,14 +467,28 @@ class ContentAnalyzer:
                 results = yolo_model(cv_image)
                 for r in results:
                     boxes = r.boxes
+                    if boxes is None or len(boxes) == 0:
+                        continue
                     for box in boxes:
-                        x1, y1, x2, y2 = box.xyxy[0]
-                        x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2)
-                        w, h = x2 - x1, y2 - y1
-                        conf = float(box.conf[0])
-                        cls_id = int(box.cls[0])
-                        label = yolo_model.names[cls_id]
-                        detected_objects.append({'label': label, 'confidence': conf, 'box': [x1, y1, w, h]})
+                        # Box tensor'larının boş olup olmadığını kontrol et
+                        if box.xyxy is None or len(box.xyxy) == 0:
+                            continue
+                        if box.conf is None or len(box.conf) == 0:
+                            continue
+                        if box.cls is None or len(box.cls) == 0:
+                            continue
+                        
+                        try:
+                            x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
+                            x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2)
+                            w, h = x2 - x1, y2 - y1
+                            conf = float(box.conf[0].cpu().numpy())
+                            cls_id = int(box.cls[0].cpu().numpy())
+                            label = yolo_model.names[cls_id]
+                            detected_objects.append({'label': label, 'confidence': conf, 'box': [x1, y1, w, h]})
+                        except (IndexError, AttributeError, ValueError) as e:
+                            logger.warning(f"YOLO box işleme hatası: {e}, box atlanıyor")
+                            continue
             
             # CLIP ile görüntü özelliklerini çıkar
             device = getattr(self, "device", ("cuda" if torch.cuda.is_available() else "cpu"))
@@ -498,9 +512,17 @@ class ContentAnalyzer:
                     predictions = self.classification_head(image_features)
                     predictions = predictions.squeeze(0).cpu().numpy()
                     
+                    # Debug: Predictions kontrolü
+                    if len(predictions) != len(categories):
+                        logger.error(f"[CLASSIFICATION_HEAD_ERROR] Predictions length ({len(predictions)}) != categories length ({len(categories)})")
+                    
                     # Skorları kategorilere ata
                     for i, cat in enumerate(categories):
-                        base_score = float(predictions[i])
+                        if i >= len(predictions):
+                            logger.warning(f"[CLASSIFICATION_HEAD] Index {i} out of range for category {cat}, using 0.0")
+                            base_score = 0.0
+                        else:
+                            base_score = float(predictions[i])
                         
                         # Ensemble düzeltmesi uygula
                         if self.ensemble_service:
@@ -557,6 +579,12 @@ class ContentAnalyzer:
                         text_features = text_features / text_features.norm(dim=-1, keepdim=True)
                         similarities = (image_features @ text_features.T).squeeze(0).cpu().numpy()  # len = len(all_prompts)
                     
+                    # Debug: similarities array kontrolü
+                    if len(similarities) == 0:
+                        logger.warning(f"[CLIP_DEBUG] {cat}: similarities array boş! CLIP çalışmıyor olabilir.")
+                        final_scores[cat] = 0.0
+                        continue
+                    
                     pos_sims = similarities[:len(pos_prompts)]
                     # adult_content için pozitif tarafta ortalama çok "yumuşak" kalabiliyor.
                     # Bariz karelerde en güçlü pozitif eşleşmeleri öne çıkarmak için p90 kullan.
@@ -591,6 +619,10 @@ class ContentAnalyzer:
                     # bars just from noise. We clamp negative evidence to 0 and keep only
                     # positive evidence.
                     base_score = max(0.0, min(1.0, float(max(0.0, squashed_fark))))
+                    
+                    # Debug: Tüm kategoriler için skor logla (ilk birkaç kategori için)
+                    if cat in ['violence', 'adult_content'] or base_score > 0.1:
+                        logger.debug(f"[CLIP_SCORE] {cat}: pos={pos_score:.4f}, neg={neg_score:.4f}, fark={fark:.4f}, squashed={squashed_fark:.4f}, base={base_score:.4f}")
 
                     if cat == "adult_content":
                         # Prompt/score debug: CLIP aslında "adult" positive'leri görüyor mu, yoksa
@@ -638,6 +670,9 @@ class ContentAnalyzer:
             sum_of_risk_scores = sum(final_scores.get(rc, 0) for rc in risk_categories_for_safe_calculation)
             average_risk_score = sum_of_risk_scores / len(risk_categories_for_safe_calculation) if risk_categories_for_safe_calculation else 0
             final_scores['safe'] = max(0.0, 1.0 - average_risk_score) # Skorun negatif olmamasını sağla
+            
+            # Debug: Tüm skorları logla
+            logger.info(f"[SCORE_SUMMARY] Final scores: {dict(final_scores)}")
             logger.info(f"[SAFE_SCORE_CALC] Average risk: {average_risk_score:.4f}, Calculated safe score: {final_scores['safe']:.4f}")
 
             # Tespit edilen nesneleri Python tiplerine dönüştür
@@ -657,9 +692,17 @@ class ContentAnalyzer:
                 final_scores = self._apply_contextual_adjustments(final_scores, object_labels, person_count)
             
             # Düzenlenen skorları döndür
-            score_list = [final_scores[cat] for cat in all_category_keys_for_return]
-            return (score_list[0], score_list[1], score_list[2], score_list[3], score_list[4], 
-                    score_list[5], score_list[6], score_list[7], score_list[8], score_list[9], safe_objects)
+            # Return sırası: violence, adult_content, harassment, weapon, drug, safe
+            # analysis_service.py'de bu sırada unpack ediliyor
+            return (
+                final_scores.get('violence', 0.0),
+                final_scores.get('adult_content', 0.0),
+                final_scores.get('harassment', 0.0),
+                final_scores.get('weapon', 0.0),
+                final_scores.get('drug', 0.0),
+                final_scores.get('safe', 0.0),
+                safe_objects
+            )
         except Exception as e:
             logger.error(f"CLIP görüntü analizi hatası: {str(e)}")
             raise

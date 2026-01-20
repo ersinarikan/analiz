@@ -2408,4 +2408,26 @@ body {
 .progress-bar-pink {
     background-color: #ff6b8a !important;
     color: white;
-} 
+}
+
+/* Navbar typography tweaks (slightly smaller) */
+.navbar {
+    padding: 10px 0 !important;
+}
+
+.navbar-brand {
+    font-size: 1.15rem !important;
+}
+
+.navbar-brand i {
+    font-size: 1.05rem !important;
+}
+
+.navbar-nav .nav-link {
+    font-size: 0.95rem !important;
+    padding: 6px 12px !important;
+}
+
+.navbar .navbar-text {
+    font-size: 0.95rem !important;
+}

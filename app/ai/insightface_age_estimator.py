@@ -581,6 +581,11 @@ class InsightFaceAgeEstimator:
                 # Benzerlik skorlarını al
                 similarities = (100.0 * image_features @ text_features.T).squeeze(0).cpu().numpy()
             
+            # similarities array'inin boş olmadığını kontrol et
+            if similarities is None or len(similarities) == 0:
+                logger.warning("CLIP similarities array boş, varsayılan güven skoru dönülüyor")
+                return 0.5
+            
             target_score = float(similarities[0])
             opposing_scores = similarities[1: 1 + len(opposing_prompts)]
             avg_opposing = float(np.mean(opposing_scores))

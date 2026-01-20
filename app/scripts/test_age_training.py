@@ -27,7 +27,7 @@ def test_age_training():
         inspector = db.inspect(db.engine)
         if 'model_versions' not in inspector.get_table_names():
             print("HATA: model_versions tablosu bulunamadı!")
-            print("Lütfen veritabanını yeniden oluşturun veya app.py'yi başlatın.")
+            print("Lütfen veritabanını yeniden oluşturun veya main.py'yi başlatın.")
             return
             
         # Servisi başlat
