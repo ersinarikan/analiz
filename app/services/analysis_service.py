@@ -1487,27 +1487,57 @@ def analyze_video(analysis):
             logger.info(f"Analiz #{analysis.id} - Kategori Bazlı En Yüksek Riskler: {analysis.category_specific_highest_risks_data}")
 
             # Mevcut en yüksek risk alanlarını (safe hariç genel en yüksek) yine de dolduralım, ama bu yeni mantığa göre olacak.
-            # Tüm kategoriler (safe hariç) arasında en yüksek olanı bulalım.
+            # ÖNCE genel skorlara göre en yüksek riskli kategoriyi bul, SONRA o kategorinin en yüksek riskli karesini seç.
+            # Bu, genel skorların (örn: Yetişkin İçeriği %70) öncelikli olmasını sağlar.
             overall_highest_risk_score = -1
             overall_highest_risk_category = None
             overall_highest_risk_frame_path = None
             overall_highest_risk_timestamp = None
 
-            for cat in categories:
-                if cat == 'safe': # 'safe' kategorisini genel en yüksek risk için dahil etme
+            # Önce genel skorlara göre en yüksek riskli kategoriyi bul (enhanced_scores kullan)
+            max_overall_score = -1
+            max_overall_category = None
+            for cat in risk_categories_for_safe_calc:
+                if cat == 'safe':
                     continue
-                
+                overall_cat_score = enhanced_scores.get(cat, 0)
+                if overall_cat_score > max_overall_score:
+                    max_overall_score = overall_cat_score
+                    max_overall_category = cat
+            
+            # Eğer genel skorlara göre bir kategori bulunduysa, o kategorinin en yüksek riskli karesini seç
+            if max_overall_category and max_overall_category in category_specific_highest_risks:
+                risk_timestamp = category_specific_highest_risks[max_overall_category]['timestamp']
                 # İlk 2 saniyedeki kareleri filtrele (genellikle boş/bulanık olur)
-                risk_timestamp = category_specific_highest_risks[cat]['timestamp']
-                if risk_timestamp is not None and risk_timestamp <= 2.0:
-                    logger.info(f"İlk kare filtreleme: {cat} kategorisi ilk 2 saniye içinde ({risk_timestamp:.2f}s), atlaniyor")
-                    continue
+                if risk_timestamp is None or risk_timestamp > 2.0:
+                    overall_highest_risk_score = category_specific_highest_risks[max_overall_category]['score']
+                    overall_highest_risk_category = max_overall_category
+                    overall_highest_risk_frame_path = category_specific_highest_risks[max_overall_category]['frame_path']
+                    overall_highest_risk_timestamp = category_specific_highest_risks[max_overall_category]['timestamp']
+                    logger.info(f"Genel skorlara göre en yüksek riskli kategori: {max_overall_category} (genel skor: {max_overall_score:.4f}, frame skoru: {overall_highest_risk_score:.4f})")
+                else:
+                    logger.info(f"İlk kare filtreleme: {max_overall_category} kategorisi ilk 2 saniye içinde ({risk_timestamp:.2f}s), fallback'e geçiliyor")
+                    # Fallback: Genel skorlara göre ikinci en yüksek kategoriyi dene veya frame skorlarına göre seç
+                    max_overall_score = -1
+                    max_overall_category = None
+            
+            # Fallback: Eğer genel skorlara göre seçim yapılamadıysa, frame skorlarına göre seç
+            if overall_highest_risk_category is None:
+                for cat in categories:
+                    if cat == 'safe': # 'safe' kategorisini genel en yüksek risk için dahil etme
+                        continue
                     
-                if category_specific_highest_risks[cat]['score'] > overall_highest_risk_score:
-                    overall_highest_risk_score = category_specific_highest_risks[cat]['score']
-                    overall_highest_risk_category = cat
-                    overall_highest_risk_frame_path = category_specific_highest_risks[cat]['frame_path']
-                    overall_highest_risk_timestamp = category_specific_highest_risks[cat]['timestamp']
+                    # İlk 2 saniyedeki kareleri filtrele (genellikle boş/bulanık olur)
+                    risk_timestamp = category_specific_highest_risks[cat]['timestamp']
+                    if risk_timestamp is not None and risk_timestamp <= 2.0:
+                        logger.info(f"İlk kare filtreleme: {cat} kategorisi ilk 2 saniye içinde ({risk_timestamp:.2f}s), atlaniyor")
+                        continue
+                        
+                    if category_specific_highest_risks[cat]['score'] > overall_highest_risk_score:
+                        overall_highest_risk_score = category_specific_highest_risks[cat]['score']
+                        overall_highest_risk_category = cat
+                        overall_highest_risk_frame_path = category_specific_highest_risks[cat]['frame_path']
+                        overall_highest_risk_timestamp = category_specific_highest_risks[cat]['timestamp']
             
             if overall_highest_risk_category:
                 analysis.highest_risk_frame = overall_highest_risk_frame_path
@@ -1642,27 +1672,57 @@ def calculate_overall_scores(analysis):
         logger.info(f"Analiz #{analysis.id} - Kategori Bazlı En Yüksek Riskler: {analysis.category_specific_highest_risks_data}")
 
         # Mevcut en yüksek risk alanlarını (safe hariç genel en yüksek) yine de dolduralım, ama bu yeni mantığa göre olacak.
-        # Tüm kategoriler (safe hariç) arasında en yüksek olanı bulalım.
+        # ÖNCE genel skorlara göre en yüksek riskli kategoriyi bul, SONRA o kategorinin en yüksek riskli karesini seç.
+        # Bu, genel skorların (örn: Yetişkin İçeriği %70) öncelikli olmasını sağlar.
         overall_highest_risk_score = -1
         overall_highest_risk_category = None
         overall_highest_risk_frame_path = None
         overall_highest_risk_timestamp = None
 
-        for cat in categories:
-            if cat == 'safe': 
+        # Önce genel skorlara göre en yüksek riskli kategoriyi bul (enhanced_scores kullan)
+        max_overall_score = -1
+        max_overall_category = None
+        for cat in risk_categories_for_safe_calc:
+            if cat == 'safe':
                 continue
-                
+            overall_cat_score = enhanced_scores.get(cat, 0)
+            if overall_cat_score > max_overall_score:
+                max_overall_score = overall_cat_score
+                max_overall_category = cat
+        
+        # Eğer genel skorlara göre bir kategori bulunduysa, o kategorinin en yüksek riskli karesini seç
+        if max_overall_category and max_overall_category in category_specific_highest_risks:
+            risk_timestamp = category_specific_highest_risks[max_overall_category]['timestamp']
             # İlk 2 saniyedeki kareleri filtrele (genellikle boş/bulanık olur)
-            risk_timestamp = category_specific_highest_risks[cat]['timestamp']
-            if risk_timestamp is not None and risk_timestamp <= 2.0:
-                logger.info(f"İlk kare filtreleme (calculate_overall_scores): {cat} kategorisi ilk 2 saniye içinde ({risk_timestamp:.2f}s), atlaniyor")
-                continue
-                
-            if category_specific_highest_risks[cat]['score'] > overall_highest_risk_score:
-                overall_highest_risk_score = category_specific_highest_risks[cat]['score']
-                overall_highest_risk_category = cat
-                overall_highest_risk_frame_path = category_specific_highest_risks[cat]['frame_path']
-                overall_highest_risk_timestamp = category_specific_highest_risks[cat]['timestamp']
+            if risk_timestamp is None or risk_timestamp > 2.0:
+                overall_highest_risk_score = category_specific_highest_risks[max_overall_category]['score']
+                overall_highest_risk_category = max_overall_category
+                overall_highest_risk_frame_path = category_specific_highest_risks[max_overall_category]['frame_path']
+                overall_highest_risk_timestamp = category_specific_highest_risks[max_overall_category]['timestamp']
+                logger.info(f"Genel skorlara göre en yüksek riskli kategori: {max_overall_category} (genel skor: {max_overall_score:.4f}, frame skoru: {overall_highest_risk_score:.4f})")
+            else:
+                logger.info(f"İlk kare filtreleme: {max_overall_category} kategorisi ilk 2 saniye içinde ({risk_timestamp:.2f}s), fallback'e geçiliyor")
+                # Fallback: Genel skorlara göre ikinci en yüksek kategoriyi dene veya frame skorlarına göre seç
+                max_overall_score = -1
+                max_overall_category = None
+        
+        # Fallback: Eğer genel skorlara göre seçim yapılamadıysa, frame skorlarına göre seç
+        if overall_highest_risk_category is None:
+            for cat in categories:
+                if cat == 'safe': 
+                    continue
+                    
+                # İlk 2 saniyedeki kareleri filtrele (genellikle boş/bulanık olur)
+                risk_timestamp = category_specific_highest_risks[cat]['timestamp']
+                if risk_timestamp is not None and risk_timestamp <= 2.0:
+                    logger.info(f"İlk kare filtreleme (calculate_overall_scores): {cat} kategorisi ilk 2 saniye içinde ({risk_timestamp:.2f}s), atlaniyor")
+                    continue
+                    
+                if category_specific_highest_risks[cat]['score'] > overall_highest_risk_score:
+                    overall_highest_risk_score = category_specific_highest_risks[cat]['score']
+                    overall_highest_risk_category = cat
+                    overall_highest_risk_frame_path = category_specific_highest_risks[cat]['frame_path']
+                    overall_highest_risk_timestamp = category_specific_highest_risks[cat]['timestamp']
         
         if overall_highest_risk_category:
             analysis.highest_risk_frame = overall_highest_risk_frame_path

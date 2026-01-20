@@ -632,6 +632,17 @@ class ContentAnalyzer:
                     # positive evidence.
                     base_score = max(0.0, min(1.0, float(max(0.0, squashed_fark))))
                     
+                    # Ham CLIP skorlarını logla (her frame için tüm kategoriler)
+                    frame_name = os.path.basename(image_path) if isinstance(image_path, str) else "numpy_array"
+                    logger.info(
+                        f"[CLIP_HAM_SKOR] frame={frame_name} kategori={cat} | "
+                        f"pos_score={pos_score:.4f} neg_score={neg_score:.4f} fark={fark:.4f} | "
+                        f"squashed={squashed_fark:.4f} base_score={base_score:.4f} | "
+                        f"pos_sims_min={float(np.min(pos_sims)):.4f} pos_sims_max={float(np.max(pos_sims)):.4f} pos_sims_mean={float(np.mean(pos_sims)):.4f} | "
+                        f"neg_sims_min={float(np.min(neg_sims)):.4f} neg_sims_max={float(np.max(neg_sims)):.4f} neg_sims_mean={float(np.mean(neg_sims)):.4f} | "
+                        f"n_pos={len(pos_prompts)} n_neg={len(neg_sims)}"
+                    )
+                    
                     # Debug: Tüm kategoriler için skor logla (ilk birkaç kategori için)
                     if cat in ['violence', 'adult_content'] or base_score > 0.1:
                         logger.debug(f"[CLIP_SCORE] {cat}: pos={pos_score:.4f}, neg={neg_score:.4f}, fark={fark:.4f}, squashed={squashed_fark:.4f}, base={base_score:.4f}")

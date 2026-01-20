@@ -16,6 +16,15 @@ Outputs a single JSON line to stdout.
 import json
 import sys
 import traceback
+import logging
+import os
+
+# Logging yapılandırması - subprocess'te INFO seviyesinde loglar görünsün
+logging.basicConfig(
+    level=os.environ.get("LOG_LEVEL", "INFO"),
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    stream=sys.stderr,  # stderr'e yaz ki log dosyasına gitsin
+)
 
 
 def main(argv: list[str]) -> int:
