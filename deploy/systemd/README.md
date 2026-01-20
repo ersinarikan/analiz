@@ -8,9 +8,16 @@ unit dosyaları repo içine `deploy/systemd/` altına eklendi.
 
 `redis-server` servisiniz yoksa kurun/çalıştırın.
 
-## 2) Unit dosyalarını kopyala
+## 2) PAM ve unit dosyalarını kopyala
+
+`unix_chkpwd` sadece çağıran kullanıcının şifresini doğruladığı için web (ersin) üzerinden serdar vb. giriş yapılamaz. Bunun için root’ta çalışan **wsanaliz-pamauth** ve `pam_rootok` içermeyen bir PAM servisi kullanılıyor.
 
 ```bash
+# PAM: sadece pam_unix (pam_rootok yok)
+sudo cp /opt/wsanaliz/deploy/pam/wsanaliz /etc/pam.d/wsanaliz
+
+# systemd
+sudo cp /opt/wsanaliz/deploy/systemd/wsanaliz-pamauth.service /etc/systemd/system/wsanaliz-pamauth.service
 sudo cp /opt/wsanaliz/deploy/systemd/wsanaliz-web.service /etc/systemd/system/wsanaliz-web.service
 sudo cp /opt/wsanaliz/deploy/systemd/wsanaliz-worker.service /etc/systemd/system/wsanaliz-worker.service
 sudo systemctl daemon-reload
@@ -25,6 +32,7 @@ sudo systemctl disable --now wsanaliz.service
 ## 4) Yeni servisleri başlat
 
 ```bash
+sudo systemctl enable --now wsanaliz-pamauth.service
 sudo systemctl enable --now wsanaliz-web.service
 sudo systemctl enable --now wsanaliz-worker.service
 ```

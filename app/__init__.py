@@ -113,6 +113,26 @@ def create_app(config_name='default', return_socketio: bool = False):
     # NOTE: Some helpers historically relied on `global_flask_app` (legacy). Keep it safe.
     global global_flask_app
     global_flask_app = flask_app
+
+    # Server-side session store (cookie holds session id only)
+    # NOTE: Redis is optional; filesystem sessions work out of the box.
+    try:
+        from flask_session import Session
+
+        if (flask_app.config.get("SESSION_TYPE") or "").strip().lower() == "redis":
+            try:
+                import redis  # type: ignore
+
+                redis_url = (os.environ.get("WSANALIZ_REDIS_URL") or "redis://localhost:6379/0").strip()
+                flask_app.config["SESSION_REDIS"] = redis.Redis.from_url(redis_url)
+            except Exception as e:
+                logger.warning(f"SESSION_TYPE=redis ama Redis init başarısız, filesystem'e düşülüyor: {e}")
+                flask_app.config["SESSION_TYPE"] = "filesystem"
+
+        Session(flask_app)
+        logger.info(f"Flask-Session initialized (type={flask_app.config.get('SESSION_TYPE')})")
+    except Exception as e:
+        logger.warning(f"Flask-Session init atlandı: {e}")
     
     # ERSIN Flask uzantılarını başlat
     db.init_app(flask_app)
@@ -180,8 +200,11 @@ def create_app(config_name='default', return_socketio: bool = False):
     
     @minimal_socketio.on('connect')
     def handle_connect():
-        from flask import request
+        from flask import request, session
         from flask_socketio import emit
+        # Reject WS connections when not authenticated (unless auth is disabled)
+        if not flask_app.config.get("WSANALIZ_AUTH_DISABLED", False) and not session.get("pam_user"):
+            return False
         print(f"🎉🎉🎉 MİNİMAL CONNECT! Session: {request.sid}")
         emit('connected', {'message': 'Minimal pattern bağlantısı başarılı!'})
         
@@ -340,6 +363,10 @@ def create_app(config_name='default', return_socketio: bool = False):
     # ERSIN Security middleware başlat
     from app.middleware.security_middleware import SecurityMiddleware
     SecurityMiddleware(flask_app)
+
+    # Auth middleware (redirects unauthenticated users to /login)
+    from app.middleware.auth_middleware import AuthMiddleware
+    AuthMiddleware(flask_app)
     
     # ERSIN Performans için memory management başlat
     try:
@@ -359,6 +386,7 @@ def create_app(config_name='default', return_socketio: bool = False):
     
     # ERSIN Blueprint'leri error handling ile kaydet (refaktör)
     blueprint_defs = [
+        ("app.routes.auth_routes", "auth_bp", None),
         ("app.routes.main_routes", "main_bp", None),
         ("app.routes.file_routes", "bp", "file_bp"),
         ("app.routes.analysis_routes", "bp", "analysis_bp"),

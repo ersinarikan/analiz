@@ -1,0 +1,25 @@
+[Unit]
+Description=WSANALIZ PAM Auth Helper (root) – unix_chkpwd sadece çağıran kullanıcıyı doğruladığı için web uygulamasından tüm kullanıcıların PAM doğrulaması için gerekli
+After=network.target
+Before=wsanaliz-web.service
+
+[Service]
+Type=simple
+User=root
+RuntimeDirectory=wsanaliz-pamauth
+RuntimeDirectoryMode=0755
+
+Environment="WSANALIZ_PAM_SERVICE=wsanaliz"
+Environment="WSANALIZ_PAMAUTH_SOCKET=/run/wsanaliz-pamauth/socket"
+Environment="WSANALIZ_PAMAUTH_ALLOW_UID=1001"
+Environment="WSANALIZ_PAMAUTH_SOCKET_GROUP=ersin"
+
+ExecStart=/opt/wsanaliz/venv/bin/python /opt/wsanaliz/scripts/wsanaliz_pamauth.py
+Restart=always
+RestartSec=2
+
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

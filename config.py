@@ -41,6 +41,23 @@ class Config:
     # Uygulama Ayarları
     SECRET_KEY = os.environ.get('SECRET_KEY') or 'guvenli-anahtar-buraya'
     DEBUG = os.environ.get('DEBUG', 'False').lower() in ('true', '1', 't')
+
+    # Auth / Session
+    # PAM only runs on the server; browser auth is implemented as a session cookie.
+    WSANALIZ_AUTH_DISABLED = (os.environ.get("WSANALIZ_AUTH_DISABLED", "") or "").strip().lower() in {"1", "true", "yes", "y", "on"}
+    # "su" kullan: /etc/pam.d/login içinde pam_lastlog hatası ve ek oturum modülleri var;
+    # "su" sadece common-auth (pam_unix) kullanır, TTY/oturum bağımsız çalışır.
+    WSANALIZ_PAM_SERVICE = (os.environ.get("WSANALIZ_PAM_SERVICE") or "su").strip()
+
+    # Flask-Session configuration (server-side sessions)
+    SESSION_TYPE = (os.environ.get("WSANALIZ_SESSION_TYPE") or "filesystem").strip()  # "filesystem" | "redis"
+    SESSION_PERMANENT = True
+    SESSION_USE_SIGNER = True
+    SESSION_COOKIE_NAME = os.environ.get("WSANALIZ_SESSION_COOKIE_NAME") or "wsanaliz_session"
+    SESSION_COOKIE_HTTPONLY = True
+    SESSION_COOKIE_SAMESITE = os.environ.get("WSANALIZ_SESSION_COOKIE_SAMESITE") or "Lax"
+    # In production behind HTTPS, set WSANALIZ_SESSION_COOKIE_SECURE=1
+    SESSION_COOKIE_SECURE = (os.environ.get("WSANALIZ_SESSION_COOKIE_SECURE", "") or "").strip().lower() in {"1", "true", "yes", "y", "on"}
     
     # Logging Ayarları
     SHOW_HTTP_LOGS = os.environ.get('SHOW_HTTP_LOGS', 'False').lower() in ('true', '1', 't')

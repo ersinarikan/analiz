@@ -109,6 +109,18 @@
                             <i class="fas fa-question-circle me-1"></i> Yardım
                         </a>
                     </li>
+                    {% if session.get("pam_user") %}
+                    <li class="nav-item d-flex align-items-center ms-lg-3">
+                        <span class="navbar-text text-light me-2">
+                            <i class="fas fa-user me-1"></i>{{ session.get("pam_user") }}
+                        </span>
+                        <form method="POST" action="{{ url_for('auth.logout_page') }}" class="d-inline m-0">
+                            <button class="btn btn-outline-light btn-sm" type="submit" title="Çıkış Yap">
+                                <i class="fas fa-right-from-bracket me-1"></i> Çıkış
+                            </button>
+                        </form>
+                    </li>
+                    {% endif %}
                 </ul>
             </div>
         </div>

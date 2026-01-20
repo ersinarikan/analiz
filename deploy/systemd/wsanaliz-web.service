@@ -1,7 +1,7 @@
 [Unit]
 Description=WSANALIZ Web (Gunicorn + Eventlet)
-After=network.target redis-server.service
-Wants=redis-server.service
+After=network.target redis-server.service wsanaliz-pamauth.service
+Wants=redis-server.service wsanaliz-pamauth.service
 
 [Service]
 Type=simple
