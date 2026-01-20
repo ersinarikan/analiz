@@ -84,7 +84,7 @@ if __name__ == "__main__":
             from app.utils.restart_helper import start_app
             start_app()
         else:
-            print("Kullanım: python app.py [-stop|-start]")
+            print("Kullanım: python main.py [-stop|-start]")
     else:
         # Signal handlers ekle
         signal.signal(signal.SIGINT, signal_handler)  # Ctrl+C
@@ -137,4 +137,4 @@ if __name__ == "__main__":
             logger.error("   1. Virtual environment'ı aktifleştirin")
             logger.error("   2. Gerekli paketleri yükleyin: pip install -r requirements.txt")
             logger.error("   3. Veya flask run --debug komutunu kullanın")
-            sys.exit(1) 
+            sys.exit(1)

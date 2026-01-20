@@ -28,6 +28,8 @@ def submit_feedback():
     """
     try:
         data = request.json
+        if data is None:
+            return jsonify({'error': 'Request body is required'}), 400
         # Zorunlu alanlar
         required_fields = ['content_id', 'analysis_id', 'category', 'feedback', 'frame_path']
         for field in required_fields:
@@ -74,6 +76,8 @@ def submit_age_feedback():
     """
     try:
         data = request.json
+        if data is None or not isinstance(data, dict):
+            return jsonify({'error': 'Request body is required'}), 400
         
         # Gerekli alanları kontrol et
         required_fields = ['person_id', 'corrected_age', 'analysis_id', 'frame_path']

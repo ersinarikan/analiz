@@ -49,7 +49,7 @@ class SecurityMiddleware:
                 return jsonify({'error': 'Rate limit exceeded'}), 429
             
             # Content length check
-            if request.content_length and request.content_length > self.app.config['SECURITY_MAX_CONTENT_LENGTH']:
+            if self.app is not None and request.content_length and request.content_length > self.app.config['SECURITY_MAX_CONTENT_LENGTH']:
                 return jsonify({'error': 'Request too large'}), 413
             
             # Host header validation
@@ -92,9 +92,10 @@ class SecurityMiddleware:
     def get_client_ip(self):
         """Get real client IP considering proxies"""
         # Check for forwarded headers (be careful with these in production)
-        if request.headers.get('X-Forwarded-For'):
+        x_forwarded_for = request.headers.get('X-Forwarded-For')
+        if x_forwarded_for:
             # Take the first IP from the chain
-            return request.headers.get('X-Forwarded-For').split(',')[0].strip()
+            return x_forwarded_for.split(',')[0].strip()
         elif request.headers.get('X-Real-IP'):
             return request.headers.get('X-Real-IP')
         else:
@@ -114,12 +115,12 @@ class SecurityMiddleware:
         burst_window = current_time - 10
         burst_count = sum(1 for req_time in client_requests if req_time > burst_window)
         
-        if burst_count >= self.app.config['SECURITY_RATE_LIMIT_BURST']:
+        if self.app is not None and burst_count >= self.app.config['SECURITY_RATE_LIMIT_BURST']:
             logger.warning(f"Burst rate limit exceeded for IP: {client_ip}")
             return False
         
         # Check rate limit (requests per minute)
-        if len(client_requests) >= self.app.config['SECURITY_RATE_LIMIT_PER_MINUTE']:
+        if self.app is not None and len(client_requests) >= self.app.config['SECURITY_RATE_LIMIT_PER_MINUTE']:
             logger.warning(f"Rate limit exceeded for IP: {client_ip}")
             return False
         
@@ -136,6 +137,8 @@ class SecurityMiddleware:
             return False
         
         # If allowed hosts are configured, check against them
+        if self.app is None:
+            return True
         allowed_hosts = self.app.config.get('SECURITY_ALLOWED_HOSTS', [])
         if allowed_hosts:
             return host in allowed_hosts

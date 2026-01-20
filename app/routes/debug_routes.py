@@ -208,9 +208,13 @@ def uploaded_files_count():
             completed_file_ids = set(analysis.file_id for analysis in completed_analyses)
             
             # Aktif analizlere sahip dosyaları bul (processing, queued)
+            # SQLAlchemy .in_() method exists but type checker doesn't recognize it
+            from sqlalchemy import and_
             active_analyses = Analysis.query.filter(
-                Analysis.file_id.in_(recent_file_ids),
-                Analysis.status.in_(['processing', 'queued', 'pending'])
+                and_(
+                    Analysis.file_id.in_(recent_file_ids),  # type: ignore[attr-defined]
+                    Analysis.status.in_(['processing', 'queued', 'pending'])  # type: ignore[attr-defined]
+                )
             ).all()
             active_file_ids = set(analysis.file_id for analysis in active_analyses)
             

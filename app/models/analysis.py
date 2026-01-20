@@ -87,7 +87,7 @@ class Analysis(db.Model):
         """Analizin iptal edilip edilmediğini kontrol eder."""
         return self.is_cancelled
     
-    def update_progress(self, progress: int, message: str = None):
+    def update_progress(self, progress: int, message: str | None = None):
         """
         Analiz ilerleme durumunu WebSocket ile bildirir.
         

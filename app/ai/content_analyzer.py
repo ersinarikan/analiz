@@ -275,7 +275,8 @@ class ContentAnalyzer:
                     device = getattr(self, "device", ("cuda" if torch.cuda.is_available() else "cpu"))
                     text_input = self.tokenizer(seed_prompt).to(device)
                     with torch.no_grad():
-                        text_feature = self.clip_model.encode_text(text_input)
+                        # OpenCLIP encode_text() exists but type checker doesn't recognize it
+                        text_feature = getattr(self.clip_model, 'encode_text')(text_input)  # type: ignore[attr-defined]
                         text_feature = text_feature / text_feature.norm(dim=-1, keepdim=True)
                         self.category_text_features[category] = text_feature[0]  # Tek vektör
                 logger.info(f"Text features hazırlandı: {list(self.category_text_features.keys())}")
@@ -319,7 +320,8 @@ class ContentAnalyzer:
                 if os.path.exists(model_file_path):
                     logger.info(f"Fine-tuned CLIP weights yükleniyor: {model_file_path}")
                     checkpoint = torch.load(model_file_path, map_location=device)
-                    model.load_state_dict(checkpoint, strict=False)
+                    # PyTorch load_state_dict() exists but type checker doesn't recognize it
+                    getattr(model, 'load_state_dict')(checkpoint, strict=False)  # type: ignore[attr-defined]
                     logger.info("Fine-tuned CLIP weights başarıyla yüklendi!")
                 else:
                     logger.info("Fine-tuned CLIP weights bulunamadı, base model kullanılıyor")
@@ -328,7 +330,8 @@ class ContentAnalyzer:
                 logger.warning(f"Fine-tuned weights yükleme hatası: {str(ft_error)}")
                 logger.info("Base model ile devam ediliyor...")
             
-            model.eval()
+            # PyTorch eval() exists but type checker doesn't recognize it
+            getattr(model, 'eval')()  # type: ignore[attr-defined]
             
             # Thread-safe cache'e kaydet
             with _cache_lock:
@@ -405,7 +408,11 @@ class ContentAnalyzer:
                 device = "cuda" if torch.cuda.is_available() and current_app.config.get('USE_GPU', True) else "cpu"
                 
                 # Classification head yapısını oluştur
-                feature_dim = self.clip_model.visual.output_dim
+                # OpenCLIP visual attribute exists but type checker doesn't recognize it
+                visual = getattr(self.clip_model, 'visual', None)  # type: ignore[attr-defined]
+                if visual is None:
+                    raise RuntimeError("CLIP model visual not available")
+                feature_dim = getattr(visual, 'output_dim', 512)  # type: ignore[attr-defined]
                 classifier = nn.Sequential(
                     nn.Linear(feature_dim, 512),
                     nn.ReLU(),
@@ -419,7 +426,8 @@ class ContentAnalyzer:
                 
                 # Ağırlıkları yükle
                 classifier.load_state_dict(torch.load(classifier_path, map_location=device))
-                classifier.eval()
+                # PyTorch eval() exists but type checker doesn't recognize it
+                getattr(classifier, 'eval')()  # type: ignore[attr-defined]
                 
                 logger.info(f"Eğitilmiş classification head yüklendi: {classifier_path}")
                 return classifier
@@ -431,7 +439,7 @@ class ContentAnalyzer:
             logger.warning(f"Classification head yüklenirken hata: {str(e)}, prompt-based yaklaşım kullanılacak")
             return None
     
-    def analyze_image(self, image_path: str, content_id: str = None, person_id: str = None) -> tuple[float, float, float, float, float, float, float, float, float, float, list[dict]]:
+    def analyze_image(self, image_path: str | np.ndarray, content_id: str | None = None, person_id: str | None = None) -> tuple[float, float, float, float, float, float, float, float, float, float, list[dict]]:
         """
         Bir resmi CLIP modeli ile analiz eder ve içerik skorlarını hesaplar.
         (YENİ: Ensemble desteği ile)
@@ -454,8 +462,9 @@ class ContentAnalyzer:
             
             # YOLOv8 ile nesne tespiti (sanity-mode'da kapalı: GPU/CPU overhead ve OOM azalt)
             detected_objects = []
-            if getattr(self, "yolo_model", None) is not None and not getattr(self, "sanity_mode", False):
-                results = self.yolo_model(cv_image)
+            yolo_model = getattr(self, "yolo_model", None)
+            if yolo_model is not None and not getattr(self, "sanity_mode", False):
+                results = yolo_model(cv_image)
                 for r in results:
                     boxes = r.boxes
                     for box in boxes:
@@ -464,14 +473,18 @@ class ContentAnalyzer:
                         w, h = x2 - x1, y2 - y1
                         conf = float(box.conf[0])
                         cls_id = int(box.cls[0])
-                        label = self.yolo_model.names[cls_id]
+                        label = yolo_model.names[cls_id]
                         detected_objects.append({'label': label, 'confidence': conf, 'box': [x1, y1, w, h]})
             
             # CLIP ile görüntü özelliklerini çıkar
             device = getattr(self, "device", ("cuda" if torch.cuda.is_available() else "cpu"))
-            preprocessed_image = self.clip_preprocess(pil_image).unsqueeze(0).to(device)
+            clip_preprocess = getattr(self, "clip_preprocess", None)
+            if clip_preprocess is None:
+                raise RuntimeError("CLIP preprocess not initialized")
+            preprocessed_image = clip_preprocess(pil_image).unsqueeze(0).to(device)
             with torch.no_grad():
-                image_features = self.clip_model.encode_image(preprocessed_image)
+                # OpenCLIP encode_image() exists but type checker doesn't recognize it
+                image_features = getattr(self.clip_model, 'encode_image')(preprocessed_image)  # type: ignore[attr-defined]
                 image_features = image_features / image_features.norm(dim=-1, keepdim=True)
             
             categories = list(self.category_prompts.keys())
@@ -496,11 +509,14 @@ class ContentAnalyzer:
                                 base_description = f"{cat} content detected"
                                 
                                 # Ensemble prediction
+                                # Convert content_id and person_id from str to int if needed
+                                content_id_int = int(content_id) if content_id is not None and isinstance(content_id, str) and content_id.isdigit() else (content_id if isinstance(content_id, int) else None)
+                                person_id_int = int(person_id) if person_id is not None and isinstance(person_id, str) and person_id.isdigit() else (person_id if isinstance(person_id, int) else None)
                                 corrected_description, corrected_confidence, correction_info = self.ensemble_service.clip_ensemble.predict_content_ensemble(
                                     base_description=base_description,
                                     base_confidence=base_score,
-                                    content_id=content_id,
-                                    person_id=person_id,
+                                    content_id=content_id_int,
+                                    person_id=person_id_int,
                                     clip_embedding=image_features.cpu().numpy().squeeze()
                                 )
                                 
@@ -536,16 +552,25 @@ class ContentAnalyzer:
                     device = getattr(self, "device", ("cuda" if torch.cuda.is_available() else "cpu"))
                     text_inputs = self.tokenizer(all_prompts).to(device)
                     with torch.no_grad():
-                        text_features = self.clip_model.encode_text(text_inputs)
+                        # OpenCLIP encode_text() exists but type checker doesn't recognize it
+                        text_features = getattr(self.clip_model, 'encode_text')(text_inputs)  # type: ignore[attr-defined]
                         text_features = text_features / text_features.norm(dim=-1, keepdim=True)
                         similarities = (image_features @ text_features.T).squeeze(0).cpu().numpy()  # len = len(all_prompts)
                     
-                    pos_score = float(np.mean(similarities[:len(pos_prompts)]))
+                    pos_sims = similarities[:len(pos_prompts)]
+                    # adult_content için pozitif tarafta ortalama çok "yumuşak" kalabiliyor.
+                    # Bariz karelerde en güçlü pozitif eşleşmeleri öne çıkarmak için p90 kullan.
+                    if cat == "adult_content" and len(pos_sims) > 0:
+                        pos_score = float(np.percentile(pos_sims, 90))
+                    else:
+                        pos_score = float(np.mean(pos_sims)) if len(pos_sims) > 0 else 0.0
+
                     neg_sims = similarities[len(pos_prompts):]
-                    # For adult_content, false positives are costly. Using a "hard negative" aggregation
-                    # (max similarity) makes the score drop if ANY benign-negative strongly matches.
+                    # adult_content için "hard negative" (max) tek bir benign-negative prompt'un
+                    # güçlü eşleşmesinde skoru aşırı bastırabiliyor. Bunun yerine p90 kullanarak
+                    # daha yumuşak ama hâlâ temkinli bir negatif agregasyon uygula.
                     if cat == "adult_content" and len(neg_sims) > 0:
-                        neg_score = float(np.max(neg_sims))
+                        neg_score = float(np.percentile(neg_sims, 90))
                     else:
                         neg_score = float(np.mean(neg_sims)) if len(neg_sims) > 0 else 0.0
                     fark = pos_score - neg_score
@@ -556,24 +581,44 @@ class ContentAnalyzer:
                     # (many frames becoming 1.0), making prompt comparisons meaningless.
                     import math
 
-                    SQUASH_FACTOR = 6.0
+                    # Category-specific squashing:
+                    # adult_content prompt farkları genelde küçük (CLIP sim aralıkları dar),
+                    # bu yüzden daha agresif squashing kullanarak bariz içerikleri yukarı taşı.
+                    SQUASH_FACTOR = 18.0 if cat == "adult_content" else 6.0
                     squashed_fark = math.tanh(fark * SQUASH_FACTOR)
                     # IMPORTANT: For "risk" categories, neutral evidence (pos≈neg) must map to ~0,
                     # not 0.5. Otherwise benign content (e.g. baby photos) gets 30–50% "risk"
                     # bars just from noise. We clamp negative evidence to 0 and keep only
                     # positive evidence.
                     base_score = max(0.0, min(1.0, float(max(0.0, squashed_fark))))
+
+                    if cat == "adult_content":
+                        # Prompt/score debug: CLIP aslında "adult" positive'leri görüyor mu, yoksa
+                        # negatif promptlar mı bastırıyor hızlıca anlamak için.
+                        if base_score < 0.15 or base_score > 0.6:
+                            logger.info(
+                                "[CLIP_ADULT_PROMPTS] pos=%.4f neg(p90)=%.4f fark=%.4f base=%.4f n_pos=%d n_neg=%d",
+                                pos_score,
+                                neg_score,
+                                fark,
+                                base_score,
+                                len(pos_prompts),
+                                len(neg_sims),
+                            )
                     
                     # Ensemble düzeltmesi uygula
                     if self.ensemble_service:
                         try:
                             base_description = f"{cat} content detected"
                             
+                            # Convert content_id and person_id from str to int if needed
+                            content_id_int = int(content_id) if content_id is not None and isinstance(content_id, str) and content_id.isdigit() else (content_id if isinstance(content_id, int) else None)
+                            person_id_int = int(person_id) if person_id is not None and isinstance(person_id, str) and person_id.isdigit() else (person_id if isinstance(person_id, int) else None)
                             corrected_description, corrected_confidence, correction_info = self.ensemble_service.clip_ensemble.predict_content_ensemble(
                                 base_description=base_description,
                                 base_confidence=base_score,
-                                content_id=content_id,
-                                person_id=person_id,
+                                content_id=content_id_int,
+                                person_id=person_id_int,
                                 clip_embedding=image_features.cpu().numpy().squeeze()
                             )
                             
@@ -612,7 +657,9 @@ class ContentAnalyzer:
                 final_scores = self._apply_contextual_adjustments(final_scores, object_labels, person_count)
             
             # Düzenlenen skorları döndür
-            return (*[final_scores[cat] for cat in all_category_keys_for_return], safe_objects)
+            score_list = [final_scores[cat] for cat in all_category_keys_for_return]
+            return (score_list[0], score_list[1], score_list[2], score_list[3], score_list[4], 
+                    score_list[5], score_list[6], score_list[7], score_list[8], score_list[9], safe_objects)
         except Exception as e:
             logger.error(f"CLIP görüntü analizi hatası: {str(e)}")
             raise

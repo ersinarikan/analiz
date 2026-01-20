@@ -398,7 +398,7 @@ class InsightFaceAgeEstimator:
             LOW_CONFIDENCE_THRESHOLD = 0.15
             both_low_confidence = confidence_clip_buffalo <= LOW_CONFIDENCE_THRESHOLD and confidence_clip_custom <= LOW_CONFIDENCE_THRESHOLD
             
-            if both_low_confidence:
+            if both_low_confidence and age_custom is not None:
                 # Her iki model de düşük güvenle tahmin yapıyor
                 # Çocuklar için daha küçük yaşı tercih et, büyük fark varsa
                 age_diff = abs(age_buffalo - age_custom)
@@ -489,6 +489,8 @@ class InsightFaceAgeEstimator:
             pil_image = Image.fromarray(rgb_image)
             
             # CLIP için ön işleme
+            if self.clip_preprocess is None:
+                return 0.5
             preprocessed_image = self.clip_preprocess(pil_image).unsqueeze(0).to(self.clip_device)
             
             # DİREKT YAŞ SORUSU: "this face is X years old"
@@ -570,6 +572,8 @@ class InsightFaceAgeEstimator:
                 image_features = self.clip_model.encode_image(preprocessed_image)
                 image_features /= image_features.norm(dim=-1, keepdim=True)
                 
+                if self.tokenizer is None:
+                    return 0.5
                 text_inputs = self.tokenizer(all_prompts).to(self.clip_device)
                 text_features = self.clip_model.encode_text(text_inputs)
                 text_features /= text_features.norm(dim=-1, keepdim=True)
@@ -645,6 +649,8 @@ class InsightFaceAgeEstimator:
         Returns:
             embedding: np.ndarray veya None
         """
+        if self.model is None:
+            return None
         faces = self.model.get(face_image)
         if not faces:
             return None

@@ -45,6 +45,7 @@ def _ensure_app_initialized():
 class _LazyWSGIApp:
     def __call__(self, environ, start_response):
         _ensure_app_initialized()
+        assert _flask_app is not None, "Flask app must be initialized"
         return _flask_app(environ, start_response)
 
 
@@ -58,4 +59,6 @@ app = _LazyWSGIApp()
 if __name__ == "__main__":
     # Direct run (development)
     _ensure_app_initialized()
+    if _socketio is None or _flask_app is None:
+        raise RuntimeError("App must be initialized")
     _socketio.run(_flask_app, host='0.0.0.0', port=5000)

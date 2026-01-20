@@ -1,6 +1,7 @@
 import logging
 from flask import Blueprint, request, jsonify
 from werkzeug.exceptions import BadRequest
+from sqlalchemy import desc
 from app import db
 from app.models.file import File
 from app.models.analysis import Analysis
@@ -528,7 +529,7 @@ def get_recent_analyses():
         # ERSIN Son 10 completed analizi al (en yeni üstte)
         recent_analyses = Analysis.query.filter_by(
             status='completed'
-        ).order_by(Analysis.end_time.desc()).limit(10).all()
+        ).order_by(Analysis.end_time.desc()).limit(10).all()  # type: ignore[attr-defined]
         
         result = []
         for analysis in recent_analyses:

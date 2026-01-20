@@ -6,7 +6,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.model_selection import train_test_split
 from flask import current_app
-from app.services.model_service import prepare_training_data
+from app.services.model_service import ModelService
 from app.utils.image_utils import load_image
 import cv2
 
@@ -61,7 +61,7 @@ class ModelTrainer:
         except Exception as e:
             current_app.logger.error(f"Konfigürasyon kaydetme hatası: {str(e)}")
     
-    def train(self, epochs: int = 5, batch_size: int = 32, learning_rate: float = 0.001) -> None:
+    def train(self, epochs: int = 5, batch_size: int = 32, learning_rate: float = 0.001) -> tuple[bool, str | dict]:
         """
         Modeli eğitir.
         - Eğitim verisini hazırlar.
@@ -71,7 +71,8 @@ class ModelTrainer:
         - Konfigürasyonu kaydeder.
         """
         # Eğitim verisini hazırla
-        training_data, message = prepare_training_data(self.model_type)
+        model_service = ModelService()
+        training_data, message = model_service.prepare_training_data(self.model_type)
         
         if not training_data:
             return False, f"Eğitim verisi hazırlanamadı: {message}"
@@ -228,33 +229,33 @@ class ModelTrainer:
             metrics = {
                 "violence": {
                     "accuracy": accuracy_score(y_violence_test, y_violence_pred),
-                    "precision": precision_score(y_violence_test, y_violence_pred, zero_division=0),
-                    "recall": recall_score(y_violence_test, y_violence_pred, zero_division=0),
-                    "f1": f1_score(y_violence_test, y_violence_pred, zero_division=0)
+                    "precision": precision_score(y_violence_test, y_violence_pred, zero_division="0"),
+                    "recall": recall_score(y_violence_test, y_violence_pred, zero_division="0"),
+                    "f1": f1_score(y_violence_test, y_violence_pred, zero_division="0")
                 },
                 "adult_content": {
                     "accuracy": accuracy_score(y_adult_test, y_adult_pred),
-                    "precision": precision_score(y_adult_test, y_adult_pred, zero_division=0),
-                    "recall": recall_score(y_adult_test, y_adult_pred, zero_division=0),
-                    "f1": f1_score(y_adult_test, y_adult_pred, zero_division=0)
+                    "precision": precision_score(y_adult_test, y_adult_pred, zero_division="0"),
+                    "recall": recall_score(y_adult_test, y_adult_pred, zero_division="0"),
+                    "f1": f1_score(y_adult_test, y_adult_pred, zero_division="0")
                 },
                 "harassment": {
                     "accuracy": accuracy_score(y_harassment_test, y_harassment_pred),
-                    "precision": precision_score(y_harassment_test, y_harassment_pred, zero_division=0),
-                    "recall": recall_score(y_harassment_test, y_harassment_pred, zero_division=0),
-                    "f1": f1_score(y_harassment_test, y_harassment_pred, zero_division=0)
+                    "precision": precision_score(y_harassment_test, y_harassment_pred, zero_division="0"),
+                    "recall": recall_score(y_harassment_test, y_harassment_pred, zero_division="0"),
+                    "f1": f1_score(y_harassment_test, y_harassment_pred, zero_division="0")
                 },
                 "weapon": {
                     "accuracy": accuracy_score(y_weapon_test, y_weapon_pred),
-                    "precision": precision_score(y_weapon_test, y_weapon_pred, zero_division=0),
-                    "recall": recall_score(y_weapon_test, y_weapon_pred, zero_division=0),
-                    "f1": f1_score(y_weapon_test, y_weapon_pred, zero_division=0)
+                    "precision": precision_score(y_weapon_test, y_weapon_pred, zero_division="0"),
+                    "recall": recall_score(y_weapon_test, y_weapon_pred, zero_division="0"),
+                    "f1": f1_score(y_weapon_test, y_weapon_pred, zero_division="0")
                 },
                 "drug": {
                     "accuracy": accuracy_score(y_drug_test, y_drug_pred),
-                    "precision": precision_score(y_drug_test, y_drug_pred, zero_division=0),
-                    "recall": recall_score(y_drug_test, y_drug_pred, zero_division=0),
-                    "f1": f1_score(y_drug_test, y_drug_pred, zero_division=0)
+                    "precision": precision_score(y_drug_test, y_drug_pred, zero_division="0"),
+                    "recall": recall_score(y_drug_test, y_drug_pred, zero_division="0"),
+                    "f1": f1_score(y_drug_test, y_drug_pred, zero_division="0")
                 },
                 "overall": {
                     "loss": loss_history[-1],

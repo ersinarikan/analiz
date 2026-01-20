@@ -29,15 +29,23 @@ def analyze_content():
         if image is None:
             return jsonify({'error': 'Invalid image'}), 400
             
-        # İçerik analizi yap
-        results = content_analyzer.analyze_content(image)
-        
-        if not results['success']:
+        # İçerik analizi yap (analyze_image numpy array kabul eder)
+        try:
+            scores = content_analyzer.analyze_image(image)
+            # Tuple'ı dict'e çevir
+            categories = ['violence', 'adult_content', 'harassment', 'weapon', 'drug', 
+                         'alcohol', 'gambling', 'hate_speech', 'self_harm', 'safe']
+            results = {
+                'success': True,
+                'scores': dict(zip(categories, scores[:10])),
+                'detected_objects': scores[10] if len(scores) > 10 else []
+            }
+            return jsonify(results)
+        except Exception as analyze_err:
             return jsonify({
-                'error': results.get('error', 'Content analysis failed')
+                'success': False,
+                'error': str(analyze_err)
             }), 500
-            
-        return jsonify(results)
         
     except Exception as e:
         logger.error(f"Content analysis failed: {str(e)}")

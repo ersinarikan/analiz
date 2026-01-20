@@ -6,6 +6,7 @@ import os
 import shutil
 import importlib
 from datetime import datetime
+from typing import Any, Literal, overload
 
 from flask import Flask, send_from_directory, current_app
 from flask_sqlalchemy import SQLAlchemy
@@ -13,6 +14,7 @@ from flask_migrate import Migrate
 from config import config
 
 from app.json_encoder import CustomJSONEncoder
+from app.socketio_instance import socketio
 
 # Global minimal socketio reference (runtime'da set edilecek)
 _current_running_socketio = None
@@ -96,15 +98,23 @@ def register_blueprints_from_list(app, blueprint_defs):
     logger.info(f"Total blueprints registered: {len(blueprints_to_register)}")
     return blueprints_to_register
 
-def create_app(config_name='default', return_socketio: bool = False):
+@overload
+def create_app(config_name: str = "default", return_socketio: Literal[False] = False) -> Flask: ...
+
+
+@overload
+def create_app(config_name: str = "default", *, return_socketio: Literal[True]) -> tuple[Flask, Any]: ...
+
+
+def create_app(config_name: str = "default", return_socketio: bool = False) -> Flask | tuple[Flask, Any]:
     """
     Flask uygulaması fabrikası.
     Args:
-        config_name (str): Kullanılacak konfigürasyon adı.
+        config_name: Kullanılacak konfigürasyon adı.
+        return_socketio: True ise (flask_app, socketio) tuple döner.
     Returns:
-        Flask | tuple[Flask, SocketIO]:
-            - Varsayılan: sadece Flask app (geriye uyumluluk).
-            - return_socketio=True ise: (flask_app, minimal_socketio)
+        return_socketio=False: sadece Flask app.
+        return_socketio=True: (flask_app, minimal_socketio)
     """
     flask_app = Flask(__name__)
     flask_app.config.from_object(config[config_name])
@@ -200,12 +210,19 @@ def create_app(config_name='default', return_socketio: bool = False):
     
     @minimal_socketio.on('connect')
     def handle_connect():
-        from flask import request, session
+        from flask import has_request_context, request, session
         from flask_socketio import emit
+        # SocketIO handlers should have a request context, but be defensive:
+        # if there is no request context, Flask session proxy would raise RuntimeError.
+        if not has_request_context():
+            return False
+
         # Reject WS connections when not authenticated (unless auth is disabled)
         if not flask_app.config.get("WSANALIZ_AUTH_DISABLED", False) and not session.get("pam_user"):
             return False
-        print(f"🎉🎉🎉 MİNİMAL CONNECT! Session: {request.sid}")
+        # Flask-SocketIO request.sid exists but type checker doesn't recognize it
+        session_id = getattr(request, 'sid', None)  # type: ignore[attr-defined]
+        print(f"🎉🎉🎉 MİNİMAL CONNECT! Session: {session_id}")
         emit('connected', {'message': 'Minimal pattern bağlantısı başarılı!'})
         
     @minimal_socketio.on('disconnect')  
@@ -215,7 +232,8 @@ def create_app(config_name='default', return_socketio: bool = False):
         from flask import current_app, has_app_context
         logger = logging.getLogger(__name__)
         
-        session_id = request.sid
+        # Flask-SocketIO request.sid exists but type checker doesn't recognize it
+        session_id = getattr(request, 'sid', None)  # type: ignore[attr-defined]
         print(f"❌❌❌ MİNİMAL DISCONNECT! Session: {session_id}")
         
         # ERSIN Bu WebSocket session'ı ile ilişkili çalışan analizleri bul ve iptal et
@@ -223,7 +241,8 @@ def create_app(config_name='default', return_socketio: bool = False):
             # SocketIO event handler'ları her zaman Flask request/app context garantisi vermeyebilir.
             # Prefer Flask context proxy if available; otherwise fall back to global app instance.
             if has_app_context():
-                app_obj = current_app._get_current_object()
+                # Flask _get_current_object() exists but type checker doesn't recognize it
+                app_obj = getattr(current_app, '_get_current_object', lambda: current_app)()  # type: ignore[attr-defined]
             else:
                 from app import global_flask_app as app_obj
 
@@ -262,7 +281,7 @@ def create_app(config_name='default', return_socketio: bool = False):
                 try:
                     active_analyses = Analysis.query.filter(
                         Analysis.websocket_session_id == session_id,
-                        Analysis.status.in_(['pending', 'processing'])
+                        Analysis.status.in_(['pending', 'processing'])  # type: ignore[attr-defined]
                     ).all()
                 except OperationalError as op_err:
                     # Schema drift case (e.g., websocket_session_id missing) should not crash the service.
@@ -277,17 +296,25 @@ def create_app(config_name='default', return_socketio: bool = False):
                     logger.info(f"🚫 WebSocket session {session_id} kesildi - Analiz #{analysis.id} iptal ediliyor")
                     analysis.cancel_analysis("WebSocket bağlantısı kesildi")
                     cancelled_count += 1
+
+                # Persist cancellations before queue cleanup so fresh queries see is_cancelled.
+                if cancelled_count > 0:
+                    db.session.commit()
                 
                 # ERSIN 2. Kuyruktaki analizleri de kontrol et
                 from app.services.queue_service import remove_cancelled_from_queue
                 queue_removed = remove_cancelled_from_queue(app=app_obj)
                 
                 if cancelled_count > 0 or queue_removed > 0:
-                    db.session.commit()
                     total_cancelled = cancelled_count + queue_removed
-                    logger.info(f"✅ WebSocket disconnect: {total_cancelled} analiz iptal edildi (DB: {cancelled_count}, Queue: {queue_removed}) (session: {session_id})")
+                    logger.info(
+                        f"✅ WebSocket disconnect: {total_cancelled} analiz iptal edildi "
+                        f"(DB: {cancelled_count}, Queue: {queue_removed}) (session: {session_id})"
+                    )
                 else:
-                    logger.info(f"ℹ️ WebSocket disconnect: Bu session ile ilişkili aktif analiz yok (session: {session_id})")
+                    logger.info(
+                        f"ℹ️ WebSocket disconnect: Bu session ile ilişkili aktif analiz yok (session: {session_id})"
+                    )
                 
         except Exception as e:
             logger.error(f"❌ WebSocket disconnect cleanup hatası: {str(e)}")
@@ -296,7 +323,8 @@ def create_app(config_name='default', return_socketio: bool = False):
             try:
                 from flask import current_app as _current_app, has_app_context as _has_app_context
                 if _has_app_context():
-                    _app_obj = _current_app._get_current_object()
+                    # Flask _get_current_object() exists but type checker doesn't recognize it
+                    _app_obj = getattr(_current_app, '_get_current_object', lambda: _current_app)()  # type: ignore[attr-defined]
                 else:
                     from app import global_flask_app as _app_obj
 
@@ -315,14 +343,18 @@ def create_app(config_name='default', return_socketio: bool = False):
     def handle_ping(data):
         from flask import request
         from flask_socketio import emit
-        print(f"🏓🏓🏓 MİNİMAL PING! Session: {request.sid}, Data: {data}")
+        # Flask-SocketIO request.sid exists but type checker doesn't recognize it
+        session_id = getattr(request, 'sid', None)  # type: ignore[attr-defined]
+        print(f"🏓🏓🏓 MİNİMAL PING! Session: {session_id}, Data: {data}")
         emit('pong', {'message': 'Minimal PONG!', 'data': data})
 
     @minimal_socketio.on('join_analysis')
     def handle_join_analysis(data):
         from flask import request
         from flask_socketio import emit, join_room
-        print(f"🔍🔍🔍 MİNİMAL JOIN_ANALYSIS! Session: {request.sid}, Data: {data}")
+        # Flask-SocketIO request.sid exists but type checker doesn't recognize it
+        session_id = getattr(request, 'sid', None)  # type: ignore[attr-defined]
+        print(f"🔍🔍🔍 MİNİMAL JOIN_ANALYSIS! Session: {session_id}, Data: {data}")
         
         if data and 'analysis_id' in data:
             analysis_id = data['analysis_id']
@@ -333,7 +365,11 @@ def create_app(config_name='default', return_socketio: bool = False):
             
             # ERSIN DEBUG: Room membership kontrol et
             try:
-                room_members = minimal_socketio.server.manager.get_participants(namespace='/', room=room)
+                # SocketIO server attribute exists but type checker doesn't recognize it
+                server = getattr(minimal_socketio, 'server', None)  # type: ignore[attr-defined]
+                if server is None:
+                    raise AttributeError("SocketIO server not available")
+                room_members = server.manager.get_participants(namespace='/', room=room)
                 room_members_list = list(room_members)
                 print(f"🔍🔍🔍 MİNİMAL JOIN: Room {room} members after join: {room_members_list}")
             except Exception as room_err:
@@ -355,10 +391,11 @@ def create_app(config_name='default', return_socketio: bool = False):
     # Backward-compatible attachment: some code may look this up from the Flask app object.
     # The canonical reference for cross-module usage should be via app.socketio_instance (proxy),
     # which is set above via set_socketio(minimal_socketio).
-    flask_app.minimal_socketio = minimal_socketio
+    # Dynamic attribute assignment - Flask allows this
+    setattr(flask_app, 'minimal_socketio', minimal_socketio)  # type: ignore[attr-defined]
     
     # ERSIN JSON encoder'ı ayarla
-    flask_app.json_encoder = CustomJSONEncoder
+    setattr(flask_app, 'json_encoder', CustomJSONEncoder)  # type: ignore[attr-defined]
     
     # ERSIN Security middleware başlat
     from app.middleware.security_middleware import SecurityMiddleware
@@ -651,10 +688,12 @@ def recover_stuck_analyses():
                 hb = r.get(heartbeat_key)
                 if hb:
                     try:
-                        hb_ts = float(hb)
-                        if (_time.time() - hb_ts) < 30:
-                            logger.info("🔍 Worker crash recovery: Worker heartbeat taze (Redis). Recovery atlandı (false-fail + DB lock önleme).")
-                            return
+                        # Redis get() returns str when decode_responses=True
+                        if isinstance(hb, str):
+                            hb_ts = float(hb)
+                            if (_time.time() - hb_ts) < 30:
+                                logger.info("🔍 Worker crash recovery: Worker heartbeat taze (Redis). Recovery atlandı (false-fail + DB lock önleme).")
+                                return
                     except Exception:
                         pass
         except Exception:
@@ -681,8 +720,9 @@ def recover_stuck_analyses():
             created_at = getattr(analysis, "created_at", None)
             updated_at = getattr(analysis, "updated_at", None)
 
-            # Prefer start_time, but guard against mixed timezone origins (older DBs used datetime.now()).
-            ref_time = start_time or created_at or updated_at
+            # Prefer start_time (if sane), then updated_at, then created_at.
+            # Guard against mixed timezone origins / clock skew where timestamps can end up in the future.
+            ref_time = start_time or updated_at or created_at
             if not ref_time:
                 # Extremely rare/corrupt case: no timestamps at all -> fail to avoid indefinite stuck state.
                 logger.warning(
@@ -695,28 +735,31 @@ def recover_stuck_analyses():
                 recovered_count += 1
                 continue
 
-            # If ref_time is in the future (common when start_time was saved as localtime),
-            # fall back to a safer timestamp.
-            if ref_time > now and (created_at and created_at <= now):
-                ref_time = created_at
-            elif ref_time > now and (updated_at and updated_at <= now):
-                ref_time = updated_at
-
-            # If all known timestamps are still in the future, treat as corruption and recover.
-            # Otherwise elapsed would be negative and the analysis would never be marked as stuck.
+            # If the chosen ref_time is in the future, try other timestamps that are <= now.
+            # If ALL timestamps are in the future, do not auto-fail (likely clock skew); keep 'processing'.
             if ref_time > now:
-                logger.warning(
-                    f"⚠️ Worker crash recovery: Analiz #{analysis.id} 'processing' ama timestamp gelecekte "
-                    f"(ref_time={ref_time}, now={now}). Muhtemel timezone/clock corruption; 'failed' olarak işaretleniyor."
-                )
-                analysis.status = 'failed'
-                analysis.error_message = (
-                    "Analiz takılı kaldı (timestamp gelecekte görünüyor; muhtemel timezone/clock corruption) "
-                    "ve otomatik olarak başarısız işaretlendi."
-                )
-                analysis.end_time = now
-                recovered_count += 1
-                continue
+                fallback = None
+                if start_time and start_time <= now:
+                    fallback = start_time
+                elif updated_at and updated_at <= now:
+                    fallback = updated_at
+                elif created_at and created_at <= now:
+                    fallback = created_at
+
+                if fallback is None:
+                    logger.warning(
+                        "⚠️ Worker crash recovery: Analiz #%s 'processing' ama tüm timestamp'ler gelecekte "
+                        "(start_time=%s, updated_at=%s, created_at=%s, now=%s). "
+                        "Muhtemel timezone/clock skew; auto-fail uygulanmadı.",
+                        analysis.id,
+                        start_time,
+                        updated_at,
+                        created_at,
+                        now,
+                    )
+                    continue
+
+                ref_time = fallback
 
             elapsed = now - ref_time
             elapsed_minutes = elapsed.total_seconds() / 60
@@ -759,7 +802,8 @@ def cleanup_old_analysis_results(days_old=7):
 
     def _resolve_app_obj():
         if _has_app_context():
-            return _current_app._get_current_object()
+            # Flask _get_current_object() exists but type checker doesn't recognize it
+            return getattr(_current_app, '_get_current_object', lambda: _current_app)()  # type: ignore[attr-defined]
         try:
             from app import global_flask_app as _global_flask_app
             return _global_flask_app
@@ -847,7 +891,8 @@ def cleanup_orphaned_files():
 
     def _resolve_app_obj():
         if _has_app_context():
-            return _current_app._get_current_object()
+            # Flask _get_current_object() exists but type checker doesn't recognize it
+            return getattr(_current_app, '_get_current_object', lambda: _current_app)()  # type: ignore[attr-defined]
         try:
             from app import global_flask_app as _global_flask_app
             return _global_flask_app
