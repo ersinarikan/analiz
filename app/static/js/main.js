@@ -1412,14 +1412,14 @@ window.deleteSpecificAgeVersion = deleteSpecificAgeVersion;
 
 // ERSIN 🎯 MODEL MANAGEMENT BUTTON FUNCTIONS
 function trainModelFromModal(modelType) {
+    const apiBase = (typeof window !== 'undefined' && window.API_BASE) ? window.API_BASE : '';
     if (modelType === 'age') {
         // ERSIN Yaş correction için parametre inputu arama, direkt istek at
-        const payload = { model_type: 'age' };
         if (confirm('Yaş tahmin modeli için düzeltmeleri yenilemek istediğinizden emin misiniz?')) {
-            fetch('/api/model/train-web', {
+            fetch(`${apiBase}/api/model/age/refresh-corrections`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
+                body: JSON.stringify({})
             })
             .then(response => response.json())
             .then(data => {
@@ -1457,7 +1457,7 @@ function trainModelFromModal(modelType) {
         patience: patience
     };
     if (confirm('İçerik analiz modeli için eğitimi başlatmak istediğinizden emin misiniz?')) {
-        fetch('/api/model/train-web', {
+        fetch(`${apiBase}/api/model/train-web`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)

@@ -591,6 +591,43 @@ def train_model_web ():
         'error':f'Eğitim başlatılamadı: {str (e )}'
         }),500 
 
+@bp .route ('/age/refresh-corrections',methods =['POST'])
+def refresh_age_corrections ():
+    """
+    Yaş modeli için düzeltmeleri (ensemble) yeniler, yeniden eğitim yapmaz.
+    """
+    try :
+        from app .services .ensemble_age_service import EnsembleAgeService 
+
+        ensemble_service =EnsembleAgeService ()
+        corrections_count =ensemble_service .load_feedback_corrections ()
+        stats =ensemble_service .get_statistics ()
+        age_version =None 
+
+        if corrections_count >0 :
+            logger .info ("💾 Creating age ensemble model version (corrections refresh)...")
+            age_version =ensemble_service .save_ensemble_corrections_as_version ()
+
+            return jsonify ({
+            'success':True ,
+            'message':'Yaş düzeltmeleri başarıyla yenilendi',
+            'age_corrections':corrections_count ,
+            'ensemble_stats':stats ,
+            'version_created':age_version .version_name if age_version else None 
+            })
+
+        return jsonify ({
+        'success':False ,
+        'error':'Yeni yaş düzeltmesi bulunamadı',
+        'age_corrections':0 ,
+        'ensemble_stats':stats ,
+        'version_created':None 
+        })
+
+    except Exception as e :
+        logger .error (f"Yaş düzeltmeleri yenileme hatası: {str (e )}",exc_info =True )
+        return jsonify ({'success':False ,'error':f'Yaş düzeltmeleri yenilenemedi: {str (e )}'}),500 
+
 def _run_content_training (trainer ,training_data ,params ,session_id ,app ):
     """
     Background thread'de content model eğitimi çalıştırır
