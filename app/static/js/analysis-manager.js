@@ -1370,9 +1370,9 @@ function displayHighRiskFramesByCategory(detailsTab, results, file) {
                 <div class="card-body p-2">
                     <h6 class="card-title mb-1">${getCategoryDisplayName(category)}</h6>
                     <small class="text-muted d-block">Risk: ${Math.round(Math.pow(data.score, 1.5) * 100)}%</small>
-                    ${formatVideoFrameInfo(data.frame_path) && window.currentVideoFilename ? 
+                    ${formatVideoFrameInfo(data.frame_path) && results.file_filename ? 
                         `<small class="text-secondary timestamp-clickable" style="cursor: pointer;" 
-                               onclick="handleTimestampClick(event, '${data.frame_path}', window.currentVideoFilename, '${formatVideoFrameInfo(data.frame_path)}')" 
+                               onclick="handleTimestampClick(event, '${data.frame_path}', '${results.file_filename}', '${formatVideoFrameInfo(data.frame_path)}')" 
                                title="Video timeline'ı açmak için tıklayın">
                                <i class="fas fa-clock me-1"></i>${formatVideoFrameInfo(data.frame_path)}
                                <i class="fas fa-external-link-alt ms-1" style="font-size: 0.7em;"></i>
@@ -1734,7 +1734,7 @@ function openVideoTimeline(framePath, videoFilename, frameInfo) {
     
     // ERSIN Video URL: F5 path prefix ile (window.API_BASE = request.script_root)
     const apiBase = (typeof window !== 'undefined' && window.API_BASE) ? window.API_BASE : '';
-    const videoUrl = `${apiBase}/api/files/uploads/${encodeURIComponent(videoFilename)}`;
+    const videoUrl = getApiFilesUrl(`uploads/${encodeURIComponent(videoFilename)}`);
     videoSource.src = videoUrl;
     video.load();  // ERSIN Video'yu yeniden yükle
     
