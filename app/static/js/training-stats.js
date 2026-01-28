@@ -1,7 +1,7 @@
-// Training Statistics Module
+// ERSIN Training Statistics Module
 const TrainingStats = {
     
-    // Eğitim verisi istatistiklerini al
+    // ERSIN Eğitim verisi istatistiklerini al
     async fetchTrainingDataStats() {
         try {
             const response = await fetch('/api/model/age/training-data-stats');
@@ -15,7 +15,7 @@ const TrainingStats = {
         }
     },
     
-    // İstatistikleri modal'da göster
+    // ERSIN İstatistikleri modal'da göster
     async displayTrainingStats(modalId = 'trainModelModal') {
         const stats = await this.fetchTrainingDataStats();
         
@@ -26,7 +26,7 @@ const TrainingStats = {
         
         const statsData = stats.stats;
         
-        // İstatistik kartını oluştur
+        // ERSIN İstatistik kartını oluştur
         const statsHtml = `
             <div class="alert alert-info mb-3" id="trainingDataStats">
                 <h6 class="alert-heading">
@@ -62,7 +62,7 @@ const TrainingStats = {
             </div>
         `;
         
-        // Modal'a ekle
+        // ERSIN Modal'a ekle
         const modal = document.getElementById(modalId);
         if (modal) {
             const modalBody = modal.querySelector('.modal-body');
@@ -71,7 +71,7 @@ const TrainingStats = {
             if (existingStats) {
                 existingStats.outerHTML = statsHtml;
             } else {
-                // Alert'ten sonra ekle
+                // ERSIN Alert'ten sonra ekle
                 const alertInfo = modalBody.querySelector('.alert-info');
                 if (alertInfo) {
                     alertInfo.insertAdjacentHTML('afterend', statsHtml);
@@ -79,11 +79,11 @@ const TrainingStats = {
             }
         }
         
-        // Eğitim butonunu güncelle
+        // ERSIN Eğitim butonunu güncelle
         this.updateTrainingButton(statsData.total_samples);
     },
     
-    // Veri kalitesi mesajı oluştur
+    // ERSIN Veri kalitesi mesajı oluştur
     getDataQualityMessage(stats) {
         const totalSamples = stats.total_samples;
         const manualRatio = stats.manual_samples / totalSamples;
@@ -121,7 +121,7 @@ const TrainingStats = {
             `;
         }
         
-        // Manuel veri oranı uyarısı
+        // ERSIN Manuel veri oranı uyarısı
         if (totalSamples >= 10 && manualRatio < 0.2) {
             message += `
                 <div class="alert alert-info mt-2 mb-0">
@@ -136,7 +136,7 @@ const TrainingStats = {
         return message;
     },
     
-    // Veri yok mesajı göster
+    // ERSIN Veri yok mesajı göster
     showNoDataMessage(modalId) {
         const noDataHtml = `
             <div class="alert alert-warning mb-3" id="trainingDataStats">
@@ -165,11 +165,11 @@ const TrainingStats = {
             }
         }
         
-        // Eğitim butonunu devre dışı bırak
+        // ERSIN Eğitim butonunu devre dışı bırak
         this.updateTrainingButton(0);
     },
     
-    // Eğitim butonunu güncelle
+    // ERSIN Eğitim butonunu güncelle
     updateTrainingButton(sampleCount) {
         const trainBtn = document.getElementById('startTrainingBtn');
         if (trainBtn) {
@@ -193,18 +193,18 @@ const TrainingStats = {
         }
     },
     
-    // Periyodik güncelleme başlat
+    // ERSIN Periyodik güncelleme başlat
     startPeriodicUpdate(intervalMs = 30000) {
-        // İlk yükleme
+        // ERSIN İlk yükleme
         this.displayTrainingStats();
         
-        // Periyodik güncelleme
+        // ERSIN Periyodik güncelleme
         this.updateInterval = setInterval(() => {
             this.displayTrainingStats();
         }, intervalMs);
     },
     
-    // Periyodik güncellemeyi durdur
+    // ERSIN Periyodik güncellemeyi durdur
     stopPeriodicUpdate() {
         if (this.updateInterval) {
             clearInterval(this.updateInterval);
@@ -213,5 +213,5 @@ const TrainingStats = {
     }
 };
 
-// Export for use in other modules
+// ERSIN Export için use in other modules
 window.TrainingStats = TrainingStats; 

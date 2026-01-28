@@ -1,2 +1,2 @@
-# Utils package
-# Yardımcı işlevler
+# ERSIN Utils package
+# ERSIN Yardımcı işlevler

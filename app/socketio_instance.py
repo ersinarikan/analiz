@@ -9,11 +9,11 @@ SocketIO instance - Circular import'u önlemek için ayrı dosya.
   instance runtime'da proxy içine set edilir.
 """
 
-import os
-from typing import Any
+import os 
+from typing import Any 
 
 
-class _NullSocketIO:
+class _NullSocketIO :
     """
     A safe fallback used before the real SocketIO instance is set.
 
@@ -25,95 +25,95 @@ class _NullSocketIO:
     If you prefer fail-fast behavior, set: SOCKETIO_STRICT_PROXY=1
     """
 
-    def _warn(self, name: str) -> None:
-        print(f"⚠️ SocketIO not initialized yet; ignoring call: socketio.{name}(...)")
+    def _warn (self ,name :str )->None :
+        print (f"⚠️ SocketIO not initialized yet; ignoring call: socketio.{name }(...)")
 
-    def emit(self, *args: Any, **kwargs: Any) -> None:
-        _ = args
-        _ = kwargs
-        self._warn("emit")
+    def emit (self ,*args :Any ,**kwargs :Any )->None :
+        _ =args 
+        _ =kwargs 
+        self ._warn ("emit")
 
-    def on(self, *args: Any, **kwargs: Any):
-        _ = args
-        _ = kwargs
-        # decorator form: @socketio.on('event')
-        def decorator(fn):
-            self._warn("on")
-            return fn
+    def on (self ,*args :Any ,**kwargs :Any ):
+        _ =args 
+        _ =kwargs 
+        # ERSIN decorator form: @socketio.on('event')
+        def decorator (fn ):
+            self ._warn ("on")
+            return fn 
 
-        return decorator
+        return decorator 
 
-    def run(self, *args: Any, **kwargs: Any) -> None:
-        _ = args
-        _ = kwargs
-        self._warn("run")
+    def run (self ,*args :Any ,**kwargs :Any )->None :
+        _ =args 
+        _ =kwargs 
+        self ._warn ("run")
 
-    def start_background_task(self, *args: Any, **kwargs: Any) -> None:
-        _ = args
-        _ = kwargs
-        self._warn("start_background_task")
+    def start_background_task (self ,*args :Any ,**kwargs :Any )->None :
+        _ =args 
+        _ =kwargs 
+        self ._warn ("start_background_task")
 
-    def sleep(self, *args: Any, **kwargs: Any) -> None:
-        _ = args
-        _ = kwargs
-        self._warn("sleep")
+    def sleep (self ,*args :Any ,**kwargs :Any )->None :
+        _ =args 
+        _ =kwargs 
+        self ._warn ("sleep")
 
-    def __getattr__(self, name: str) -> Any:
-        # best-effort no-op for unknown attributes
-        def _noop(*args: Any, **kwargs: Any) -> None:
-            _ = args
-            _ = kwargs
-            self._warn(name)
+    def __getattr__ (self ,name :str )->Any :
+    # ERSIN best-effort no-op için unknown attributes
+        def _noop (*args :Any ,**kwargs :Any )->None :
+            _ =args 
+            _ =kwargs 
+            self ._warn (name )
 
-        return _noop
+        return _noop 
 
 
-class _SocketIOProxy:
+class _SocketIOProxy :
     """A stable proxy object that forwards attributes to the real SocketIO instance."""
 
-    def __init__(self) -> None:
-        self._instance: Any | None = None
+    def __init__ (self )->None :
+        self ._instance :Any |None =None 
 
-    def set(self, instance: Any) -> None:
-        if self._instance is not None:
-            print(
-                f"🚨 WARNING: socketio instance değiştiriliyor! Eski: {id(self._instance)}, Yeni: {id(instance)}"
+    def set (self ,instance :Any )->None :
+        if self ._instance is not None :
+            print (
+            f"🚨 WARNING: socketio instance değiştiriliyor! Eski: {id (self ._instance )}, Yeni: {id (instance )}"
             )
-        self._instance = instance
+        self ._instance =instance 
 
-    def get(self) -> Any | None:
-        if self._instance is None:
-            print("🚨 WARNING: socketio instance henüz set edilmemiş!")
-        return self._instance
+    def get (self )->Any |None :
+        if self ._instance is None :
+            print ("🚨 WARNING: socketio instance henüz set edilmemiş!")
+        return self ._instance 
 
-    def reset(self) -> None:
-        self._instance = None
+    def reset (self )->None :
+        self ._instance =None 
 
-    def __getattr__(self, name: str) -> Any:
-        inst = self._instance
-        if inst is None:
-            # Default: do NOT crash during import-time access; provide a safe no-op fallback.
-            # Opt-in strict mode for debugging/prod hardening.
-            if (os.environ.get("SOCKETIO_STRICT_PROXY") or "").strip() == "1":
-                raise RuntimeError("SocketIO instance is not initialized yet")
-            inst = _NullSocketIO()
-        return getattr(inst, name)
-
-
-# Global SocketIO proxy - ZORUNLU TEK NOKTA!
-socketio = _SocketIOProxy()
+    def __getattr__ (self ,name :str )->Any :
+        inst =self ._instance 
+        if inst is None :
+        # ERSIN Default: Çökertme during import-time access; provide güvenli no-op fallback.
+        # ERSIN Opt-in strict mode için debugging/prod hardening.
+            if (os .environ .get ("SOCKETIO_STRICT_PROXY")or "").strip ()=="1":
+                raise RuntimeError ("SocketIO instance is not initialized yet")
+            inst =_NullSocketIO ()
+        return getattr (inst ,name )
 
 
-def get_socketio() -> Any | None:
+        # ERSIN Global SocketIO proxy - ZORUNLU TEK NOKTA!
+socketio =_SocketIOProxy ()
+
+
+def get_socketio ()->Any |None :
     """CRITICAL: Tek global SocketIO instance döndürür (proxy içinden)."""
-    return socketio.get()
+    return socketio .get ()
 
 
-def set_socketio(socketio_instance: Any) -> None:
+def set_socketio (socketio_instance :Any )->None :
     """CRITICAL: Global SocketIO instance'ını set eder - SADECE BURADA!"""
-    socketio.set(socketio_instance)
+    socketio .set (socketio_instance )
 
 
-def reset_socketio() -> None:
+def reset_socketio ()->None :
     """Test amaçlı socketio'yu reset eder."""
-    socketio.reset()
+    socketio .reset ()

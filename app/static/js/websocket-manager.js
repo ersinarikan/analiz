@@ -1,37 +1,29 @@
-/**
- * WSANALIZ - WebSocket Manager Module
- * 
- * Bu modül WebSocket bağlantıları ve notification engelleme sistemini yönetir.
- * main.js'ten extract edilmiştir.
- */
+/* ERSIN Aciklama. */
 
 import { setSocket, showToast } from './globals.js';
 
-// =====================================
-// WEBSOCKET MANAGEMENT
-// =====================================
+// ERSIN =====================================
+// ERSIN WEBSOCKET MANAGEMENT
+// ERSIN =====================================
 
 let socketioClient = null;
 
-/**
- * WebSocket sistemi başlatır
- * @param {HTMLElement} settingsSaveLoader - Loading spinner elementi
- */
+/* ERSIN Aciklama. */
 export function initializeSocket(settingsSaveLoader) {
     console.log('🚀 WebSocket sistemi aktif - Async Age Estimation desteği ile');
     
-    // 🔥 Kapsamlı notification engelleme sistemi
+    // ERSIN 🔥 Kapsamlı notification engelleme sistemi
     setupNotificationBlocking();
     
-    // 🔧 WebSocket client bağlantısını kurmak için biraz bekle (websocket-client.js yüklensin)
+    // ERSIN 🔧 WebSocket client bağlantısını kurmak için biraz bekle (websocket-client.js yüklensin)
     setTimeout(() => {
-        // WebSocket client instance'ını oluştur
+        // ERSIN WebSocket client instance'ını oluştur
         if (typeof WebSocketClient !== 'undefined') {
             socketioClient = new WebSocketClient();
             window.socketioClient = socketioClient;
             setSocket(socketioClient);
             
-            // Explicit connection başlat
+            // ERSIN Explicit connection başlat
             socketioClient.connect();
             
             setupWebSocketEventListeners();
@@ -39,7 +31,7 @@ export function initializeSocket(settingsSaveLoader) {
             console.log('✅ WebSocket client oluşturuldu ve bağlantı başlatıldı');
         } else {
             console.error('❌ WebSocketClient class bulunamadı!');
-            // FALLBACK: Direct socket.io connection
+            // ERSIN FALLBACK: Direct socket.io connection
             if (typeof io !== 'undefined') {
                 console.log('🔄 Fallback: Direct socket.io connection');
                 socketioClient = io();
@@ -52,17 +44,15 @@ export function initializeSocket(settingsSaveLoader) {
         }
     }, 100);
     
-    // Analysis params modal setup - MOVED TO ui-manager.js
-    // setupAnalysisParamsModal(settingsSaveLoader);
+    // ERSIN Analysis params modal setup - MOVED TO ui-manager.js
+    // ERSIN setupAnalysisParamsModal(settingsSaveLoader);
 }
 
-/**
- * Notification engelleme sistemini kurar
- */
+/* ERSIN Aciklama. */
 function setupNotificationBlocking() {
     console.log('🚫 Kapsamlı notification engelleme sistemi aktifleştiriliyor...');
     
-    // 1. Web Notification API'yi engelle
+    // ERSIN 1. Web Notification API'yi engelle
     if ('Notification' in window) {
         const originalNotification = window.Notification;
         try {
@@ -80,7 +70,7 @@ function setupNotificationBlocking() {
         }
     }
     
-    // 2. Service Worker notifications engelle
+    // ERSIN 2. Service Worker notifications engelle
     if ('serviceWorker' in navigator) {
         try {
             const originalRegister = navigator.serviceWorker.register;
@@ -91,7 +81,7 @@ function setupNotificationBlocking() {
         } catch(e) {}
     }
     
-    // 3. Push API engelle
+    // ERSIN 3. Push API engelle
     if ('PushManager' in window) {
         try {
             const originalSubscribe = PushManager.prototype.subscribe;
@@ -102,7 +92,7 @@ function setupNotificationBlocking() {
         } catch(e) {}
     }
     
-    // 4. Chrome notifications engelle
+    // ERSIN 4. Chrome notifications engelle
     if (window.chrome && window.chrome.notifications) {
         try {
             const originalCreate = window.chrome.notifications.create;
@@ -112,7 +102,7 @@ function setupNotificationBlocking() {
         } catch(e) {}
     }
     
-    // 5. Window focus events engelle (bazı popup'ların tetikleyicisi)
+    // ERSIN 5. Window focus events engelle (bazı popup'ların tetikleyicisi)
     try {
         const originalAddEventListener = window.addEventListener;
         window.addEventListener = function(type, listener, options) {
@@ -124,7 +114,7 @@ function setupNotificationBlocking() {
         };
     } catch(e) {}
     
-    // 6. Console warning/error filtreleme (WebSocket mesajları için)
+    // ERSIN 6. Console warning/error filtreleme (WebSocket mesajları için)
     try {
         const originalConsoleWarn = console.warn;
         const originalConsoleError = console.error;
@@ -133,8 +123,12 @@ function setupNotificationBlocking() {
             const message = args.join(' ').toLowerCase();
             if (message.includes('websocket') || message.includes('disconnect') || 
                 message.includes('connection') || message.includes('socket')) {
-                // WebSocket ile ilgili warning'leri sustur
+                // ERSIN WebSocket ile ilgili warning'leri sustur
                 return;
+            }
+            // ERSIN Amplitude Logger warning'lerini sustur (browser extension'dan geliyor)
+            if (message.includes('amplitude') || message.includes('defaulttracking')) {
+                return;  // ERSIN Browser extension warning'lerini filtrele
             }
             return originalConsoleWarn.apply(console, args);
         };
@@ -143,8 +137,12 @@ function setupNotificationBlocking() {
             const message = args.join(' ').toLowerCase();
             if (message.includes('websocket') || message.includes('disconnect') || 
                 message.includes('connection') || message.includes('socket')) {
-                // WebSocket ile ilgili error'ları sustur
+                // ERSIN WebSocket ile ilgili error'ları sustur
                 return;
+            }
+            // ERSIN 404 hatalarını sustur - analiz sonuçları temizlenmiş olabilir
+            if (message.includes('404') && (message.includes('detailed-results') || message.includes('analysis'))) {
+                return;  // ERSIN Sessizce çık, bu normal bir durum
             }
             return originalConsoleError.apply(console, args);
         };
@@ -153,15 +151,13 @@ function setupNotificationBlocking() {
     console.log('✅ Kapsamlı notification engelleme sistemi aktif');
 }
 
-/**
- * WebSocket event listener'larını kurar
- */
+/* ERSIN Aciklama. */
 function setupWebSocketEventListeners() {
     if (!socketioClient) return;
     
     console.log('🔧 WebSocket event listeners kuruluyor...');
     
-    // WebSocketClient wrapper'dan native socket'a erişim
+    // ERSIN WebSocketClient wrapper'dan native socket'a erişim
     const nativeSocket = socketioClient.socket || socketioClient;
     
     if (typeof nativeSocket.on !== 'function') {
@@ -169,7 +165,7 @@ function setupWebSocketEventListeners() {
         return;
     }
     
-    // Connection event'leri
+    // ERSIN Connection event'leri
     nativeSocket.on('connect', () => {
         console.log('✅ WebSocket bağlantısı kuruldu');
     });
@@ -178,7 +174,7 @@ function setupWebSocketEventListeners() {
         console.log('⚠️ WebSocket bağlantısı kesildi');
     });
     
-    // Analysis progress events - ASIL PROGRESS LISTENER!
+    // ERSIN Analysis progress events - ASIL PROGRESS LISTENER!
     nativeSocket.on('analysis_progress', (data) => {
         console.log('📊 Analysis progress alındı:', data);
         if (window.handleAnalysisProgress) {
@@ -195,7 +191,7 @@ function setupWebSocketEventListeners() {
         }
     });
     
-    // Browser background detection ve visibility API
+    // ERSIN Browser background detection ve visibility API
     try {
         document.addEventListener('visibilitychange', () => {
             if (document.hidden) {
@@ -217,21 +213,19 @@ function setupWebSocketEventListeners() {
     console.log('✅ WebSocket event listeners kuruldu');
 }
 
-/**
- * Analysis parameters modal kurulumu
- */
+/* ERSIN Aciklama. */
 function setupAnalysisParamsModal(settingsSaveLoader) {
-    // Global analiz parametreleri modalı
+    // ERSIN Global analiz parametreleri modalı
     const globalAnalysisParamsModalElement = document.getElementById('analysisParamsModal');
     if (globalAnalysisParamsModalElement) {
         const globalAnalysisParamsModal = new bootstrap.Modal(globalAnalysisParamsModalElement);
         const globalAnalysisParamsForm = document.getElementById('analysisParamsForm');
         const saveGlobalAnalysisParamsBtn = document.getElementById('saveAnalysisParamsBtn');
         
-        // Modal event listeners
+        // ERSIN Modal event listeners
         setupModalEventListeners(globalAnalysisParamsModalElement);
         
-        // Form submit handler
+        // ERSIN Form submit handler
         if (saveGlobalAnalysisParamsBtn) {
             saveGlobalAnalysisParamsBtn.addEventListener('click', function () {
                 handleAnalysisParamsSave(globalAnalysisParamsForm, settingsSaveLoader);
@@ -240,9 +234,7 @@ function setupAnalysisParamsModal(settingsSaveLoader) {
     }
 }
 
-/**
- * Modal event listener'larını kurar
- */
+/* ERSIN Aciklama. */
 function setupModalEventListeners(modalElement) {
     if (!modalElement) return;
     
@@ -258,7 +250,7 @@ function setupModalEventListeners(modalElement) {
     });
     
     modalElement.addEventListener('hidden.bs.modal', function () {
-        // Modal tamamen kapandığında backdrop'ı temizle ve scroll'u geri getir
+        // ERSIN Modal tamamen kapandığında backdrop'ı temizle ve scroll'u geri getir
         const backdrops = document.querySelectorAll('.modal-backdrop');
         backdrops.forEach(backdrop => {
             backdrop.remove();
@@ -269,15 +261,13 @@ function setupModalEventListeners(modalElement) {
     });
 }
 
-/**
- * Analysis parameters form save handler
- */
+/* ERSIN Aciklama. */
 function handleAnalysisParamsSave(form, settingsSaveLoader) {
     const formData = new FormData(form);
     const params = {};
     let formIsValid = true;
 
-    // Form verilerini validate et ve params objesine ekle
+    // ERSIN Form verilerini validate et ve params objesine ekle
     for (const [key, value] of formData.entries()) {
         const inputElement = form.elements[key];
         
@@ -296,13 +286,13 @@ function handleAnalysisParamsSave(form, settingsSaveLoader) {
 
     if (!formIsValid) return;
 
-    // Loading göster
+    // ERSIN Loading göster
     if (settingsSaveLoader) {
         settingsSaveLoader.style.display = 'inline-block';
         settingsSaveLoader.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Kaydediliyor...';
     }
 
-    // API'ye kaydet
+    // ERSIN API'ye kaydet
     fetch('/api/settings/analysis-params', {
         method: 'POST',
         headers: {
@@ -316,17 +306,17 @@ function handleAnalysisParamsSave(form, settingsSaveLoader) {
             settingsSaveLoader.style.display = 'none';
         }
         
-        // Response status kontrolü (200 OK ise başarılı)
+        // ERSIN Response status kontrolü (200 OK ise başarılı)
         if (status === 200 && data.message) {
-            // Restart durumunu kontrol et
+            // ERSIN Restart durumunu kontrol et
             if (data.restart_required || data.restart_initiated) {
-                // Production mode - restart başlatıldı
+                // ERSIN Production mode - restart başlatıldı
                 showToast('Başarılı', data.message || 'Analiz parametreleri kaydedildi. Sistem yeniden başlatılıyor...', 'success');
                 
-                // Restart sonrası sayfa yenile
+                // ERSIN Restart sonrası sayfa yenile
                 if (data.restart_initiated) {
-                    // Restart sonrası eski UI state'in (uploadedFiles / overall progress) kalmaması için
-                    // local restore mekanizmasını bir seferlik devre dışı bırak.
+                    // ERSIN Restart sonrası eski UI state'in (uploadedFiles / overall progress) kalmaması için
+                    // ERSIN local restore mekanizmasını bir seferlik devre dışı bırak.
                     try {
                         sessionStorage.setItem('wsanaliz_skip_restore', '1');
                         localStorage.removeItem('wsanaliz_recent_analyses');
@@ -342,10 +332,10 @@ function handleAnalysisParamsSave(form, settingsSaveLoader) {
                     }, 8000);
                 }
             } else {
-                // Development mode - normal kayıt
+                // ERSIN Development mode - normal kayıt
                 showToast('Başarılı', data.message || 'Analiz parametreleri kaydedildi.', 'success');
                 
-                // WebSocket yeniden bağlan (development mode için)
+                // ERSIN WebSocket yeniden bağlan (development mode için)
                 if (socketioClient && socketioClient.disconnect) {
                     socketioClient.disconnect();
                     setTimeout(() => {
@@ -368,28 +358,22 @@ function handleAnalysisParamsSave(form, settingsSaveLoader) {
     });
 }
 
-/**
- * WebSocket bağlantısını döndürür
- */
+/* ERSIN Aciklama. */
 export function getSocketConnection() {
     return socketioClient;
 }
 
-/**
- * WebSocket bağlantı durumunu kontrol eder
- */
+/* ERSIN Aciklama. */
 export function isSocketConnected() {
     return socketioClient && socketioClient.connected;
 }
 
-/**
- * WebSocket event emit eder
- */
+/* ERSIN Aciklama. */
 export function emitSocketEvent(eventName, data) {
     if (socketioClient && socketioClient.connected) {
         const nativeSocket = socketioClient.socket || socketioClient;
         
-        // join_analysis için özel format (backend dict bekliyor)
+        // ERSIN join_analysis için özel format (backend dict bekliyor)
         if (eventName === 'join_analysis') {
             const joinData = { analysis_id: data };
             console.log('🔗 WebSocket join_analysis emit:', joinData);

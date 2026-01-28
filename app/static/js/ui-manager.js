@@ -1,9 +1,4 @@
-/**
- * WSANALIZ - UI Manager Module
- * 
- * Bu modül UI interactions, modal management ve button states'lerini yönetir.
- * main.js'ten extract edilmiştir.
- */
+/* ERSIN Aciklama. */
 
 import { 
     uploadedFiles,
@@ -15,60 +10,51 @@ import {
 import { handleFileSelection } from './file-manager.js';
 import { startAnalysisForAllFiles } from './analysis-manager.js';
 
-// =====================================
-// UI MANAGEMENT
-// =====================================
+// ERSIN =====================================
+// ERSIN UI MANAGEMENT
+// ERSIN =====================================
 
-/**
- * Analiz parametreleri butonu için uyarı gösterme fonksiyonu
- */
+/* ERSIN Aciklama. */
 export function handleParamsAlert(e) {
     e.preventDefault();
     e.stopPropagation();
     alert('Analiz parametrelerini değiştirmeden önce lütfen yüklenmiş dosyaları kaldırın veya analizi tamamlayın.');
 }
 
-/**
- * Model butonları için uyarı gösterme fonksiyonu
- */
+/* ERSIN Aciklama. */
 export function handleModelAlert(e) {
     e.preventDefault();
     e.stopPropagation();
     alert('Model işlemlerini yapmadan önce lütfen yüklenmiş dosyaları kaldırın veya analizi tamamlayın.');
 }
 
-/**
- * Analiz parametreleri ve model yönetimi butonlarının durumunu günceller (sadece yüklü dosyalara göre)
- */
+/* ERSIN Aciklama. */
 export function updateAnalysisParamsButtonState() {
     updateAnalysisParamsButtonStateWithQueue(null);
 }
 
-/**
- * Analiz parametreleri ve model yönetimi butonlarının durumunu günceller (hem yüklü dosya hem kuyruk durumuna göre)
- * @param {Object} queueData - Queue status data
- */
+/* ERSIN Aciklama. */
 export function updateAnalysisParamsButtonStateWithQueue(queueData) {
     const analysisParamsBtn = document.getElementById('openAnalysisParamsModalBtn');
     const modelMetricsBtn = document.getElementById('modelMetricsBtn');
     const trainModelBtn = document.getElementById('trainModelBtn');
     const modelManagementBtn = document.getElementById('modelManagementBtn');
 
-    // Yüklü dosya kontrolü
+    // ERSIN Yüklü dosya kontrolü
     const hasUploadedFiles = uploadedFiles.length > 0;
     
-    // Kuyruk durumu kontrolü
+    // ERSIN Kuyruk durumu kontrolü
     let hasFilesInQueue = false;
     if (queueData) {
-        // Backend response formatına göre düzelt
+        // ERSIN Backend response formatına göre düzelt
         const data = queueData?.data || queueData;
         hasFilesInQueue = (data?.queue_size > 0) || (data?.is_processing === true);
     }
     
-    // Butonlar sadece analiz devam ederken devre dışı olmalı
-    const shouldDisableButtons = hasFilesInQueue; // Sadece kuyruk durumuna göre
+    // ERSIN Butonlar sadece analiz devam ederken devre dışı olmalı
+    const shouldDisableButtons = hasFilesInQueue;  // ERSIN Sadece kuyruk durumuna göre
 
-    // Debug logları (sadece durumda değişiklik varsa)
+    // ERSIN Debug logları (sadece durumda değişiklik varsa)
     const currentState = `files:${hasUploadedFiles}_queue:${hasFilesInQueue}_disabled:${shouldDisableButtons}`;
     if (window.lastButtonState !== currentState) {
         console.log('🔄 Buton durumu değişti:', {
@@ -80,7 +66,7 @@ export function updateAnalysisParamsButtonStateWithQueue(queueData) {
     }
 
     if (shouldDisableButtons) {
-        // Analiz Parametreleri butonu
+        // ERSIN Analiz Parametreleri butonu
         if (analysisParamsBtn) {
             analysisParamsBtn.classList.add('disabled');
             analysisParamsBtn.setAttribute('aria-disabled', 'true');
@@ -90,7 +76,7 @@ export function updateAnalysisParamsButtonStateWithQueue(queueData) {
             analysisParamsBtn.addEventListener('click', handleParamsAlert);
         }
 
-        // Model Metrikleri butonu
+        // ERSIN Model Metrikleri butonu
         if (modelMetricsBtn) {
             modelMetricsBtn.classList.add('disabled');
             modelMetricsBtn.setAttribute('aria-disabled', 'true');
@@ -98,7 +84,7 @@ export function updateAnalysisParamsButtonStateWithQueue(queueData) {
             modelMetricsBtn.addEventListener('click', handleModelAlert);
         }
 
-        // Model Eğitimi butonu
+        // ERSIN Model Eğitimi butonu
         if (trainModelBtn) {
             trainModelBtn.classList.add('disabled');
             trainModelBtn.setAttribute('aria-disabled', 'true');
@@ -106,7 +92,7 @@ export function updateAnalysisParamsButtonStateWithQueue(queueData) {
             trainModelBtn.addEventListener('click', handleModelAlert);
         }
 
-        // Model Yönetimi butonu
+        // ERSIN Model Yönetimi butonu
         if (modelManagementBtn) {
             modelManagementBtn.classList.add('disabled');
             modelManagementBtn.setAttribute('aria-disabled', 'true');
@@ -116,7 +102,7 @@ export function updateAnalysisParamsButtonStateWithQueue(queueData) {
             modelManagementBtn.addEventListener('click', handleModelAlert);
         }
     } else {
-        // Analiz Parametreleri butonu
+        // ERSIN Analiz Parametreleri butonu
         if (analysisParamsBtn) {
             analysisParamsBtn.classList.remove('disabled');
             analysisParamsBtn.setAttribute('aria-disabled', 'false');
@@ -125,22 +111,22 @@ export function updateAnalysisParamsButtonStateWithQueue(queueData) {
             analysisParamsBtn.removeEventListener('click', handleParamsAlert);
         }
 
-        // Model Metrikleri butonu
+        // ERSIN Model Metrikleri butonu
         if (modelMetricsBtn) {
             modelMetricsBtn.classList.remove('disabled');
             modelMetricsBtn.setAttribute('aria-disabled', 'false');
             modelMetricsBtn.removeEventListener('click', handleModelAlert);
-            // Gerçek model metrics event listener'ını yeniden ekle
+            // ERSIN Gerçek model metrics event listener'ını yeniden ekle
             if (window.loadModelMetrics) {
-                // Modal instance'ını sakla
+                // ERSIN Modal instance'ını sakla
                 let modalInstance = null;
                 modelMetricsBtn.addEventListener('click', () => {
                     window.loadModelMetrics();
-                    // 🎯 MODEL VERSIONS DE YÜKLE
+                    // ERSIN 🎯 MODEL VERSIONS DE YÜKLE
                     if (window.loadModalModelVersions) {
                         window.loadModalModelVersions();
                     }
-                    // Var olan modal instance'ını kullan veya yeni oluştur
+                    // ERSIN Var olan modal instance'ını kullan veya yeni oluştur
                     const modalElement = document.getElementById('modelMetricsModal');
                     if (!modalInstance && modalElement) {
                         modalInstance = new bootstrap.Modal(modalElement);
@@ -152,14 +138,14 @@ export function updateAnalysisParamsButtonStateWithQueue(queueData) {
             }
         }
 
-        // Model Eğitimi butonu
+        // ERSIN Model Eğitimi butonu
         if (trainModelBtn) {
             trainModelBtn.classList.remove('disabled');
             trainModelBtn.setAttribute('aria-disabled', 'false');
             trainModelBtn.removeEventListener('click', handleModelAlert);
         }
 
-        // Model Yönetimi butonu
+        // ERSIN Model Yönetimi butonu
         if (modelManagementBtn) {
             modelManagementBtn.classList.remove('disabled');
             modelManagementBtn.setAttribute('aria-disabled', 'false');
@@ -170,9 +156,7 @@ export function updateAnalysisParamsButtonStateWithQueue(queueData) {
     }
 }
 
-/**
- * Manual server restart fonksiyonu (production için)
- */
+/* ERSIN Aciklama. */
 export function manualServerRestart() {
     const restartBtn = document.querySelector('.restart-btn');
     if (restartBtn) {
@@ -211,17 +195,11 @@ export function manualServerRestart() {
     });
 }
 
-// =====================================
-// MODAL MANAGEMENT
-// =====================================
+// ERSIN =====================================
+// ERSIN MODAL MANAGEMENT
+// ERSIN =====================================
 
-/**
- * Slider ve value display'ini kurar
- * @param {string} sliderId - Slider element ID
- * @param {string} valueDisplayId - Value display element ID  
- * @param {string} defaultValue - Default value
- * @returns {HTMLElement} - Slider element
- */
+/* ERSIN Aciklama. */
 export function setupSliderWithValueDisplay(sliderId, valueDisplayId, defaultValue) {
     const slider = document.getElementById(sliderId);
     const valueDisplay = document.getElementById(valueDisplayId);
@@ -238,10 +216,7 @@ export function setupSliderWithValueDisplay(sliderId, valueDisplayId, defaultVal
     return slider;
 }
 
-/**
- * Modal accessibility düzeltmeleri uygular
- * @param {string} modalId - Modal element ID
- */
+/* ERSIN Aciklama. */
 export function setupModalAccessibility(modalId) {
     const modal = document.getElementById(modalId);
     if (!modal) return;
@@ -258,7 +233,7 @@ export function setupModalAccessibility(modalId) {
     });
     
     modal.addEventListener('hidden.bs.modal', function () {
-        // Modal tamamen kapandığında backdrop'ı temizle ve scroll'u geri getir
+        // ERSIN Modal tamamen kapandığında backdrop'ı temizle ve scroll'u geri getir
         const backdrops = document.querySelectorAll('.modal-backdrop');
         backdrops.forEach(backdrop => {
             backdrop.remove();
@@ -269,11 +244,7 @@ export function setupModalAccessibility(modalId) {
     });
 }
 
-/**
- * Image zoom modal'ını kurar
- * @param {string} imageSrc - Image source URL
- * @param {string} imageTitle - Image title
- */
+/* ERSIN Aciklama. */
 export function zoomImage(imageSrc, imageTitle = 'Resim Görüntüleyici') {
     const modal = new bootstrap.Modal(document.getElementById('imageZoomModal'));
     const modalImage = document.getElementById('modalImage');
@@ -291,9 +262,7 @@ export function zoomImage(imageSrc, imageTitle = 'Resim Görüntüleyici') {
     modal.show();
 }
 
-/**
- * Image zoom modal'ını kapatır
- */
+/* ERSIN Aciklama. */
 export function closeZoomModal() {
     const modal = bootstrap.Modal.getInstance(document.getElementById('imageZoomModal'));
     if (modal) {
@@ -301,11 +270,9 @@ export function closeZoomModal() {
     }
 }
 
-/**
- * Image click listener'larını kurar
- */
+/* ERSIN Aciklama. */
 export function addImageClickListeners() {
-    // Tüm analiz sonucu resimlerine click listener ekle
+    // ERSIN Tüm analiz sonucu resimlerine click listener ekle
     document.addEventListener('click', function(e) {
         console.log('[DEBUG] Resim tıklama testi - Element:', e.target);
         console.log('[DEBUG] Element sınıfları:', e.target.classList);
@@ -320,64 +287,59 @@ export function addImageClickListeners() {
     });
 }
 
-// =====================================
-// EVENT LISTENERS INITIALIZATION
-// =====================================
+// ERSIN =====================================
+// ERSIN EVENT LISTENERS INITIALIZATION
+// ERSIN =====================================
 
-/**
- * Event listener'ları başlatır
- */
+/* ERSIN Aciklama. */
 export function initializeEventListeners() {
-    // Dosya yükleme event'leri
+    // ERSIN Dosya yükleme event'leri
     const uploadBtn = document.getElementById('uploadFileBtn');
     const folderBtn = document.getElementById('uploadFolderBtn');
     const fileInput = document.getElementById('fileInput');
     const folderInput = document.getElementById('folderInput');
     
     if (uploadBtn && fileInput) {
-        // Click event: Upload butonuna basıldığında file input'u aç
+        // ERSIN Click event: Upload butonuna basıldığında file input'u aç
         uploadBtn.addEventListener('click', () => {
             console.log('📁 [DEBUG] Upload button clicked, opening file dialog...');
             fileInput.click();
         });
         
-        // Change event: Dosya seçildiğinde işle
+        // ERSIN Change event: Dosya seçildiğinde işle
         fileInput.addEventListener('change', handleFileSelection);
     }
     
     if (folderBtn && folderInput) {
-        // Click event: Folder butonuna basıldığında folder input'u aç
+        // ERSIN Click event: Folder butonuna basıldığında folder input'u aç
         folderBtn.addEventListener('click', () => {
             console.log('📁 [DEBUG] Folder button clicked, opening folder dialog...');
             folderInput.click();
         });
         
-        // Change event: Klasör seçildiğinde işle
+        // ERSIN Change event: Klasör seçildiğinde işle
         folderInput.addEventListener('change', handleFileSelection);
     }
     
-    // Drag & Drop event'leri
+    // ERSIN Drag & Drop event'leri
     const dropZone = document.getElementById('fileDropZone');
     if (dropZone) {
         setupDragAndDrop(dropZone);
     }
     
-    // Analiz başlatma event'leri
+    // ERSIN Analiz başlatma event'leri
     setupAnalysisButtons();
     
-    // Modal event'leri
+    // ERSIN Modal event'leri
     setupModals();
     
-    // Image click listener'ları
+    // ERSIN Image click listener'ları
     addImageClickListeners();
     
     console.log('✅ Event listeners başlatıldı');
 }
 
-/**
- * Drag & Drop functionality'sini kurar
- * @param {HTMLElement} dropZone - Drop zone element
- */
+/* ERSIN Aciklama. */
 function setupDragAndDrop(dropZone) {
     ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
         dropZone.addEventListener(eventName, preventDefaults, false);
@@ -416,42 +378,40 @@ function setupDragAndDrop(dropZone) {
     }
 }
 
-/**
- * Analiz butonlarını kurar
- */
+/* ERSIN Aciklama. */
 function setupAnalysisButtons() {
-    // Analiz Et butonu
+    // ERSIN Analiz Et butonu
     const analyzeBtn = document.getElementById('analyzeBtn');
     if (analyzeBtn) {
         analyzeBtn.onclick = function(e) {
             e.preventDefault();
             e.stopPropagation();
             if (uploadedFiles.length > 0) {
-                // Analiz parametreleri modalını aç
+                // ERSIN Analiz parametreleri modalını aç
                 const modal = new bootstrap.Modal(document.getElementById('runAnalysisSettingsModal'));
                 modal.show();
             }
         };
     }
     
-    // Analiz Başlatma Onay Butonu (Modal içindeki)
+    // ERSIN Analiz Başlatma Onay Butonu (Modal içindeki)
     const startAnalysisBtn = document.getElementById('startAnalysisBtn');
     if (startAnalysisBtn) {
         startAnalysisBtn.addEventListener('click', () => {
-            // Analiz parametrelerini al
+            // ERSIN Analiz parametrelerini al
             const framesPerSecondInput = document.getElementById('framesPerSecond');
             const includeAgeAnalysisInput = document.getElementById('includeAgeAnalysis');
 
             const framesPerSecond = framesPerSecondInput ? parseFloat(framesPerSecondInput.value) : 1;
             const includeAgeAnalysis = includeAgeAnalysisInput ? includeAgeAnalysisInput.checked : false;
             
-            // 🔍 DEBUG: Checkbox state'ini logla
+            // ERSIN 🔍 DEBUG: Checkbox state'ini logla
             console.log("🔍 CHECKBOX DEBUG:");
             console.log("🔍 includeAgeAnalysisInput element:", includeAgeAnalysisInput);
             console.log("🔍 includeAgeAnalysisInput.checked:", includeAgeAnalysisInput ? includeAgeAnalysisInput.checked : 'element not found');
             console.log("🔍 Final includeAgeAnalysis value:", includeAgeAnalysis);
             
-            // Modalı kapat
+            // ERSIN Modalı kapat
             const modalElement = document.getElementById('runAnalysisSettingsModal');
             if (modalElement) {
                 const modalInstance = bootstrap.Modal.getInstance(modalElement);
@@ -460,23 +420,21 @@ function setupAnalysisButtons() {
                 }
             }
             
-            // Tüm yüklenen dosyalar için analiz başlat
+            // ERSIN Tüm yüklenen dosyalar için analiz başlat
             startAnalysisForAllFiles(framesPerSecond, includeAgeAnalysis);
         });
     }
 }
 
-/**
- * Modal'ları kurar
- */
+/* ERSIN Aciklama. */
 function setupModals() {
-    // Analysis settings modal
+    // ERSIN Analysis settings modal
     setupModalAccessibility('runAnalysisSettingsModal');
     
-    // Image zoom modal
+    // ERSIN Image zoom modal
     setupModalAccessibility('imageZoomModal');
     
-    // Analysis params modal setup
+    // ERSIN Analysis params modal setup
     const globalAnalysisParamsModalElement = document.getElementById('analysisParamsModal');
     if (globalAnalysisParamsModalElement) {
         setGlobalAnalysisParamsModalElement(globalAnalysisParamsModalElement);
@@ -485,10 +443,7 @@ function setupModals() {
     }
 }
 
-/**
- * Analysis parameters modal'ını kurar
- * @param {HTMLElement} modalElement - Modal element
- */
+/* ERSIN Aciklama. */
 function setupAnalysisParamsModal(modalElement) {
     console.log('🔧 setupAnalysisParamsModal çağrıldı');
     const form = document.getElementById('analysisParamsForm');
@@ -499,34 +454,34 @@ function setupAnalysisParamsModal(modalElement) {
     
     if (!form) return;
     
-    // Slider setup
+    // ERSIN Slider setup
     const faceDetectionConfidenceSlider = setupSliderWithValueDisplay('faceDetectionConfidence', 'faceDetectionConfidenceValue', '0.5');
     const trackingReliabilityThresholdSlider = setupSliderWithValueDisplay('trackingReliabilityThreshold', 'trackingReliabilityThresholdValue', '0.5');
     const idChangeThresholdSlider = setupSliderWithValueDisplay('idChangeThreshold', 'idChangeThresholdValue', '0.45');
     const embeddingDistanceThresholdSlider = setupSliderWithValueDisplay('embeddingDistanceThreshold', 'embeddingDistanceThresholdValue', '0.4');
     
-    // Modal show event
+    // ERSIN Modal show event
     modalElement.addEventListener('show.bs.modal', function () {
         loadCurrentAnalysisParams();
     });
     
-    // 🎯 SAVE BUTTON EVENT LISTENER (from main.js.backup)
+    // ERSIN 🎯 SAVE BUTTON EVENT LISTENER (from main.js.backup)
     if (saveBtn) {
         saveBtn.addEventListener('click', function() {
             console.log('🔧 Settings kaydediliyor...');
             
-            // Form validation
+            // ERSIN Form validation
             const params = {};
             let formIsValid = true;
             
-            // Get all form values
+            // ERSIN Get all form values
             const faceDetectionConfidence = document.getElementById('faceDetectionConfidence');
             const trackingReliabilityThreshold = document.getElementById('trackingReliabilityThreshold');
             const idChangeThreshold = document.getElementById('idChangeThreshold');
             const embeddingDistanceThreshold = document.getElementById('embeddingDistanceThreshold');
             const maxLostFrames = document.getElementById('maxLostFrames');
             
-            // Collect parameters
+            // ERSIN Collect parameters
             if (faceDetectionConfidence) params.face_detection_confidence = parseFloat(faceDetectionConfidence.value);
             if (trackingReliabilityThreshold) params.tracking_reliability_threshold = parseFloat(trackingReliabilityThreshold.value);
             if (idChangeThreshold) params.id_change_threshold = parseFloat(idChangeThreshold.value);
@@ -536,7 +491,7 @@ function setupAnalysisParamsModal(modalElement) {
             if (!formIsValid) return;
             console.log('Saving global params:', params);
             
-            // Show loading
+            // ERSIN Show loading
             const settingsSaveLoader = document.getElementById('settingsSaveLoader');
             console.log('🔧 settingsSaveLoader element:', settingsSaveLoader);
             if (settingsSaveLoader) {
@@ -547,7 +502,7 @@ function setupAnalysisParamsModal(modalElement) {
                 console.error('❌ settingsSaveLoader elementi bulunamadı!');
             }
             
-            // API call
+            // ERSIN API call
             fetch('/api/settings/analysis-params', {
                 method: 'POST',
                 headers: {
@@ -561,20 +516,20 @@ function setupAnalysisParamsModal(modalElement) {
                 
                 if (status === 200 && body.message) {
                     if (body.restart_required || body.restart_initiated) {
-                        // Production mode - restart başlatıldı
+                        // ERSIN Production mode - restart başlatıldı
                         if (window.showToast) {
                             window.showToast('Başarılı', body.message || 'Analiz parametreleri kaydedildi. Sistem yeniden başlatılıyor...', 'success');
                         }
                         console.log('🔄 Production mode - restart başlatıldı');
                         
-                        // Modal'ı kapat
+                        // ERSIN Modal'ı kapat
                         const modal = bootstrap.Modal.getInstance(modalElement);
                         if (modal) modal.hide();
                         
-                        // Restart sonrası sayfa yenile (force stop gibi)
+                        // ERSIN Restart sonrası sayfa yenile (force stop gibi)
                         if (body.restart_initiated) {
-                            // Restart sonrası eski UI state'in (uploadedFiles / overall progress) kalmaması için
-                            // local restore mekanizmasını bir seferlik devre dışı bırak.
+                            // ERSIN Restart sonrası eski UI state'in (uploadedFiles / overall progress) kalmaması için
+                            // ERSIN local restore mekanizmasını bir seferlik devre dışı bırak.
                             try {
                                 sessionStorage.setItem('wsanaliz_skip_restore', '1');
                                 localStorage.removeItem('wsanaliz_recent_analyses');
@@ -582,29 +537,29 @@ function setupAnalysisParamsModal(modalElement) {
                                 console.warn('Restart cleanup storage erişilemedi:', e);
                             }
 
-                            // Loading mesajını güncelle (eğer varsa)
+                            // ERSIN Loading mesajını güncelle (eğer varsa)
                             const loadingMessage = document.getElementById('loadingMessage');
                             if (loadingMessage) {
                                 loadingMessage.textContent = 'Sistem yeniden başlatılıyor, lütfen bekleyin...';
                             }
                             
-                            // 8 saniye bekle sonra sayfa yenile (restart tamamlanması için)
+                            // ERSIN 8 saniye bekle sonra sayfa yenile (restart tamamlanması için)
                             setTimeout(() => {
                                 console.log('[DEBUG] Analiz parametreleri güncellendi, sayfa yeniden yükleniyor (restart bekleniyor)...');
-                                // Cache bypass + temiz init için query param ekle
+                                // ERSIN Cache bypass + temiz init için query param ekle
                                 const url = new URL(window.location.href);
                                 url.searchParams.set('restarted', String(Date.now()));
                                 window.location.href = url.toString();
                             }, 8000);
                         }
                     } else {
-                        // Development mode - auto reload
+                        // ERSIN Development mode - auto reload
                         if (window.showToast) {
                             window.showToast('Başarılı', body.message + ' Ayarlar kaydedildi!', 'success');
                         }
                         console.log('✅ Settings başarıyla kaydedildi');
                         
-                        // Modal'ı kapat
+                        // ERSIN Modal'ı kapat
                         const modal = bootstrap.Modal.getInstance(modalElement);
                         if (modal) modal.hide();
                     }
@@ -615,7 +570,7 @@ function setupAnalysisParamsModal(modalElement) {
                     }
                 }
                 
-                // Hide loading
+                // ERSIN Hide loading
                 if (settingsSaveLoader) {
                     settingsSaveLoader.style.display = 'none';
                     console.log('🔄 Loading spinner gizlendi');
@@ -634,7 +589,7 @@ function setupAnalysisParamsModal(modalElement) {
         });
     }
     
-    // 🎯 LOAD DEFAULTS BUTTON (from main.js.backup)
+    // ERSIN 🎯 LOAD DEFAULTS BUTTON (from main.js.backup)
     if (loadDefaultBtn) {
         console.log('✅ Load defaults button bulundu:', loadDefaultBtn);
         loadDefaultBtn.addEventListener('click', function() {
@@ -667,7 +622,7 @@ function setupAnalysisParamsModal(modalElement) {
         console.error('❌ loadDefaultAnalysisParamsBtn elementi bulunamadı!');
     }
     
-    // Load default button
+    // ERSIN Load default button
     if (loadDefaultBtn) {
         loadDefaultBtn.addEventListener('click', function () {
             loadDefaultAnalysisParams();
@@ -675,15 +630,13 @@ function setupAnalysisParamsModal(modalElement) {
     }
 }
 
-/**
- * Current analysis params'ları yükler
- */
+/* ERSIN Aciklama. */
 function loadCurrentAnalysisParams() {
     fetch('/api/settings/analysis-params')
         .then(response => response.json())
         .then(data => {
             populateAnalysisParamsForm(data);
-            // EK: max_lost_frames yoksa inputa 30 yaz
+            // ERSIN EK: max_lost_frames yoksa inputa 30 yaz
             const el = document.getElementById('maxLostFrames');
             if (el && (data.max_lost_frames === undefined || data.max_lost_frames === null || data.max_lost_frames === '')) {
                 el.value = 30;
@@ -695,9 +648,7 @@ function loadCurrentAnalysisParams() {
         });
 }
 
-/**
- * Default analysis params'ları yükler
- */
+/* ERSIN Aciklama. */
 function loadDefaultAnalysisParams() {
     fetch('/api/settings/analysis-params/defaults')
     .then(response => response.json())
@@ -713,10 +664,7 @@ function loadDefaultAnalysisParams() {
     });
 }
 
-/**
- * Analysis params form'unu doldurur
- * @param {Object} params - Parameters object
- */
+/* ERSIN Aciklama. */
 function populateAnalysisParamsForm(params) {
     for (const [key, value] of Object.entries(params)) {
         const element = document.getElementById(key);
@@ -726,7 +674,7 @@ function populateAnalysisParamsForm(params) {
                 console.log('✅ Max Lost Frames default (30) olarak atandı.');
             } else if (element.type === 'range') {
                 element.value = value;
-                // Value display'ini de güncelle
+                // ERSIN Value display'ini de güncelle
                 const valueDisplay = document.getElementById(key + 'Value');
                 if (valueDisplay) {
                     valueDisplay.textContent = value;
@@ -742,9 +690,7 @@ function populateAnalysisParamsForm(params) {
     }
 }
 
-/**
- * UI Manager fonksiyonlarını window'a expose et
- */
+/* ERSIN Aciklama. */
 export function exposeUIManagerToWindow() {
     window.uiManager = {
         handleParamsAlert,
@@ -760,11 +706,11 @@ export function exposeUIManagerToWindow() {
     };
 }
 
-// 🎯 HELPER FUNCTIONS for Settings
+// ERSIN 🎯 HELPER FUNCTIONS için Settings
 function populateFormWithParams(data) {
     console.log('Populating form with params:', data);
     
-    // Populate form fields
+    // ERSIN Populate form fields
     if (data.face_detection_confidence !== undefined) {
         const el = document.getElementById('faceDetectionConfidence');
         if (el) {
@@ -774,7 +720,7 @@ function populateFormWithParams(data) {
                 valueDisplay.textContent = el.value;
                 console.log('✅ Face Detection Confidence güncellendi:', el.value);
             }
-            // Trigger input event for consistency
+            // ERSIN Trigger input event için consistency
             el.dispatchEvent(new Event('input'));
         }
     }
@@ -825,7 +771,7 @@ function populateFormWithParams(data) {
             console.log('✅ Max Lost Frames güncellendi:', el.value);
         }
     } else {
-        // Eğer değer yoksa default olarak 30 ata
+        // ERSIN Eğer değer yoksa default olarak 30 ata
         const el = document.getElementById('maxLostFrames');
         if (el) {
             el.value = 30;
@@ -834,7 +780,7 @@ function populateFormWithParams(data) {
     }
 }
 
-// showToast already defined in globals.js - removed duplicate
+// ERSIN showToast already defined in globals.js - removed duplicate
 
-// Initialize window exposure
+// ERSIN Initialize window exposure
 exposeUIManagerToWindow(); 

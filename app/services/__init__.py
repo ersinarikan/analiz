@@ -1,2 +1,2 @@
-# Services package
-# İş mantığı servisleri 
+# ERSIN Services package
+# ERSIN İş mantığı servisleri

@@ -1,62 +1,114 @@
-/**
- * WebSocket Client - Temiz ve minimal implementasyon
- */
+/* ERSIN Aciklama. */
 
 class WebSocketClient {
     constructor() {
         this.socket = null;
         this.connected = false;
         this.reconnectAttempts = 0;
-        this.maxReconnectAttempts = 10; // Uzun analizler için daha fazla deneme
-        this.reconnectDelay = 1000; // 1 saniye
-        this.pingInterval = null; // Otomatik ping için interval
-        this.silentMode = false; // Silent mode flag
-        this.backgroundMode = false; // Browser arka plan modu
+        this.maxReconnectAttempts = 10;  // ERSIN Uzun analizler için daha fazla deneme
+        this.reconnectDelay = 1000;  // ERSIN 1 saniye
+        this.pingInterval = null;  // ERSIN Otomatik ping için interval
+        this.silentMode = false;  // ERSIN Silent mode flag
+        this.backgroundMode = false;  // ERSIN Browser arka plan modu
     }
 
-    // WebSocket bağlantısını başlat
+    // ERSIN WebSocket bağlantısını başlat
     connect() {
         console.log('[WebSocket] Bağlantı başlatılıyor...');
         
         try {
-            this.socket = io({
-                transports: ['websocket'],
-                upgrade: false,
+            // ERSIN F5 load balancer desteği: polling fallback ekle, upgrade'e izin ver
+            // ERSIN F5 path-based routing için path environment variable'dan alınabilir
+            const socketPath = window.SOCKETIO_PATH || '/socket.io/';
+            
+            // ERSIN F5 arkasında mutlak URL kullan - window.location.origin kullan
+            const socketUrl = window.SOCKETIO_URL || window.location.origin;
+            
+            console.log('[WebSocket] Bağlantı ayarları:', {
+                url: socketUrl,
+                path: socketPath,
+                transports: ['websocket', 'polling']
+            });
+            
+            this.socket = io(socketUrl, {
+                transports: ['polling', 'websocket'],  // ERSIN F5 arkasında önce polling dene, sonra websocket upgrade
+                upgrade: true,  // ERSIN F5 load balancer için upgrade'e izin ver
                 timeout: 20000,
                 reconnection: true,
-                reconnectionAttempts: 10,  // Uzun analizler için daha fazla deneme
+                reconnectionAttempts: 10,  // ERSIN Uzun analizler için daha fazla deneme
                 reconnectionDelay: 1000,
                 reconnectionDelayMax: 10000,
                 maxHttpBufferSize: 1e6,
-                pingTimeout: 720000,  // 12 dakika - sunucu ile sync
-                pingInterval: 60000,  // 1 dakika - sunucu ile sync  
+                pingTimeout: 720000,  // ERSIN 12 dakika - sunucu ile sync
+                pingInterval: 60000,  // ERSIN 1 dakika - sunucu ile sync
                 autoConnect: true,
-                forceNew: false
+                forceNew: false,
+                path: socketPath,  // ERSIN F5 path-based routing için yapılandırılabilir path
+                rememberUpgrade: false,  // ERSIN Her seferinde polling'den başla, F5 için daha güvenli
+                withCredentials: true  // ERSIN Session cookie'leri gönder
             });
+            
+            console.log('[WebSocket] SocketIO instance oluşturuldu:', {
+                socket: this.socket,
+                id: this.socket.id,
+                connected: this.socket.connected,
+                io: this.socket.io,
+                transport: this.socket.io?.engine?.transport?.name
+            });
+            
+            // ERSIN F5 arkasında bağlantı gecikmesi olabilir, manuel kontrol ekle
+            setTimeout(() => {
+                if (!this.socket.connected) {
+                    console.warn('[WebSocket] Bağlantı kurulmadı, durum kontrolü yapılıyor...');
+                    console.log('[WebSocket] Socket durumu:', {
+                        connected: this.socket.connected,
+                        disconnected: this.socket.disconnected,
+                        id: this.socket.id,
+                        io: this.socket.io,
+                        transport: this.socket.io?.engine?.transport?.name,
+                        readyState: this.socket.io?.engine?.readyState
+                    });
+                    
+                    // ERSIN Engine durumunu kontrol et
+                    if (this.socket.io && this.socket.io.engine) {
+                        console.log('[WebSocket] Engine durumu:', {
+                            readyState: this.socket.io.engine.readyState,
+                            transport: this.socket.io.engine.transport?.name,
+                            upgrading: this.socket.io.engine.upgrading
+                        });
+                    }
+                    
+                    // ERSIN Manuel connect denemesi - sadece disconnected ise
+                    if (this.socket.disconnected) {
+                        console.log('[WebSocket] Manuel connect() çağrılıyor...');
+                        this.socket.connect();
+                    }
+                }
+            }, 2000);
 
             this.setupEventListeners();
 
-            // Otomatik ping başlat
+            // ERSIN Otomatik ping başlat
             this.startAutoPing();
         } catch (error) {
             console.error('[WebSocket] Bağlantı hatası:', error);
         }
     }
 
-    // Event listener'ları kur
+    // ERSIN Event listener'ları kur
     setupEventListeners() {
         console.log('🔥🔥🔥 SETTING UP EVENT LISTENERS - Socket object:', this.socket);
         console.log('🔥🔥🔥 SETTING UP EVENT LISTENERS - Socket ID:', this.socket.id);
         console.log('🔥🔥🔥 SETTING UP EVENT LISTENERS - Socket connected:', this.socket.connected);
         
-        // Bağlantı olayları
+        // ERSIN Bağlantı olayları
         this.socket.on('connect', () => {
             console.log('[WebSocket] Bağlantı başarılı - ID:', this.socket.id);
             console.log('🔥🔥🔥 CONNECT EVENT RECEIVED - Socket object:', this.socket);
             this.connected = true;
             this.reconnectAttempts = 0;
             
-            // Event listeners kuruldu, test ping gönder
+            // ERSIN Event listeners kuruldu, test ping gönder
             console.log('🔥 [WebSocket] Event listeners kuruldu, test eventi emit ediliyor...');
             console.log('🔥 [DEBUG] About to emit ping event...');
             console.log('🔥🔥🔥 SOCKET STATE BEFORE PING:', {
@@ -81,7 +133,7 @@ class WebSocketClient {
             this.connected = false;
             this.onDisconnected(reason);
             
-            // Otomatik yeniden bağlantı
+            // ERSIN Otomatik yeniden bağlantı
             if (reason !== 'io client disconnect') {
                 this.attemptReconnect();
             }
@@ -90,12 +142,21 @@ class WebSocketClient {
 
         this.socket.on('connect_error', (error) => {
             console.error('[WebSocket] Bağlantı hatası:', error);
+            console.error('[WebSocket] Bağlantı hatası detayları:', {
+                message: error.message,
+                description: error.description,
+                context: error.context,
+                type: error.type,
+                transport: error.transport,
+                socket: this.socket,
+                io: this.socket.io
+            });
             console.log('🔥🔥🔥 CONNECT_ERROR EVENT RECEIVED - Error:', error);
             this.onConnectError(error);
         });
         console.log('🔥🔥🔥 CONNECT_ERROR LISTENER REGISTERED');
 
-        // Sistem olayları
+        // ERSIN Sistem olayları
         this.socket.on('connected', (data) => {
             console.log('[WebSocket] Server onayı:', data);
             console.log('🔥🔥🔥 CONNECTED EVENT RECEIVED - Data:', data);
@@ -108,22 +169,22 @@ class WebSocketClient {
         });
         console.log('🔥🔥🔥 PONG LISTENER REGISTERED');
 
-        // Analiz olayları
+        // ERSIN Analiz olayları
         this.socket.on('analysis_started', (data) => {
             const analysisId = data.analysis_id;
             let fileId = data.file_id;
             let cardId = fileId;
-            // Önce fileIdToCardId mapping'ini dene
+            // ERSIN Önce fileIdToCardId mapping'ini dene
             if (window.fileIdToCardId && window.fileIdToCardId[String(fileId)]) {
                 cardId = window.fileIdToCardId[String(fileId)];
             }
-            // Sonra eski mapping'leri dene
+            // ERSIN Sonra eski mapping'leri dene
             if (!document.getElementById(cardId) && window.fileAnalysisMap && window.fileAnalysisMap.has(analysisId)) {
                 cardId = window.fileAnalysisMap.get(analysisId);
             }
             if (cardId) {
                 window.fileAnalysisMap.set(analysisId, cardId);
-                // analysis_started sadece kuyruğa eklendiği anlamına gelir - "Sırada" durumunda kalır
+                // ERSIN analysis_started sadece kuyruğa eklendiği anlamına gelir - "Sırada" durumunda kalır
                 updateFileStatus(cardId, 'queued', 0, data.message || 'Analiz kuyruğa eklendi');
                 console.log('🚀 [WebSocket] Analysis started - kuyruğa eklendi (cardId):', cardId);
             } else {
@@ -150,7 +211,7 @@ class WebSocketClient {
                 }
             }
             if (!cardId) {
-                // Progress'i queue'ya al, daha sonra mapping geldiğinde uygula
+                // ERSIN Progress'i queue'ya al, daha sonra mapping geldiğinde uygula
                 if (!window.pendingProgress) window.pendingProgress = new Map();
                 if (!window.pendingProgress.has(analysisId)) {
                     window.pendingProgress.set(analysisId, []);
@@ -165,12 +226,12 @@ class WebSocketClient {
         this.socket.on('joined_analysis', (data) => {
             console.log('🔥 [WebSocket] JOINED_ANALYSIS received:', data);
             console.log('🔥🔥🔥 JOINED_ANALYSIS EVENT RECEIVED - Data:', data);
-            // Oda katılımı onayı alındıktan sonra analysis_ready event'i gönder
+            // ERSIN Oda katılımı onayı alındıktan sonra analysis_ready event'i gönder
             if (data && data.analysis_id) {
                 setTimeout(() => {
                     this.socket.emit('analysis_ready', { analysis_id: data.analysis_id });
                     console.log('🔥 [WebSocket] analysis_ready event emitted:', data.analysis_id);
-                }, 200); // 200ms gecikme ile güvenli oda katılımı
+                }, 200);  // ERSIN 200ms gecikme ile güvenli oda katılımı
             }
         });
         console.log('🔥🔥🔥 JOINED_ANALYSIS LISTENER REGISTERED');
@@ -207,20 +268,20 @@ class WebSocketClient {
             }
         });
 
-        // Kuyruk durumu olayları
+        // ERSIN Kuyruk durumu olayları
                 this.socket.on('queue_status', (data) => {
             console.log('📊 [WebSocket] QUEUE_STATUS received:', data);
 
-            // Kuyruk bilgilerini güncelle (eğer UI'da gösteriliyorsa)
+            // ERSIN Kuyruk bilgilerini güncelle (eğer UI'da gösteriliyorsa)
             if (data) {
                 window.queueStatus = data;
                 
-                // 🎯 BUTTON STATE UPDATE - Queue durumuna göre butonları güncelle
+                // ERSIN 🎯 BUTTON STATE UPDATE - Queue durumuna göre butonları güncelle
                 if (window.updateAnalysisParamsButtonStateWithQueue) {
                     window.updateAnalysisParamsButtonStateWithQueue(data);
                 }
                 
-                // updateQueueStatus fonksiyonunu çağır (main.js'te)
+                // ERSIN updateQueueStatus fonksiyonunu çağır (main.js'te)
                 if (typeof updateQueueStatus === 'function') {
                     updateQueueStatus(data);
                     console.log('📊 [WebSocket] Queue status UI güncellendi');
@@ -229,27 +290,27 @@ class WebSocketClient {
         });
         console.log('🔥🔥🔥 QUEUE_STATUS LISTENER REGISTERED');
 
-        // Tüm event'leri yakala (debug amaçlı)
+        // ERSIN Tüm event'leri yakala (debug amaçlı)
         this.socket.onAny((eventName, ...args) => {
             console.log('🔥 [WebSocket] ANY EVENT received:', eventName, args);
             
-            // Analysis progress özel debug
+            // ERSIN Analysis progress özel debug
             if (eventName === 'analysis_progress') {
                 console.log('🚨🚨🚨 ANALYSIS_PROGRESS DETECTED IN ANY LISTENER!', args);
                 console.log('🚨 Event data:', args[0]);
-                // Manuel olarak onAnalysisProgress çağır
+                // ERSIN Manuel olarak onAnalysisProgress çağır
                 if (args[0]) {
                     this.onAnalysisProgress(args[0]);
                 }
             }
         });
 
-        // 🔥 joined_analysis confirmation event'ini dinle
+        // ERSIN 🔥 joined_analysis confirmation event'ini dinle
         this.socket.on('joined_analysis', (data) => {
             console.log('🔥 [WebSocket] JOINED_ANALYSIS confirmation received:', data);
         });
 
-        // Eğitim olayları
+        // ERSIN Eğitim olayları
         this.socket.on('training_started', (data) => {
             console.log('[WebSocket] Training started:', data);
             this.onTrainingStarted(data);
@@ -274,23 +335,23 @@ class WebSocketClient {
         });
     }
 
-    // Yeniden bağlantı deneme
+    // ERSIN Yeniden bağlantı deneme
     attemptReconnect() {
         if (this.reconnectAttempts >= this.maxReconnectAttempts) {
             console.warn('[WebSocket] Maksimum yeniden bağlantı denemesi aşıldı');
-            // Silent mode yerine daha uzun interval ile denemeye devam et
+            // ERSIN Silent mode yerine daha uzun interval ile denemeye devam et
             setTimeout(() => {
-                this.reconnectAttempts = 0; // Reset attempts
+                this.reconnectAttempts = 0;  // ERSIN Reset attempts
                 if (!this.connected) {
                     this.attemptReconnect();
                 }
-            }, 30000); // 30 saniye bekle
+            }, 30000);  // ERSIN 30 saniye bekle
             return;
         }
 
         this.reconnectAttempts++;
-        const baseDelay = this.backgroundMode ? 5000 : this.reconnectDelay; // Arka planda daha uzun delay
-        const delay = Math.min(baseDelay * this.reconnectAttempts, 15000); // Max 15 saniye delay
+        const baseDelay = this.backgroundMode ? 5000 : this.reconnectDelay;  // ERSIN Arka planda daha uzun delay
+        const delay = Math.min(baseDelay * this.reconnectAttempts, 15000);  // ERSIN Max 15 saniye delay
         
         const mode = this.backgroundMode ? '(arka plan)' : '';
         console.log(`[WebSocket] Yeniden bağlantı deneniyor... ${this.reconnectAttempts}/${this.maxReconnectAttempts} (${delay}ms) ${mode}`);
@@ -306,14 +367,14 @@ class WebSocketClient {
         }, delay);
     }
 
-    // Ping gönder
+    // ERSIN Ping gönder
     ping() {
         if (this.connected) {
             this.socket.emit('ping');
         }
     }
 
-    // Otomatik ping başlat
+    // ERSIN Otomatik ping başlat
     startAutoPing() {
         if (this.pingInterval) clearInterval(this.pingInterval);
         this.pingInterval = setInterval(() => {
@@ -322,10 +383,10 @@ class WebSocketClient {
                 const mode = this.backgroundMode ? '(arka plan)' : '';
                 console.log(`[WebSocket] Otomatik ping gönderildi ${mode}`);
             }
-        }, 45000); // 45 saniyede bir ping (sunucu 60s interval'ından biraz önce)
+        }, 45000);  // ERSIN 45 saniyede bir ping (sunucu 60s interval'ından biraz önce)
     }
 
-    // Otomatik ping'i durdur
+    // ERSIN Otomatik ping'i durdur
     stopAutoPing() {
         if (this.pingInterval) {
             clearInterval(this.pingInterval);
@@ -333,7 +394,7 @@ class WebSocketClient {
         }
     }
 
-    // Analiz room'una katıl
+    // ERSIN Analiz room'una katıl
     joinAnalysis(analysisId) {
         console.log('🔥 [DEBUG] joinAnalysis called with:', analysisId);
         console.log('🔥 [DEBUG] Connected status:', this.connected);
@@ -360,7 +421,7 @@ class WebSocketClient {
         }
     }
 
-    // Eğitim odasına katıl
+    // ERSIN Eğitim odasına katıl
     joinTraining(sessionId) {
         if (this.connected) {
             this.socket.emit('join_training', { session_id: sessionId });
@@ -368,7 +429,7 @@ class WebSocketClient {
         }
     }
 
-    // Bağlantıyı kapat
+    // ERSIN Bağlantıyı kapat
     disconnect() {
         if (this.socket) {
             this.socket.disconnect();
@@ -378,35 +439,35 @@ class WebSocketClient {
         }
     }
 
-    // Event handler'lar - override edilebilir
+    // ERSIN Event handler'lar - override edilebilir
     onConnected() {
-        // UI güncellemeleri
+        // ERSIN UI güncellemeleri
         this.updateConnectionStatus('connected', 'WebSocket bağlantısı aktif');
     }
 
     onDisconnected(reason) {
-        // UI güncellemeleri
+        // ERSIN UI güncellemeleri
         this.updateConnectionStatus('disconnected', `Bağlantı kesildi: ${reason}`);
     }
 
     onConnectError(error) {
-        // UI güncellemeleri
+        // ERSIN UI güncellemeleri
         this.updateConnectionStatus('error', `Bağlantı hatası: ${error.message || error}`);
     }
 
     onAnalysisProgress(data) {
-        // Analysis progress UI güncellemeleri
+        // ERSIN Analysis progress UI güncellemeleri
         const { analysis_id, progress, message, status } = data;
         
-        // Progress bar güncelle
+        // ERSIN Progress bar güncelle
         const progressBar = document.querySelector(`[data-analysis-id="${analysis_id}"] .progress-bar`);
         if (progressBar) {
             progressBar.style.width = `${progress}%`;
             progressBar.setAttribute('aria-valuenow', progress);
-            // textContent kaldırıldı - sadece visual bar yeterli
+            // ERSIN textContent kaldırıldı - sadece visual bar yeterli
         }
 
-        // Status message güncelle
+        // ERSIN Status message güncelle
         const statusMessage = document.querySelector(`[data-analysis-id="${analysis_id}"] .status-message`);
         if (statusMessage) {
             statusMessage.textContent = message;
@@ -416,10 +477,10 @@ class WebSocketClient {
     }
 
     onAnalysisCompleted(data) {
-        // Analysis completion UI güncellemeleri
+        // ERSIN Analysis completion UI güncellemeleri
         const { analysis_id, message } = data;
         
-        // Progress bar'ı 100% yap
+        // ERSIN Progress bar'ı 100% yap
         const progressBar = document.querySelector(`[data-analysis-id="${analysis_id}"] .progress-bar`);
         if (progressBar) {
             progressBar.style.width = '100%';
@@ -428,7 +489,7 @@ class WebSocketClient {
             progressBar.classList.add('bg-success');
         }
 
-        // Status message güncelle
+        // ERSIN Status message güncelle
         const statusMessage = document.querySelector(`[data-analysis-id="${analysis_id}"] .status-message`);
         if (statusMessage) {
             statusMessage.textContent = message;
@@ -437,33 +498,33 @@ class WebSocketClient {
 
         console.log(`[WebSocket] Analysis ${analysis_id} completed: ${message}`);
         
-        // Sayfayı yenile (sonuçları göstermek için)
+        // ERSIN Sayfayı yenile (sonuçları göstermek için)
         setTimeout(() => {
             window.location.reload();
         }, 2000);
     }
 
     onTrainingStarted(data) {
-        // Training başlatıldı UI güncellemeleri
+        // ERSIN Training başlatıldı UI güncellemeleri
         const { session_id, model_type, total_samples, message } = data;
         
-        // Modal training status güncelle
+        // ERSIN Modal training status güncelle
         this.showModalTrainingStatus(message, 'info');
         
-        // Progress div'i görünür yap
+        // ERSIN Progress div'i görünür yap
         const modalProgressDiv = document.getElementById('modal-training-progress');
         if (modalProgressDiv) {
             modalProgressDiv.style.display = 'block';
         }
 
-        // Training istatistiklerini temizle (özellikle CLIP ensemble için)
+        // ERSIN Training istatistiklerini temizle (özellikle CLIP ensemble için)
         this.clearTrainingStats();
 
         console.log(`[WebSocket] Training started: ${model_type} model with ${total_samples} samples`);
     }
 
     clearTrainingStats() {
-        // Training istatistiklerini "-" ile sıfırla
+        // ERSIN Training istatistiklerini "-" ile sıfırla
         const epochEl = document.getElementById('modal-current-epoch');
         const lossEl = document.getElementById('modal-current-loss');
         const maeEl = document.getElementById('modal-current-mae');
@@ -474,7 +535,7 @@ class WebSocketClient {
         if (maeEl) maeEl.textContent = '-';
         if (durationEl) durationEl.textContent = '-';
         
-        // Progress bar'ı da sıfırla
+        // ERSIN Progress bar'ı da sıfırla
         const modalProgressBar = document.getElementById('modal-progress-bar');
         if (modalProgressBar) {
             modalProgressBar.style.width = '0%';
@@ -486,10 +547,10 @@ class WebSocketClient {
     }
 
     onTrainingProgress(data) {
-        // Training progress UI güncellemeleri
+        // ERSIN Training progress UI güncellemeleri
         const { session_id, current_epoch, total_epochs, progress, metrics } = data;
         
-        // Modal training progress güncelle
+        // ERSIN Modal training progress güncelle
         const modalProgressBar = document.getElementById('modal-progress-bar');
         const modalCurrentEpoch = document.getElementById('modal-current-epoch');
         const modalCurrentLoss = document.getElementById('modal-current-loss');
@@ -511,10 +572,10 @@ class WebSocketClient {
     }
 
     onTrainingCompleted(data) {
-        // Training completion UI güncellemeleri
+        // ERSIN Training completion UI güncellemeleri
         const { session_id, model_path, metrics } = data;
         
-        // Modal progress'i 100% yap
+        // ERSIN Modal progress'i 100% yap
         const modalProgressBar = document.getElementById('modal-progress-bar');
         if (modalProgressBar) {
             modalProgressBar.style.width = '100%';
@@ -522,27 +583,27 @@ class WebSocketClient {
             modalProgressBar.classList.add('bg-success');
         }
 
-        // Success mesajı göster
+        // ERSIN Success mesajı göster
         this.showModalTrainingStatus(`Eğitim tamamlandı! Model: ${model_path}`, 'success');
 
-        // CLIP Ensemble metrics varsa istatistikleri güncelle
+        // ERSIN CLIP Ensemble metrics varsa istatistikleri güncelle
         if (metrics && model_path.includes('Content')) {
             this.updateClipEnsembleStats(metrics);
         }
 
-        // Modal'ı yenile (küçük delay ile database commit işlemini bekle)
+        // ERSIN Modal'ı yenile (küçük delay ile database commit işlemini bekle)
         setTimeout(() => {
             if (window.initializeModelManagementModal) {
                 console.log('🔄 Modal yenileniyor (CLIP training completed)...');
                 window.initializeModelManagementModal();
             }
-        }, 1000); // 1 saniye bekle
+        }, 1000);  // ERSIN 1 saniye bekle
 
         console.log(`[WebSocket] Training ${session_id} completed: ${model_path}`, metrics);
     }
 
     updateClipEnsembleStats(metrics) {
-        // CLIP Ensemble için özel istatistik gösterimi
+        // ERSIN CLIP Ensemble için özel istatistik gösterimi
         console.log('🎯 CLIP Ensemble stats güncelleniyor:', metrics);
         
         const epochEl = document.getElementById('modal-current-epoch');
@@ -570,16 +631,16 @@ class WebSocketClient {
     }
 
     onTrainingError(data) {
-        // Training error UI güncellemeleri
+        // ERSIN Training error UI güncellemeleri
         const { session_id, error } = data;
         
-        // Error mesajı göster
+        // ERSIN Error mesajı göster
         this.showModalTrainingStatus(`Eğitim hatası: ${error}`, 'danger');
 
         console.error(`[WebSocket] Training ${session_id} error: ${error}`);
     }
 
-    // UI Helper metodlar
+    // ERSIN UI Helper metodlar
     updateConnectionStatus(status, message) {
         const statusElement = document.getElementById('websocket-status');
         if (statusElement) {
@@ -597,7 +658,7 @@ class WebSocketClient {
         }
     }
 
-    // 🔥 Once method - tek seferlik event listener
+    // ERSIN 🔥 Once method - tek seferlik event listener
     once(event, callback) {
         if (this.socket) {
             this.socket.once(event, callback);
@@ -606,7 +667,7 @@ class WebSocketClient {
         }
     }
 
-    // 🔥 Ping method - test için
+    // ERSIN 🔥 Ping method - test için
     ping() {
         if (this.socket && this.connected) {
             this.socket.emit('ping', 'Client ping');
@@ -617,19 +678,19 @@ class WebSocketClient {
     }
 }
 
-// 🔥 WebSocket client class hazır - instance main.js'de oluşturulacak
-// (Dublicate connection önlemek için burada instance oluşturmuyoruz)
+// ERSIN 🔥 WebSocket client class hazır - instance main.js'de oluşturulacak
+// ERSIN (Dublicate connection önlemek için burada instance oluşturmuyoruz)
 
-// Global state'i ana dosya ile paylaş
+// ERSIN Global state'i ana dosya ile paylaş
 if (!window.fileAnalysisMap) window.fileAnalysisMap = new Map();
 if (!window.uploadedFiles) window.uploadedFiles = [];
 
-// Sayfa yüklendiğinde setup
+// ERSIN Sayfa yüklendiğinde setup
 document.addEventListener('DOMContentLoaded', function() {
     console.log('[WebSocket] DOM yüklendi, WebSocket başlatılıyor...');
-    // Instance oluşturma main.js'e taşındı
+    // ERSIN Instance oluşturma main.js'e taşındı
     
-    // Ping test butonu
+    // ERSIN Ping test butonu
     window.testWebSocket = function() {
         console.log('[WebSocket] Test ping gönderiliyor...');
         if (window.socketioClient) {
@@ -640,7 +701,7 @@ document.addEventListener('DOMContentLoaded', function() {
     };
 });
 
-// Sayfa kapanırken bağlantıyı kapat
+// ERSIN Sayfa kapanırken bağlantıyı kapat
 window.addEventListener('beforeunload', function() {
     if (window.socketioClient) {
         window.socketioClient.disconnect();

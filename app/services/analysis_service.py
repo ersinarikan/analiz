@@ -1,134 +1,139 @@
-import os
-import logging
-import traceback
-from datetime import datetime
-import json
-import cv2
-import threading
-import time
-import concurrent.futures
+import os 
+import logging 
+import traceback 
+from datetime import datetime 
+import json 
+import cv2 
+import threading 
+import time 
+import concurrent .futures 
+from typing import Any 
 
-from flask import current_app
-from app import db
-from app.ai.content_analyzer import ContentAnalyzer
-from app.ai.insightface_age_estimator import InsightFaceAgeEstimator
-from app.utils.model_state import get_content_analyzer
-from app.models.analysis import Analysis, ContentDetection, AgeEstimation
-from app.models.feedback import Feedback
-from app.models.file import File
-from app.utils.image_utils import load_image, overlay_text_turkish
-from app.routes.settings_routes import FACTORY_DEFAULTS
-from app.json_encoder import NumPyJSONEncoder
-from app.services.db_service import safe_database_session
-from deep_sort_realtime.deepsort_tracker import DeepSort
-from app.utils.person_tracker import PersonTrackerManager
-from app.utils.face_utils import extract_face_features
-from app.utils.path_utils import to_rel_path
+from flask import current_app 
+from app import db 
+from app .ai .content_analyzer import ContentAnalyzer 
+from app .utils .model_state import get_content_analyzer 
+from app .models .analysis import Analysis ,ContentDetection ,AgeEstimation 
+from app .models .feedback import Feedback 
+from app .models .file import File 
+from app .utils .image_utils import load_image ,overlay_text_turkish 
+from app .routes .settings_routes import FACTORY_DEFAULTS 
+from app .json_encoder import NumPyJSONEncoder 
+from app .services .db_service import safe_database_session 
+from deep_sort_realtime .deepsort_tracker import DeepSort 
+from app .utils .person_tracker import PersonTrackerManager 
+from app .utils .face_utils import extract_face_features 
+from app .utils .path_utils import to_rel_path 
 
-logger = logging.getLogger(__name__)
+logger =logging .getLogger (__name__ )
 
-# Robust overall scoring helpers (no external deps)
-def _percentile_90(scores):
-    if not scores:
-        return 0.0
-    ordered = sorted(scores)
-    idx = int(0.9 * (len(ordered) - 1))
-    return float(ordered[idx])
+# ERSIN Robust overall scoring helpers (no external deps)
+def _percentile_90 (scores :list [float ])->float :
+    if not scores :
+        return 0.0 
+    ordered =sorted (scores )
+    idx =int (0.9 *(len (ordered )-1 ))
+    return float (ordered [idx ])
 
-def _robust_overall_score(scores, peak_weight=0.7):
-    if not scores:
-        return 0.0
-    avg = sum(scores) / len(scores)
-    p90 = _percentile_90(scores)
-    blended = (p90 * peak_weight) + (avg * (1 - peak_weight))
-    return max(avg, min(1.0, max(0.0, blended)))
+def _robust_overall_score (scores :list [float ],peak_weight :float =0.7 )->float :
+    if not scores :
+        return 0.0 
+    avg =sum (scores )/len (scores )
+    p90 =_percentile_90 (scores )
+    blended =(p90 *peak_weight )+(avg *(1 -peak_weight ))
+    return max (avg ,min (1.0 ,max (0.0 ,blended )))
 
-# Thread-safe session management
-_session_lock = threading.Lock()
+    # ERSIN thread-safe session management
+_session_lock =threading .Lock ()
 
-# 🚀 ASYNC AGE ESTIMATION: ThreadPoolExecutor for non-blocking age estimation
-_age_estimation_executor = concurrent.futures.ThreadPoolExecutor(
-    max_workers=2, 
-    thread_name_prefix="AgeEstimation"
+# ERSIN 🚀 ASYNC AGE ESTIMATION: ThreadPoolExecutor için non-blocking age estimation
+_age_estimation_executor =concurrent .futures .ThreadPoolExecutor (
+max_workers =2 ,
+thread_name_prefix ="AgeEstimation"
 )
 
-# 🚀 ASYNC FACE DETECTION: ThreadPoolExecutor for non-blocking face detection
-_face_detection_executor = concurrent.futures.ThreadPoolExecutor(
-    max_workers=1,  # Only one face detection at a time to avoid resource contention
-    thread_name_prefix="FaceDetection"
+# ERSIN 🚀 ASYNC FACE DETECTION: ThreadPoolExecutor için non-blocking face detection
+_face_detection_executor =concurrent .futures .ThreadPoolExecutor (
+max_workers =1 ,# ERSIN Only one face detection at a time to avoid resource contention
+thread_name_prefix ="FaceDetection"
 )
 
-# 🚀 ASYNC CONTENT ANALYSIS: ThreadPoolExecutor for non-blocking content analysis
-_content_analysis_executor = concurrent.futures.ThreadPoolExecutor(
-    max_workers=1,  # Only one content analysis at a time to avoid GPU contention
-    thread_name_prefix="ContentAnalysis"
+# ERSIN 🚀 ASYNC CONTENT ANALYSIS: ThreadPoolExecutor için non-blocking content analysis
+_content_analysis_executor =concurrent .futures .ThreadPoolExecutor (
+max_workers =1 ,# ERSIN Only one content analysis at a time to avoid GPU contention
+thread_name_prefix ="ContentAnalysis"
 )
 
-def _async_face_detection(age_estimator_instance, image):
+def _async_face_detection (age_estimator_instance ,image ):
     """Face detection işlemini background thread'de yapar."""
-    return age_estimator_instance.model.get(image)
+    return age_estimator_instance .model .get (image )
 
-def _async_age_estimation(age_estimator, image, face, face_idx, analysis_id, person_id, app_context=None):
+def _async_age_estimation (age_estimator ,image ,face ,face_idx ,analysis_id ,person_id ,app_context =None ):
     """
     Age estimation işlemini background thread'de yapar - main thread bloklanmaz!
     Bu sayede CLIP hesaplamaları sırasında WebSocket bağlantısı cevap verebilir.
     """
-    try:
-        # Flask Application Context ekle - Thread içinde database erişimi için!
-        if app_context is None:
-            from flask import current_app
-            app_context = current_app._get_current_object()
-        
-        with app_context.app_context():
-            logger.info(f"[ASYNC_AGE] Thread başlatıldı: Yüz #{face_idx} (person_id={person_id})")
-            start_time = time.time()
-            
-            # İptal kontrolü - Thread başlangıcında
-            from app.models.analysis import Analysis
-            analysis = Analysis.query.get(analysis_id)
-            if analysis and analysis.check_if_cancelled():
-                logger.info(f"[ASYNC_AGE] Analiz #{analysis_id} iptal edilmiş, yaş tahmini thread'i durduruluyor")
+    try :
+    # ERSIN Flask Application Context ekle - Thread içinde database erişimi için!
+        if app_context is None :
+            from flask import current_app 
+            # ERSIN current_app is a LocalProxy, _get_current_object() returns the actual Flask app
+            from werkzeug .local import LocalProxy 
+            if isinstance (current_app ,LocalProxy ):
+                app_context =getattr (current_app ,'_get_current_object',lambda :current_app )()
+            else :
+                app_context =current_app 
+
+        with app_context .app_context ():
+            logger .info (f"[ASYNC_AGE] Thread başlatıldı: Yüz #{face_idx } (person_id={person_id })")
+            start_time =time .time ()
+
+            # ERSIN İptal kontrolü - Thread başlangıcında
+            from app .models .analysis import Analysis 
+            analysis =Analysis .query .get (analysis_id )
+            if analysis and analysis .check_if_cancelled ():
+                logger .info (f"[ASYNC_AGE] Analiz #{analysis_id } iptal edilmiş, yaş tahmini thread'i durduruluyor")
                 return {
-                    'face_idx': face_idx,
-                    'person_id': person_id,
-                    'cancelled': True,
-                    'processing_time': 0
+                'face_idx':face_idx ,
+                'person_id':person_id ,
+                'cancelled':True ,
+                'processing_time':0 
                 }
-            
-            # Age estimation işlemini yap (bu kısım 11-12 saniye sürebilir)
-            estimated_age, confidence, pseudo_data = age_estimator.estimate_age(image, face)
-            
-            elapsed_time = time.time() - start_time
-            logger.info(f"[ASYNC_AGE] Thread tamamlandı: Yüz #{face_idx}, Süre: {elapsed_time:.2f}s, Yaş={estimated_age}, Güven={confidence}")
-            
+
+                # ERSIN Age estimation işlemini yap (bu kısım 11-12 saniye sürebilir)
+            estimated_age ,confidence ,pseudo_data =age_estimator .estimate_age (image ,face )
+
+            elapsed_time =time .time ()-start_time 
+            logger .info (f"[ASYNC_AGE] Thread tamamlandı: Yüz #{face_idx }, Süre: {elapsed_time :.2f}s, Yaş={estimated_age }, Güven={confidence }")
+
             return {
-                'face_idx': face_idx,
-                'person_id': person_id,
-                'estimated_age': estimated_age,
-                'confidence': confidence,
-                'pseudo_data': pseudo_data,
-                'processing_time': elapsed_time
+            'face_idx':face_idx ,
+            'person_id':person_id ,
+            'estimated_age':estimated_age ,
+            'confidence':confidence ,
+            'pseudo_data':pseudo_data ,
+            'processing_time':elapsed_time 
             }
-        
-    except Exception as e:
-        logger.error(f"[ASYNC_AGE] Thread hatası - Yüz #{face_idx}: {str(e)}")
+
+    except Exception as e :
+        logger .error (f"[ASYNC_AGE] Thread hatası - Yüz #{face_idx }: {str (e )}")
         return {
-            'face_idx': face_idx,
-            'person_id': person_id,
-            'estimated_age': None,
-            'confidence': None,
-            'pseudo_data': None,
-            'error': str(e)
+        'face_idx':face_idx ,
+        'person_id':person_id ,
+        'estimated_age':None ,
+        'confidence':None ,
+        'pseudo_data':None ,
+        'error':str (e )
         }
 
-class AnalysisService:
+class AnalysisService :
     """
     Analiz işlemlerini yöneten ana servis sınıfı.
     - Yüz tespiti, yaş/cinsiyet tahmini, içerik analizi gibi işlemleri yönetir.
     - Kuyruk ve arka plan işleyişini koordine eder.
     """
-    
-    def start_analysis(self, file_id, frames_per_second=None, include_age_analysis=False, websocket_session_id=None):
+
+    def start_analysis (self ,file_id :str ,frames_per_second :float |None =None ,include_age_analysis :bool =False ,websocket_session_id :str |None =None )->'Analysis | None':
         """
         Verilen dosya ID'si için analiz işlemini başlatır.
         
@@ -141,59 +146,59 @@ class AnalysisService:
         Returns:
             Analysis: Oluşturulan analiz nesnesi veya None
         """
-        try:
-            # Dosyayı veritabanından al
-            file = File.query.get(file_id)
-            if not file:
-                logger.error(f"Dosya bulunamadı: {file_id}")
-                return None
-            
-            # File bilgilerini önceden çek
-            file_info = {
-                'original_filename': file.original_filename,
-                'file_type': file.file_type,
-                'filename': file.filename,
-                'file_path': file.file_path
+        try :
+        # ERSIN Dosyayı veritabanından al
+            file =File .query .get (file_id )
+            if not file :
+                logger .error (f"Dosya bulunamadı: {file_id }")
+                return None 
+
+                # ERSIN File bilgilerini önceden çek
+            file_info ={
+            'original_filename':file .original_filename ,
+            'file_type':file .file_type ,
+            'filename':file .filename ,
+            'file_path':file .file_path 
             }
-                
-            # Yeni bir analiz oluştur
-            analysis = Analysis(
-                file_id=file_id,
-                frames_per_second=frames_per_second,
-                include_age_analysis=include_age_analysis,
-                websocket_session_id=websocket_session_id
+
+            # ERSIN Yeni bir analiz oluştur
+            analysis =Analysis (
+            file_id =file_id ,
+            frames_per_second =frames_per_second ,
+            include_age_analysis =include_age_analysis ,
+            websocket_session_id =websocket_session_id 
             )
-            
-            # Başlangıç durumunu ayarla
-            analysis.status = 'pending'
-            
-            db.session.add(analysis)
-            db.session.commit()
-            
-            logger.info(f"Analiz oluşturuldu: #{analysis.id} - Dosya: {file_info['original_filename']}, Durum: pending")
-            
-            # WebSocket üzerinden analiz başlangıç bildirimi gönder
-            try:
-                from app.routes.websocket_routes import emit_analysis_started
-                emit_analysis_started(analysis.id, f"Analiz başlatıldı: {file_info['original_filename']}", file_id)
-                logger.info(f"Analiz başlatıldı - WebSocket bildirimi gönderildi: #{analysis.id}, File: {file_id}")
-            except Exception as socket_err:
-                logger.warning(f"WebSocket bildirim hatası: {str(socket_err)}")
-            
-            # Analizi kuyruğa ekle
-            from app.services.queue_service import add_to_queue
-            add_to_queue(analysis.id)
-            
-            logger.info(f"Analiz kuyruğa eklendi: #{analysis.id}")
-            
-            return analysis
-                
-        except Exception as e:
-            logger.error(f"Analiz başlatma hatası: {str(e)}", exc_info=True)
-            db.session.rollback()
-            return None
-    
-    def cancel_analysis(self, analysis_id):
+
+            # ERSIN Başlangıç durumunu ayarla
+            analysis .status ='pending'
+
+            db .session .add (analysis )
+            db .session .commit ()
+
+            logger .info (f"Analiz oluşturuldu: #{analysis .id } - Dosya: {file_info ['original_filename']}, Durum: pending")
+
+            # ERSIN WebSocket üzerinden analiz başlangıç bildirimi gönder
+            try :
+                from app .routes .websocket_routes import emit_analysis_started 
+                emit_analysis_started (analysis .id ,f"Analiz başlatıldı: {file_info ['original_filename']}",file_id )
+                logger .info (f"Analiz başlatıldı - WebSocket bildirimi gönderildi: #{analysis .id }, File: {file_id }")
+            except Exception as socket_err :
+                logger .warning (f"WebSocket bildirim hatası: {str (socket_err )}")
+
+                # ERSIN Analizi kuyruğa ekle
+            from app .services .queue_service import add_to_queue 
+            add_to_queue (analysis .id )
+
+            logger .info (f"Analiz kuyruğa eklendi: #{analysis .id }")
+
+            return analysis 
+
+        except Exception as e :
+            logger .error (f"Analiz başlatma hatası: {str (e )}",exc_info =True )
+            db .session .rollback ()
+            return None 
+
+    def cancel_analysis (self ,analysis_id :str )->bool :
         """
         Devam eden bir analizi iptal eder.
         
@@ -203,24 +208,24 @@ class AnalysisService:
         Returns:
             bool: İptal başarılı mı?
         """
-        try:
-            with safe_database_session() as session:
-                analysis = Analysis.query.get(analysis_id)
-                if not analysis:
-                    return False
-                    
-                # Analiz durumunu iptal edildi olarak işaretle
-                analysis.status = 'cancelled'
-                analysis.updated_at = datetime.now()
-                session.commit()
-                
-                return True
-                
-        except Exception as e:
-            logger.error(f"Analiz iptal hatası: {str(e)}", exc_info=True)
-            return False
-    
-    def retry_analysis(self, analysis_id):
+        try :
+            with safe_database_session ()as session :
+                analysis =Analysis .query .get (analysis_id )
+                if not analysis :
+                    return False 
+
+                    # ERSIN Analiz durumunu iptal edildi olarak işaretle
+                analysis .status ='cancelled'
+                analysis .updated_at =datetime .now ()
+                session .commit ()
+
+                return True 
+
+        except Exception as e :
+            logger .error (f"Analiz iptal hatası: {str (e )}",exc_info =True )
+            return False 
+
+    def retry_analysis (self ,analysis_id :str )->'Analysis | None':
         """
         Başarısız bir analizi tekrar dener.
         
@@ -230,36 +235,36 @@ class AnalysisService:
         Returns:
             Analysis: Yeni analiz nesnesi veya None
         """
-        try:
-            # Önceki analizi al
-            prev_analysis = Analysis.query.get(analysis_id)
-            if not prev_analysis:
-                return None
-                
-            # Aynı parametrelerle yeni analiz oluştur
-            new_analysis = Analysis(
-                file_id=prev_analysis.file_id,
-                frames_per_second=prev_analysis.frames_per_second,
-                include_age_analysis=prev_analysis.include_age_analysis
-            )
-            
-            db.session.add(new_analysis)
-            db.session.commit()
-            
-            # Analizi kuyruğa ekle
-            from app.services.queue_service import add_to_queue
-            add_to_queue(new_analysis.id)
-            
-            logger.info(f"Tekrar analiz kuyruğa eklendi: #{new_analysis.id}")
-            
-            return new_analysis
-            
-        except Exception as e:
-            logger.error(f"Analiz tekrar deneme hatası: {str(e)}", exc_info=True)
-            db.session.rollback()
-            return None
+        try :
+        # ERSIN Önceki analizi al
+            prev_analysis =Analysis .query .get (analysis_id )
+            if not prev_analysis :
+                return None 
 
-def analyze_file(analysis_id):
+                # ERSIN Aynı parametrelerle yeni analiz oluştur
+            new_analysis =Analysis (
+            file_id =prev_analysis .file_id ,
+            frames_per_second =prev_analysis .frames_per_second ,
+            include_age_analysis =prev_analysis .include_age_analysis 
+            )
+
+            db .session .add (new_analysis )
+            db .session .commit ()
+
+            # ERSIN Analizi kuyruğa ekle
+            from app .services .queue_service import add_to_queue 
+            add_to_queue (new_analysis .id )
+
+            logger .info (f"Tekrar analiz kuyruğa eklendi: #{new_analysis .id }")
+
+            return new_analysis 
+
+        except Exception as e :
+            logger .error (f"Analiz tekrar deneme hatası: {str (e )}",exc_info =True )
+            db .session .rollback ()
+            return None 
+
+def analyze_file (analysis_id :str )->tuple [bool ,str ]:
     """
     Dosya analizi gerçekleştirir.
     Bu fonksiyon analiz işleminin başlangıç noktasıdır ve verilen ID'ye göre analizi başlatır.
@@ -270,115 +275,132 @@ def analyze_file(analysis_id):
     Returns:
         tuple: (başarı durumu, mesaj)
     """
-    # Flask app context kontrolü ve yönetimi
-    app = None
-    needs_context = False
-    
-    try:
-        from flask import current_app, has_app_context
-        if has_app_context():
-            app = current_app._get_current_object()
-        else:
-            needs_context = True
-    except (RuntimeError, ImportError):
-        needs_context = True
-    
-    def _perform_analysis():
+    # ERSIN Flask app context kontrolü ve yönetimi
+    needs_context =False 
+
+    try :
+        from flask import current_app ,has_app_context 
+        from werkzeug .local import LocalProxy 
+        if has_app_context ():
+            # ERSIN app değişkeni şu an kullanılmıyor
+            if isinstance (current_app ,LocalProxy ):
+                _ =getattr (current_app ,'_get_current_object',lambda :current_app )()
+            else :
+                _ =current_app 
+        else :
+            needs_context =True 
+    except (RuntimeError ,ImportError ):
+        needs_context =True 
+
+    def _perform_analysis ():
         """Actual analysis logic"""
-        try:
-            analysis = Analysis.query.get(analysis_id)
-            
-            if not analysis:
-                logger.error(f"Analiz bulunamadı: {analysis_id}")
-                return False, "Analiz bulunamadı"
-            
-            # İptal edilip edilmediğini kontrol et
-            if analysis.check_if_cancelled():
-                logger.info(f"Analiz #{analysis_id} zaten iptal edilmiş, işlem durduruluyor")
-                return False, "Analiz iptal edildi"
-            
-            # Analiz başlıyor
-            analysis.start_analysis()
-            db.session.commit()
-            
-            logger.info(f"[SVC_LOG][START_ANALYSIS] Analiz BAŞLATILDI. Analiz ID: {analysis.id}, Dosya ID: {analysis.file_id}")  # YENİ LOG
-            
-            # WebSocket ile analiz başlatma bildirimi gönder
-            try:
-                from app.routes.websocket_routes import emit_analysis_progress
-                emit_analysis_progress(analysis.id, 0, "Analiz başlatıldı, dosya hazırlanıyor...", analysis.file_id)
-            except Exception as ws_err:
-                logger.warning(f"WebSocket started progress event hatası: {str(ws_err)}")
-            
-            # Dosyayı al
-            file = analysis.file
-            
-            # Dosya türüne göre uygun analiz metodunu çağır
-            if file.file_type == 'image':
-                success, message = analyze_image(analysis)
-            elif file.file_type == 'video':
-                success, message = analyze_video(analysis)
-            else:
-                analysis.fail_analysis("Desteklenmeyen dosya türü")
-                db.session.commit()
-                return False, "Desteklenmeyen dosya türü"
-            
-            if success:
-                # Analiz sonuçlarını hesapla
-                calculate_overall_scores(analysis)
-                analysis.complete_analysis()
-                db.session.commit()
-                
-                # WebSocket ile analiz tamamlanma bildirimi gönder
-                try:
-                    from app.routes.websocket_routes import emit_analysis_completed
-                    emit_analysis_completed(analysis.id, "Analiz başarıyla tamamlandı", analysis.file_id)
-                except Exception as ws_err:
-                    logger.warning(f"WebSocket completion event hatası: {str(ws_err)}")
-                
-                return True, "Analiz başarıyla tamamlandı"
-            else:
-                analysis.fail_analysis(message)
-                db.session.commit()
-                
-                # WebSocket ile analiz başarısızlık bildirimi gönder
-                try:
-                    from app.routes.websocket_routes import emit_analysis_completed
-                    emit_analysis_completed(analysis.id, f"Analiz başarısız: {message}", analysis.file_id)
-                except Exception as ws_err:
-                    logger.warning(f"WebSocket failed event hatası: {str(ws_err)}")
-                
-                return False, message
-                
-        except Exception as e:
-            error_message = f"Analiz hatası: {str(e)}"
-            logger.error(error_message, exc_info=True)
-            try:
-                analysis = Analysis.query.get(analysis_id)
-                if analysis:
-                    analysis.fail_analysis(error_message)
-                    db.session.commit()
-            except Exception as db_err:
-                logger.error(f"Error updating analysis status: {str(db_err)}", exc_info=True)
-            return False, error_message
-    
-    # Context management
-    if needs_context:
-        # Import burada yapıyoruz circular import'ı önlemek için
-        try:
-            from flask import current_app
-            app_ctx = current_app._get_current_object()
-            with app_ctx.app_context():
-                return _perform_analysis()
-        except Exception as e:
-            logger.error(f"App context oluşturma hatası: {str(e)}", exc_info=True)
-            return False, f"App context hatası: {str(e)}"
-    else:
-        # Zaten app context var
-        return _perform_analysis()
+        try :
+            analysis =Analysis .query .get (analysis_id )
+
+            if not analysis :
+                db_uri ="(unknown)"
+                try :
+                    from flask import current_app
+                    db_uri =current_app .config .get ("SQLALCHEMY_DATABASE_URI","")
+                except Exception :
+                    pass
+                cwd =os .getcwd ()
+                logger .error (
+                    f"Analiz bulunamadı: {analysis_id } (subprocess DB: {db_uri}, cwd: {cwd})"
+                )
+                return False ,"Analiz bulunamadı"
+
+                # ERSIN İptal edilip edilmediğini kontrol et
+            if analysis .check_if_cancelled ():
+                logger .info (f"Analiz #{analysis_id } zaten iptal edilmiş, işlem durduruluyor")
+                return False ,"Analiz iptal edildi"
+
+                # ERSIN Analiz başlıyor
+            analysis .start_analysis ()
+            db .session .commit ()
+
+            logger .info (f"[SVC_LOG][START_ANALYSIS] Analiz BAŞLATILDI. Analiz ID: {analysis .id }, Dosya ID: {analysis .file_id }")# ERSIN YENİ LOG
+
+            # ERSIN WebSocket ile analiz başlatma bildirimi gönder
+            try :
+                from app .routes .websocket_routes import emit_analysis_progress 
+                emit_analysis_progress (analysis .id ,0 ,"Analiz başlatıldı, dosya hazırlanıyor...",analysis .file_id )
+            except Exception as ws_err :
+                logger .warning (f"WebSocket started progress event hatası: {str (ws_err )}")
+
+                # ERSIN Dosyayı al
+            file =analysis .file 
+
+            # ERSIN Dosya türüne göre uygun analiz metodunu çağır
+            if file .file_type =='image':
+                success ,message =analyze_image (analysis )
+            elif file .file_type =='video':
+                success ,message =analyze_video (analysis )
+            else :
+                analysis .fail_analysis ("Desteklenmeyen dosya türü")
+                db .session .commit ()
+                return False ,"Desteklenmeyen dosya türü"
+
+            if success :
+            # ERSIN Analiz sonuçlarını hesapla
+                calculate_overall_scores (analysis )
+                analysis .complete_analysis ()
+                db .session .commit ()
+
+                # ERSIN WebSocket ile analiz tamamlanma bildirimi gönder
+                try :
+                    from app .routes .websocket_routes import emit_analysis_completed 
+                    emit_analysis_completed (analysis .id ,"Analiz başarıyla tamamlandı",analysis .file_id )
+                except Exception as ws_err :
+                    logger .warning (f"WebSocket completion event hatası: {str (ws_err )}")
+
+                return True ,"Analiz başarıyla tamamlandı"
+            else :
+                analysis .fail_analysis (message )
+                db .session .commit ()
+
+                # ERSIN WebSocket ile analiz başarısızlık bildirimi gönder
+                try :
+                    from app .routes .websocket_routes import emit_analysis_completed 
+                    emit_analysis_completed (analysis .id ,f"Analiz başarısız: {message }",analysis .file_id )
+                except Exception as ws_err :
+                    logger .warning (f"WebSocket failed event hatası: {str (ws_err )}")
+
+                return False ,message 
+
+        except Exception as e :
+            error_message =f"Analiz hatası: {str (e )}"
+            logger .error (error_message ,exc_info =True )
+            try :
+                analysis =Analysis .query .get (analysis_id )
+                if analysis :
+                    analysis .fail_analysis (error_message )
+                    db .session .commit ()
+            except Exception as db_err :
+                logger .error (f"Error updating analysis status: {str (db_err )}",exc_info =True )
+            return False ,error_message 
+
+            # ERSIN Context management
+    if needs_context :
+    # ERSIN Import burada yapıyoruz circular import'ı önlemek için
+        try :
+            from flask import current_app 
+            from werkzeug .local import LocalProxy 
+            if isinstance (current_app ,LocalProxy ):
+                app_ctx =getattr (current_app ,'_get_current_object',lambda :current_app )()
+            else :
+                app_ctx =current_app 
+            with app_ctx .app_context ():
+                return _perform_analysis ()
+        except Exception as e :
+            logger .error (f"App context oluşturma hatası: {str (e )}",exc_info =True )
+            return False ,f"App context hatası: {str (e )}"
+    else :
+    # ERSIN Zaten app context var
+        return _perform_analysis ()
 
 
-def analyze_image(analysis):
+def analyze_image (analysis :'Analysis')->tuple [bool ,str ]:
     """
     Bir resmi analiz eder.
     Bu fonksiyon resim dosyaları için içerik analizi yapar ve sonuçları veritabanına kaydeder.
@@ -390,343 +412,379 @@ def analyze_image(analysis):
     Returns:
         tuple: (başarı durumu, mesaj)
     """
-    file = analysis.file
-    logger.info(f"[DEBUG_ANALYZE] analyze_image ÇAĞRILDI. Analiz ID: {analysis.id}, Dosya: {file.original_filename}")
-    logger.info(f"[SVC_LOG][ANALYZE_IMAGE] Resim analizi BAŞLADI. Analiz ID: {analysis.id}, Dosya: {file.original_filename}") # YENİ LOG
+    file =analysis .file 
+    logger .info (f"[DEBUG_ANALYZE] analyze_image ÇAĞRILDI. Analiz ID: {analysis .id }, Dosya: {file .original_filename }")
+    logger .info (f"[SVC_LOG][ANALYZE_IMAGE] Resim analizi BAŞLADI. Analiz ID: {analysis .id }, Dosya: {file .original_filename }")# ERSIN YENİ LOG
 
-    try:
-        # İlk progress güncellemesi
-        analysis.update_progress(10, "Resim yükleniyor...")
-        db.session.commit()
-        
-        # Resmi yükle
-        image = load_image(file.file_path)
-        if image is None:
-            logger.error(f"[SVC_LOG][ANALYZE_IMAGE] Resim YÜKLENEMEDİ. Analiz ID: {analysis.id}, Dosya Yolu: {file.file_path}") # YENİ LOG
-            return False, "Resim yüklenemedi"
-        
-        logger.info(f"[SVC_LOG][ANALYZE_IMAGE] Resim başarıyla yüklendi. Analiz ID: {analysis.id}") # YENİ LOG
-        
-        # İptal kontrolü
-        if analysis.check_if_cancelled():
-            logger.info(f"Analiz #{analysis.id} iptal edilmiş, işlem durduruluyor")
-            return False, "Analiz iptal edildi"
-        
-        # İçerik analizi
-        analysis.update_progress(25, "İçerik analizi yapılıyor...")
-        
-        # Görüntüyü ContentAnalyzer ile analiz et
-        content_analyzer = ContentAnalyzer()
-        logger.info(f"[SVC_LOG][ANALYZE_IMAGE] ContentAnalyzer çağrılmadan önce. Analiz ID: {analysis.id}") # YENİ LOG
-        violence_score, adult_content_score, harassment_score, weapon_score, drug_score, safe_score, detected_objects = content_analyzer.analyze_image(file.file_path)
-        logger.info(f"[SVC_LOG][ANALYZE_IMAGE] ContentAnalyzer çağrıldı. Analiz ID: {analysis.id}. Adult Score: {adult_content_score}") # YENİ LOG
-        
-        # İçerik analizi tamamlandı
-        analysis.update_progress(50, "İçerik analizi sonuçları kaydediliyor...")
-        db.session.commit()
-        
-        # Analiz sonuçlarını veritabanına kaydet
-        detection = ContentDetection(
-            analysis_id=analysis.id,
-            frame_path=file.file_path,
-            frame_timestamp=None,
-            frame_index=None
+    try :
+    # ERSIN İlk progress güncellemesi
+        analysis .update_progress (10 ,"Resim yükleniyor...")
+        db .session .commit ()
+
+        # ERSIN Resmi yükle
+        image =load_image (file .file_path )
+        if image is None :
+            logger .error (f"[SVC_LOG][ANALYZE_IMAGE] Resim YÜKLENEMEDİ. Analiz ID: {analysis .id }, Dosya Yolu: {file .file_path }")# ERSIN YENİ LOG
+            return False ,"Resim yüklenemedi"
+
+        logger .info (f"[SVC_LOG][ANALYZE_IMAGE] Resim başarıyla yüklendi. Analiz ID: {analysis .id }")# ERSIN YENİ LOG
+
+        # ERSIN İptal kontrolü
+        if analysis .check_if_cancelled ():
+            logger .info (f"Analiz #{analysis .id } iptal edilmiş, işlem durduruluyor")
+            return False ,"Analiz iptal edildi"
+
+            # ERSIN İçerik analizi
+        analysis .update_progress (25 ,"İçerik analizi yapılıyor...")
+
+        # ERSIN Görüntüyü ContentAnalyzer ile analiz et
+        content_analyzer =ContentAnalyzer ()
+        logger .info (f"[SVC_LOG][ANALYZE_IMAGE] ContentAnalyzer çağrılmadan önce. Analiz ID: {analysis .id }")# ERSIN YENİ LOG
+        violence_score ,adult_content_score ,harassment_score ,weapon_score ,drug_score ,safe_score ,detected_objects =content_analyzer .analyze_image (file .file_path )
+        logger .info (f"[SVC_LOG][ANALYZE_IMAGE] ContentAnalyzer çağrıldı. Analiz ID: {analysis .id }. Adult Score: {adult_content_score }")# ERSIN YENİ LOG
+
+        # ERSIN İçerik analizi tamamlandı
+        analysis .update_progress (50 ,"İçerik analizi sonuçları kaydediliyor...")
+        db .session .commit ()
+
+        # ERSIN Analiz sonuçlarını veritabanına kaydet
+        detection =ContentDetection (
+        analysis_id =analysis .id ,
+        frame_path =file .file_path ,
+        frame_timestamp =None ,
+        frame_index =None 
         )
-        
-        # NumPy türlerini Python türlerine dönüştürdüğümüzden emin olalım
-        detection.violence_score = float(violence_score)
-        detection.adult_content_score = float(adult_content_score)
-        detection.harassment_score = float(harassment_score)
-        detection.weapon_score = float(weapon_score)
-        detection.drug_score = float(drug_score)
-        detection.safe_score = float(safe_score)
-        logger.info(f"[SVC_LOG][ANALYZE_IMAGE] ContentDetection skorları atandı. Analiz ID: {analysis.id}. Adult Score: {detection.adult_content_score}") # YENİ LOG
-        
-        # JSON uyumlu nesneyi kaydet
-        try:
-            detection.set_detected_objects(detected_objects)
-        except Exception as e:
-            logger.error(f"[SVC_LOG][ANALYZE_IMAGE] set_detected_objects hatası: {str(e)}. Analiz ID: {analysis.id}") # YENİ LOG
-            logger.error(f"Hata izi: {traceback.format_exc()}")
-            detection._detected_objects = "[]"  # Boş liste olarak ayarla
-        
-        db.session.add(detection)
-        
-        # Eğer yaş analizi isteniyorsa, yüzleri tespit et ve yaşları tahmin et
-        if analysis.include_age_analysis:
-            # İptal kontrolü - yaş analizi öncesi
-            if analysis.check_if_cancelled():
-                logger.info(f"Analiz #{analysis.id} iptal edilmiş, yaş analizi atlanıyor")
-                return False, "Analiz iptal edildi"
-                
-            # Yaş analizi başlatılıyor
-            analysis.update_progress(60, "Yüz tespiti ve yaş analizi yapılıyor...")
-            db.session.commit()
-            
-            from app.utils.model_state import get_age_estimator
-            age_estimator = get_age_estimator()
-            
-            # CLIP Sharing - Memory optimization (Image Analysis)
-            try:
-                content_analyzer_instance = get_content_analyzer()
-                if hasattr(content_analyzer_instance, 'clip_model') and content_analyzer_instance.clip_model is not None:
-                    clip_preprocess = getattr(content_analyzer_instance, 'clip_preprocess', None)
-                    tokenizer = getattr(content_analyzer_instance, 'tokenizer', None)
-                    age_estimator.set_shared_clip(
-                        content_analyzer_instance.clip_model,
-                        clip_preprocess,
-                        tokenizer
-                    )
-                    logger.info(f"✅ CLIP model shared for image analysis #{analysis.id}")
-                else:
-                    logger.warning("ContentAnalyzer CLIP not available for image analysis sharing")
-            except Exception as clip_share_err:
-                logger.error(f"Image analysis CLIP sharing error: {str(clip_share_err)}")
-                logger.warning("Image analysis age estimation will use fallback confidence")
-            
-            faces = age_estimator.model.get(image)
-            persons = {}
-            
-            total_faces = len(faces)
-            for i, face in enumerate(faces):
-                logger.warning(f"Yüz {i} - face objesi: {face.__dict__ if hasattr(face, '__dict__') else face}")
-                if face.age is None:
-                    logger.warning(f"Yüz {i} için yaş None, atlanıyor. Face: {face}")
-                    continue
-                x1, y1, x2, y2 = [int(v) for v in face.bbox]
-                w = x2 - x1
-                h = y2 - y1
-                if x1 >= 0 and y1 >= 0 and w > 0 and h > 0 and x1+w <= image.shape[1] and y1+h <= image.shape[0]:
-                    person_id = f"{analysis.id}_person_{i}"
-                    logger.info(f"[SVC_LOG] Yüz #{i} (person_id={person_id}) için ASYNC yaş tahmini başlatılıyor. BBox: [{x1},{y1},{w},{h}]")
-                    
-                    # 🚀 ASYNC AGE ESTIMATION: Background thread'de yap - main thread bloklanmasın!
-                    from flask import current_app
-                    future = _age_estimation_executor.submit(
-                        _async_age_estimation, 
-                        age_estimator, image, face, i, analysis.id, person_id, current_app._get_current_object()
-                    )
-                    
-                    # Longer timeout for image analysis - bekle ki yaş tahmini tamamlansın
-                    try:
-                        result = future.result(timeout=5.0)  # 5 saniye bekle - image analysis için yeterli
-                        
-                        # İptal edilmiş thread kontrolü
-                        if result.get('cancelled', False):
-                            logger.info(f"[SVC_LOG] Yüz #{i} için age thread iptal edildi, atlanıyor")
-                            continue
-                            
-                        estimated_age = result['estimated_age']
-                        confidence = result['confidence'] 
-                        pseudo_data = result['pseudo_data']
-                        logger.info(f"[SVC_LOG] Yüz #{i} SYNC sonuç alındı: Yaş={estimated_age}, Güven={confidence}")
-                    except concurrent.futures.TimeoutError:
-                        # Age estimation zaman aşımı - default değerlerle devam et
-                        logger.warning(f"[SVC_LOG] Yüz #{i} için age estimation timeout (5s) - default değerlerle kaydediliyor")
-                        estimated_age = face.age if hasattr(face, 'age') and face.age is not None else 25.0
-                        confidence = 0.5  # Düşük güven skoru
-                        pseudo_data = None
 
-                    if estimated_age is None:
-                        logger.warning(f"[SVC_LOG] Yüz #{i} için yaş None - fallback değer kullanılıyor")
-                        estimated_age = face.age if hasattr(face, 'age') and face.age is not None else 25.0
-                        confidence = confidence or 0.3  # Düşük güven
-                                
-                    age = float(estimated_age)
-                    
-                    logger.info(f"Kare #{i}: Yaş: {age:.1f}, Güven: {confidence:.2f} (track {person_id})")
-                    
-                    # Takipteki kişi için en iyi kareyi kaydet (yüksek güven skoru varsa)
-                    if person_id not in persons or confidence > persons[person_id]['confidence']:
-                        persons[person_id] = {
-                            'confidence': confidence,
-                            'frame_path': file.file_path,
-                            'timestamp': None,
-                            'bbox': (x1, y1, w, h),
-                            'age': age
+        # ERSIN NumPy türlerini Python türlerine dönüştürdüğümüzden emin olalım
+        detection .violence_score =float (violence_score )
+        detection .adult_content_score =float (adult_content_score )
+        detection .harassment_score =float (harassment_score )
+        detection .weapon_score =float (weapon_score )
+        detection .drug_score =float (drug_score )
+        detection .safe_score =float (safe_score )
+        logger .info (f"[SVC_LOG][ANALYZE_IMAGE] ContentDetection skorları atandı. Analiz ID: {analysis .id }. Adult Score: {detection .adult_content_score }")# ERSIN YENİ LOG
+
+        # ERSIN JSON uyumlu nesneyi kaydet
+        try :
+            detection .set_detected_objects (detected_objects )
+        except Exception as e :
+            logger .error (f"[SVC_LOG][ANALYZE_IMAGE] set_detected_objects hatası: {str (e )}. Analiz ID: {analysis .id }")# ERSIN YENİ LOG
+            logger .error (f"Hata izi: {traceback .format_exc ()}")
+            detection ._detected_objects ="[]"# ERSIN Boş liste olarak ayarla
+
+        db .session .add (detection )
+
+        # ERSIN Eğer yaş analizi isteniyorsa, yüzleri tespit et ve yaşları tahmin et
+        if analysis .include_age_analysis :
+        # ERSIN İptal kontrolü - yaş analizi öncesi
+            if analysis .check_if_cancelled ():
+                logger .info (f"Analiz #{analysis .id } iptal edilmiş, yaş analizi atlanıyor")
+                return False ,"Analiz iptal edildi"
+
+                # ERSIN Yaş analizi başlatılıyor
+            analysis .update_progress (60 ,"Yüz tespiti ve yaş analizi yapılıyor...")
+            db .session .commit ()
+
+            from app .utils .model_state import get_age_estimator 
+            age_estimator =get_age_estimator ()
+
+            # ERSIN CLIP Sharing - Memory optimization (Image Analysis)
+            try :
+                content_analyzer_instance =get_content_analyzer ()
+                if hasattr (content_analyzer_instance ,'clip_model')and content_analyzer_instance .clip_model is not None :
+                    clip_preprocess =getattr (content_analyzer_instance ,'clip_preprocess',None )
+                    tokenizer =getattr (content_analyzer_instance ,'tokenizer',None )
+                    age_estimator .set_shared_clip (
+                    content_analyzer_instance .clip_model ,
+                    clip_preprocess ,
+                    tokenizer 
+                    )
+                    logger .info (f"✅ CLIP model shared for image analysis #{analysis .id }")
+                else :
+                    logger .warning ("ContentAnalyzer CLIP not available for image analysis sharing")
+            except Exception as clip_share_err :
+                logger .error (f"Image analysis CLIP sharing error: {str (clip_share_err )}")
+                logger .warning ("Image analysis age estimation will use fallback confidence")
+
+                # ERSIN Use getattr to safely access model.get() method
+            model_attr =getattr (age_estimator ,'model',None )
+            if model_attr is not None :
+                get_method =getattr (model_attr ,'get',None )
+                faces_result =get_method (image )if get_method is not None and callable (get_method )else None 
+            else :
+                faces_result =None 
+            persons ={}
+
+            # ERSIN Type checker doesn't know faces_result is iterable, cast to list
+            from typing import cast ,Any 
+            faces_list =cast (list [Any ],faces_result )if isinstance (faces_result ,(list ,tuple ))else []
+            total_faces =len (faces_list )
+            for i ,face in enumerate (faces_list ):
+                logger .warning (f"Yüz {i } - face objesi: {face .__dict__ if hasattr (face ,'__dict__')else face }")
+                if face .age is None :
+                    logger .warning (f"Yüz {i } için yaş None, atlanıyor. Face: {face }")
+                    continue 
+                x1 ,y1 ,x2 ,y2 =[int (v )for v in face .bbox ]
+                w =x2 -x1 
+                h =y2 -y1 
+                if x1 >=0 and y1 >=0 and w >0 and h >0 and x1 +w <=image .shape [1 ]and y1 +h <=image .shape [0 ]:
+                    person_id =f"{analysis .id }_person_{i }"
+                    logger .info (f"[SVC_LOG] Yüz #{i } (person_id={person_id }) için ASYNC yaş tahmini başlatılıyor. BBox: [{x1 },{y1 },{w },{h }]")
+
+                    # ERSIN 🚀 ASYNC AGE ESTIMATION: arka plan thread'de yap - main thread bloklanmasın!
+                    from flask import current_app 
+                    from werkzeug .local import LocalProxy 
+                    app_ctx_for_thread =getattr (current_app ,'_get_current_object',lambda :current_app )()if isinstance (current_app ,LocalProxy )else current_app 
+                    future =_age_estimation_executor .submit (
+                    _async_age_estimation ,
+                    age_estimator ,image ,face ,i ,analysis .id ,person_id ,app_ctx_for_thread 
+                    )
+
+                    # ERSIN Longer timeout için image analysis - bekle ki yaş tahmini tamamlansın
+                    try :
+                        result =future .result (timeout =5.0 )# ERSIN 5 saniye bekle - image analysis için yeterli
+
+                        # ERSIN İptal edilmiş thread kontrolü
+                        if result .get ('cancelled',False ):
+                            logger .info (f"[SVC_LOG] Yüz #{i } için age thread iptal edildi, atlanıyor")
+                            continue 
+
+                        estimated_age =result ['estimated_age']
+                        confidence =result ['confidence']
+                        pseudo_data =result ['pseudo_data']
+                        logger .info (f"[SVC_LOG] Yüz #{i } SYNC sonuç alındı: Yaş={estimated_age }, Güven={confidence }")
+                    except concurrent .futures .TimeoutError :
+                    # ERSIN Age estimation zaman aşımı - default değerlerle devam et
+                        logger .warning (f"[SVC_LOG] Yüz #{i } için age estimation timeout (5s) - default değerlerle kaydediliyor")
+                        estimated_age =face .age if hasattr (face ,'age')and face .age is not None else 25.0 
+                        confidence =0.5 # ERSIN Düşük güven skoru
+                        pseudo_data =None 
+
+                    if estimated_age is None :
+                        logger .warning (f"[SVC_LOG] Yüz #{i } için yaş None - fallback değer kullanılıyor")
+                        estimated_age =face .age if hasattr (face ,'age')and face .age is not None else 25.0 
+                        confidence =confidence or 0.3 # ERSIN Düşük güven
+
+                    age =float (estimated_age )
+
+                    logger .info (f"Kare #{i }: Yaş: {age :.1f}, Güven: {confidence :.2f} (track {person_id })")
+
+                    # ERSIN Takipteki kişi için en iyi kareyi kaydet (yüksek güven skoru varsa)
+                    if person_id not in persons or confidence >persons [person_id ]['confidence']:
+                        persons [person_id ]={
+                        'confidence':confidence ,
+                        'frame_path':file .file_path ,
+                        'timestamp':None ,
+                        'bbox':(x1 ,y1 ,w ,h ),
+                        'age':age 
                         }
-                    
-                    # AgeEstimation kaydını oluştur veya güncelle
-                    try:
-                        age_est = AgeEstimation.query.filter_by(
-                            analysis_id=analysis.id,
-                            person_id=person_id
-                        ).first()
-                        
-                        # Convert absolute file.file_path to relative path for storage
-                        relative_frame_path = to_rel_path(file.file_path)
-                        if os.path.isabs(file.file_path):
-                            try:
-                                relative_frame_path = os.path.relpath(file.file_path, current_app.config['STORAGE_FOLDER']).replace('\\\\', '/')
-                            except ValueError as ve:
-                                logger.error(f"Error creating relative path for {file.file_path} relative to {current_app.config['STORAGE_FOLDER']}: {ve}. Falling back to original path.")
-                        else:
-                            # Ensure consistent path separators even if already relative
-                            relative_frame_path = file.file_path.replace('\\\\', '/')
 
-                        if not age_est:
-                            embedding = face.embedding if hasattr(face, 'embedding') and face.embedding is not None else None
-                            if embedding is not None:
-                                if hasattr(embedding, 'tolist'):
-                                    embedding_str = ",".join(str(float(x)) for x in embedding.tolist())
-                                elif isinstance(embedding, (list, tuple)):
-                                    embedding_str = ",".join(str(float(x)) for x in embedding)
-                                else:
-                                    embedding_str = str(embedding)
-                            else:
-                                embedding_str = None
-                            age_est = AgeEstimation(
-                                analysis_id=analysis.id,
-                                person_id=person_id,
-                                frame_path=relative_frame_path, # Use relative path
-                                estimated_age=age,
-                                confidence_score=confidence,
-                                embedding=embedding_str
+                        # ERSIN AgeEstimation kaydını oluştur veya güncelle
+                    try :
+                        age_est =AgeEstimation .query .filter_by (
+                        analysis_id =analysis .id ,
+                        person_id =person_id 
+                        ).first ()
+
+                        # ERSIN Convert absolute file.file_path to relative path for storage
+                        relative_frame_path =to_rel_path (file .file_path )
+                        if os .path .isabs (file .file_path ):
+                            try :
+                                relative_frame_path =os .path .relpath (file .file_path ,current_app .config ['STORAGE_FOLDER']).replace ('\\\\','/')
+                            except ValueError as ve :
+                                logger .error (f"Error creating relative path for {file .file_path } relative to {current_app .config ['STORAGE_FOLDER']}: {ve }. Falling back to original path.")
+                        else :
+                        # ERSIN Ensure consistent path separators even if already relative
+                            relative_frame_path =file .file_path .replace ('\\\\','/')
+
+                        if not age_est :
+                            embedding =face .embedding if hasattr (face ,'embedding')and face .embedding is not None else None 
+                            if embedding is not None :
+                                if hasattr (embedding ,'tolist'):
+                                    embedding_str =",".join (str (float (x ))for x in embedding .tolist ())
+                                elif isinstance (embedding ,(list ,tuple )):
+                                    embedding_str =",".join (str (float (x ))for x in embedding )
+                                else :
+                                    embedding_str =str (embedding )
+                            else :
+                                embedding_str =None 
+
+                                # ERSIN embedding_str initialization guarantee
+                            final_embedding_str :str |None =embedding_str if 'embedding_str'in locals ()else None 
+
+                            age_est =AgeEstimation (
+                            analysis_id =analysis .id ,
+                            person_id =person_id ,
+                            frame_path =relative_frame_path ,# ERSIN Use relative path
+                            estimated_age =age ,
+                            confidence_score =confidence ,
+                            embedding =final_embedding_str 
                             )
-                            logger.info(f"[SVC_LOG] Yeni AgeEstimation kaydı oluşturuldu: {person_id}")
-                        else:
-                            if confidence > age_est.confidence_score:
-                                age_est.frame_path = relative_frame_path # Use relative path
-                                age_est.estimated_age = age
-                                age_est.confidence_score = confidence
-                                age_est.embedding = embedding_str # embedding güncelle
-                                logger.info(f"[SVC_LOG] AgeEstimation kaydı güncellendi (daha iyi güven): {person_id}, Yeni Güven: {confidence:.4f}")
-                        
-                        db.session.add(age_est)
-                        
-                        # Sözde etiket verisi varsa Feedback tablosuna kaydet
-                        if pseudo_data:
-                            try:
-                                logger.info(f"[SVC_LOG] Sözde etiket verisi kaydediliyor. Person ID: {person_id}")
-                                embedding = None
-                                if pseudo_data.get("embedding") is not None:
-                                    emb = pseudo_data.get("embedding")
-                                    if isinstance(emb, (list, tuple)):
-                                        embedding = ",".join(str(float(x)) for x in emb)
-                                    elif hasattr(emb, 'tolist'):
-                                        embedding = ",".join(str(float(x)) for x in emb.tolist())
-                                    else:
-                                        embedding = str(emb)
-                                feedback_entry = Feedback(
-                                    frame_path=to_rel_path(file.file_path), # Resim yolu (relatif)
-                                    face_bbox=pseudo_data.get("face_bbox"),
-                                    embedding=embedding,
-                                    pseudo_label_original_age=pseudo_data.get("pseudo_label_original_age"),
-                                    pseudo_label_clip_confidence=pseudo_data.get("pseudo_label_clip_confidence"),
-                                    feedback_source=pseudo_data.get("feedback_source", "PSEUDO_BUFFALO_HIGH_CONF"),
-                                    feedback_type="age_pseudo", # Ya da pseudo_data.get("feedback_type")
-                                    content_id=analysis.file_id, # content_id'yi analysis'ten al
-                                    analysis_id=analysis.id,
-                                    person_id=person_id 
+                            logger .info (f"[SVC_LOG] Yeni AgeEstimation kaydı oluşturuldu: {person_id }")
+                        else :
+                            if confidence >age_est .confidence_score :
+                                age_est .frame_path =relative_frame_path # ERSIN Use relative path
+                                age_est .estimated_age =age 
+                                age_est .confidence_score =confidence 
+                                # ERSIN embedding_str bu scope'ta tanımlı olmalı (yukarıdaki if bloğunda tanımlanmış)
+                                # ERSIN embedding_str burada kullanılamaz çünkü farklı scope'ta, yukarıdaki if bloğundan alınmalı
+                                # ERSIN Bu durumda embedding_str'yi yeniden hesaplamalıyız
+                                embedding =face .embedding if hasattr (face ,'embedding')and face .embedding is not None else None 
+                                if embedding is not None :
+                                    if hasattr (embedding ,'tolist'):
+                                        update_embedding_str =",".join (str (float (x ))for x in embedding .tolist ())
+                                    elif isinstance (embedding ,(list ,tuple )):
+                                        update_embedding_str =",".join (str (float (x ))for x in embedding )
+                                    else :
+                                        update_embedding_str =str (embedding )
+                                    age_est .embedding =update_embedding_str # ERSIN embedding güncelle
+                                logger .info (f"[SVC_LOG] AgeEstimation kaydı güncellendi (daha iyi güven): {person_id }, Yeni Güven: {confidence :.4f}")
+
+                        db .session .add (age_est )
+
+                        # ERSIN Sözde etiket verisi varsa Feedback tablosuna kaydet
+                        if pseudo_data and isinstance (pseudo_data ,dict ):
+                            try :
+                                logger .info (f"[SVC_LOG] Sözde etiket verisi kaydediliyor. Person ID: {person_id }")
+                                embedding =None 
+                                if pseudo_data .get ("embedding")is not None :
+                                    emb =pseudo_data .get ("embedding")
+                                    if isinstance (emb ,(list ,tuple )):
+                                        embedding =",".join (str (float (x ))for x in emb )
+                                    elif emb is not None and hasattr (emb ,'tolist'):
+                                        tolist_method =getattr (emb ,'tolist',None )
+                                        if tolist_method is not None and callable (tolist_method ):
+                                            tolist_result =tolist_method ()
+                                            if tolist_result is not None :
+                                                embedding =",".join (str (float (x ))for x in cast (list [Any ],tolist_result ))
+                                            else :
+                                                embedding =str (emb )
+                                    else :
+                                        embedding =str (emb )
+                                feedback_entry =Feedback (
+                                frame_path =to_rel_path (file .file_path ),# ERSIN Resim yolu (relatif)
+                                face_bbox =pseudo_data .get ("face_bbox"),
+                                embedding =embedding ,
+                                pseudo_label_original_age =pseudo_data .get ("pseudo_label_original_age"),
+                                pseudo_label_clip_confidence =pseudo_data .get ("pseudo_label_clip_confidence"),
+                                feedback_source =pseudo_data .get ("feedback_source","PSEUDO_BUFFALO_HIGH_CONF"),
+                                feedback_type ="age_pseudo",# ERSIN Ya da pseudo_data.get("feedback_type")
+                                content_id =analysis .file_id ,# ERSIN content_id'yi analysis'ten al
+                                analysis_id =analysis .id ,
+                                person_id =person_id 
                                 )
-                                db.session.add(feedback_entry)
-                                logger.info(f"[SVC_LOG] Sözde etiket için Feedback kaydı eklendi: {feedback_entry.id}")
-                            except Exception as fb_err:
-                                logger.error(f"[SVC_LOG] Sözde etiket Feedback kaydı oluşturulurken hata: {str(fb_err)}")
-                                # Bu hata ana akışı durdurmamalı, sadece loglanmalı.
-                        
-                        # Overlay oluştur
-                        out_dir = os.path.join(current_app.config['PROCESSED_FOLDER'], f"frames_{analysis.id}", "overlays")
-                        os.makedirs(out_dir, exist_ok=True)
-                        out_name = f"{person_id}_{os.path.basename(file.file_path)}"
-                        out_path = os.path.join(out_dir, out_name)
-                        
-                        try:
-                            # Görüntüyü kopyala ve overlay ekle
-                            image_with_overlay = image.copy()
-                            x2, y2 = x1 + w, y1 + h
-                            
-                            # Sınırları kontrol et
-                            x1 = max(0, x1)
-                            y1 = max(0, y1)
-                            x2 = min(image.shape[1], x2)
-                            y2 = min(image.shape[0], y2)
-                            
-                            # Çerçeve çiz
-                            cv2.rectangle(image_with_overlay, (x1, y1), (x2, y2), (0, 255, 0), 2)
-                            
-                            # Türkçe destekli metin overlay
-                            # Kişi ID'sini 1'den başlatmak için +1 ekle
-                            person_id_num = int(person_id.split('_')[-1]) + 1
-                            text = f"Kişi {person_id_num}  Yaş: {round(age)}"
-                            text_y = y1 - 10 if y1 > 20 else y1 + h + 25
-                            
-                            # Türkçe karakter destekli text overlay
-                            image_with_overlay = overlay_text_turkish(
-                                image_with_overlay, 
-                                text, 
-                                (x1 + 5, text_y),
-                                color=(0, 255, 0),
-                                font_size=18,
-                                bg_color=(0, 0, 0),
-                                bg_padding=5
+                                db .session .add (feedback_entry )
+                                logger .info (f"[SVC_LOG] Sözde etiket için Feedback kaydı eklendi: {feedback_entry .id }")
+                            except Exception as fb_err :
+                                logger .error (f"[SVC_LOG] Sözde etiket Feedback kaydı oluşturulurken hata: {str (fb_err )}")
+                                # ERSIN Bu hata ana akışı durdurmamalı, sadece loglanmalı.
+
+                                # ERSIN Overlay oluştur
+                        out_dir =os .path .join (current_app .config ['PROCESSED_FOLDER'],f"frames_{analysis .id }","overlays")
+                        os .makedirs (out_dir ,exist_ok =True )
+                        out_name =f"{person_id }_{os .path .basename (file .file_path )}"
+                        out_path =os .path .join (out_dir ,out_name )
+
+                        try :
+                        # ERSIN Görüntüyü kopyala ve overlay ekle
+                            image_with_overlay =image .copy ()
+                            x2 ,y2 =x1 +w ,y1 +h 
+
+                            # ERSIN Sınırları kontrol et
+                            x1 =max (0 ,x1 )
+                            y1 =max (0 ,y1 )
+                            x2 =min (image .shape [1 ],x2 )
+                            y2 =min (image .shape [0 ],y2 )
+
+                            # ERSIN Çerçeve çiz
+                            cv2 .rectangle (image_with_overlay ,(x1 ,y1 ),(x2 ,y2 ),(0 ,255 ,0 ),2 )
+
+                            # ERSIN Türkçe destekli metin overlay
+                            # ERSIN Kişi ID'sini 1'den başlatmak için +1 ekle
+                            person_id_num =int (person_id .split ('_')[-1 ])+1 
+                            text =f"Kişi {person_id_num }  Yaş: {round (age )}"
+                            text_y =y1 -10 if y1 >20 else y1 +h +25 
+
+                            # ERSIN Türkçe karakter destekli text overlay
+                            image_with_overlay =overlay_text_turkish (
+                            image_with_overlay ,
+                            text ,
+                            (x1 +5 ,text_y ),
+                            color =(0 ,255 ,0 ),
+                            font_size =18 ,
+                            bg_color =(0 ,0 ,0 ),
+                            bg_padding =5 
                             )
-                            
-                            # Overlay'i kaydet
-                            success = cv2.imwrite(out_path, image_with_overlay)
-                            if not success:
-                                logger.error(f"Overlay kaydedilemedi: {out_path}")
-                                continue
-                                
-                            # Göreceli yolu hesapla ve kaydet
-                            rel_path = to_rel_path(out_path)
-                            rel_path = normalize_rel_storage_path(rel_path)
-                            age_est.processed_image_path = rel_path
-                            db.session.add(age_est)
 
-                        except Exception as overlay_err:
-                            logger.error(f"Overlay oluşturma hatası (person_id={person_id}): {str(overlay_err)}", exc_info=True)
-                            continue
-                            
-                    except Exception as db_err:
-                        logger.error(f"[SVC_LOG] DB hatası (person_id={person_id}): {str(db_err)}", exc_info=True)
-                        continue
-            
-            db.session.commit()
-            
-            # Yaş analizi tamamlandı - GERÇEK tamamlanma kontrolü
-            logger.info(f"[SVC_LOG] Yaş analizi döngüsü tamamlandı, {total_faces} yüz için işlem yapıldı. Final kontrol başlıyor...")
-            
-            # Son DB commit'ten sonra kısa bir bekleme - tüm CLIP hesaplamalarının tamamlandığından emin olmak için
-            time.sleep(0.5)  # 500ms bekleme
-            
-            # Final veritabanı durumunu kontrol et
-            final_age_estimations = db.session.query(AgeEstimation).filter_by(analysis_id=analysis.id).all()
-            logger.info(f"[SVC_LOG] Final kontrol: {len(final_age_estimations)} AgeEstimation kaydı veritabanında mevcut")
-            
-            analysis.update_progress(90, "Yaş analizi tamamlandı, sonuçlar kaydediliyor...")
-            db.session.commit()
-        else:
-            # Yaş analizi yapılmadıysa direkt sona yakın progress
-            analysis.update_progress(85, "Analiz sonuçları kaydediliyor...")
-            db.session.commit()
-        
-        # Tüm değişiklikleri veritabanına kaydet
-        db.session.commit()
-        
-        # Final sync bekleme - tüm asenkron işlemlerin tamamlanması için
-        time.sleep(0.2)  # 200ms ek bekleme
-        
-        # Son progress güncellemesi
-        analysis.update_progress(95, "Analiz sonuçlandırılıyor...")
-        db.session.commit()
-        
-        # Final bekleme ve kontrol
-        time.sleep(0.3)  # 300ms son bekleme
-        
-        analysis.update_progress(100, "Analiz tamamlandı")
-        logger.info(f"[SVC_LOG][ANALYZE_IMAGE] Resim analizi BAŞARIYLA TAMAMLANDI. Analiz ID: {analysis.id}")
-        
-        return True, "Resim analizi tamamlandı"
-    
-    except Exception as e:
-        db.session.rollback()  # Hata durumunda değişiklikleri geri al
-        logger.error(f"[SVC_LOG][ANALYZE_IMAGE] Resim analizi HATASI: {str(e)}. Analiz ID: {analysis.id}", exc_info=True)
-        logger.error(f"Detaylı Hata İzi (analyze_image): {traceback.format_exc()}")
-        return False, f"Resim analizi hatası: {str(e)}"
+                            # ERSIN Overlay'i kaydet - None kontrolü
+                            if image_with_overlay is not None :
+                                success =cv2 .imwrite (out_path ,image_with_overlay )
+                            else :
+                                logger .warning (f"Overlay oluşturulamadı: {out_path }")
+                                success =False 
+                            if not success :
+                                logger .error (f"Overlay kaydedilemedi: {out_path }")
+                                continue 
+
+                                # ERSIN Göreceli yolu hesapla ve kaydet
+                            rel_path =to_rel_path (out_path )
+                            rel_path =normalize_rel_storage_path (rel_path )
+                            age_est .processed_image_path =rel_path 
+                            db .session .add (age_est )
+
+                        except Exception as overlay_err :
+                            logger .error (f"Overlay oluşturma hatası (person_id={person_id }): {str (overlay_err )}",exc_info =True )
+                            continue 
+
+                    except Exception as db_err :
+                        logger .error (f"[SVC_LOG] DB hatası (person_id={person_id }): {str (db_err )}",exc_info =True )
+                        continue 
+
+            db .session .commit ()
+
+            # ERSIN Yaş analizi tamamlandı - GERÇEK tamamlanma kontrolü
+            logger .info (f"[SVC_LOG] Yaş analizi döngüsü tamamlandı, {total_faces } yüz için işlem yapıldı. Final kontrol başlıyor...")
+
+            # ERSIN Son DB commit'ten sonra kısa bir bekleme - tüm CLIP hesaplamalarının tamam...
+            time .sleep (0.5 )# ERSIN 500ms bekleme
+
+            # ERSIN Final veritabanı durumunu kontrol et
+            final_age_estimations =db .session .query (AgeEstimation ).filter_by (analysis_id =analysis .id ).all ()
+            logger .info (f"[SVC_LOG] Final kontrol: {len (final_age_estimations )} AgeEstimation kaydı veritabanında mevcut")
+
+            analysis .update_progress (90 ,"Yaş analizi tamamlandı, sonuçlar kaydediliyor...")
+            db .session .commit ()
+        else :
+        # ERSIN Yaş analizi yapılmadıysa direkt sona yakın progress
+            analysis .update_progress (85 ,"Analiz sonuçları kaydediliyor...")
+            db .session .commit ()
+
+            # ERSIN Tüm değişiklikleri veritabanına kaydet
+        db .session .commit ()
+
+        # ERSIN Final sync bekleme - tüm asenkron işlemlerin tamamlanması için
+        time .sleep (0.2 )# ERSIN 200ms ek bekleme
+
+        # ERSIN Son progress güncellemesi
+        analysis .update_progress (95 ,"Analiz sonuçlandırılıyor...")
+        db .session .commit ()
+
+        # ERSIN Final bekleme ve kontrol
+        time .sleep (0.3 )# ERSIN 300ms son bekleme
+
+        analysis .update_progress (100 ,"Analiz tamamlandı")
+        logger .info (f"[SVC_LOG][ANALYZE_IMAGE] Resim analizi BAŞARIYLA TAMAMLANDI. Analiz ID: {analysis .id }")
+
+        return True ,"Resim analizi tamamlandı"
+
+    except Exception as e :
+        db .session .rollback ()# ERSIN Hata durumunda değişiklikleri geri al
+        logger .error (f"[SVC_LOG][ANALYZE_IMAGE] Resim analizi HATASI: {str (e )}. Analiz ID: {analysis .id }",exc_info =True )
+        logger .error (f"Detaylı Hata İzi (analyze_image): {traceback .format_exc ()}")
+        return False ,f"Resim analizi hatası: {str (e )}"
 
 
-def analyze_video(analysis):
+def analyze_video (analysis :'Analysis')->tuple [bool ,str ]:
     """
     Video analizini gerçekleştirir.
     Her kareyi analiz eder ve tüm içerik tespitlerini veritabanına yazar.
@@ -738,840 +796,889 @@ def analyze_video(analysis):
     Returns:
         Tuple[bool, str]: (başarı, mesaj)
     """
-    try:
-        from flask import current_app
-        
-        file = File.query.get(analysis.file_id)
-        if not file:
-            logger.error(f"Analiz için dosya bulunamadı: #{analysis.id}")
-            return False, "Dosya bulunamadı"
-        
-        file_path = os.path.join(current_app.config['UPLOAD_FOLDER'], file.filename)
-        if not os.path.exists(file_path):
-            logger.error(f"Video dosyası bulunamadı: {file_path}")
-            return False, "Video dosyası bulunamadı"
-        
-        # Video yakalama nesnesi oluştur
-        cap = cv2.VideoCapture(file_path)
-        if not cap.isOpened():
-            logger.error(f"Video dosyası açılamadı: {file_path}")
-            return False, "Video dosyası açılamadı"
-        
-        # Video FPS, kare sayısı, süre hesapla
-        fps = cap.get(cv2.CAP_PROP_FPS)
-        frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        duration = frame_count / fps if fps > 0 else 0
-        
-        frames_per_second_config = analysis.frames_per_second # Bu değer kullanıcıdan geliyor mu yoksa configden mi alınmalı?
-                                                            # Şimdilik analysis objesinden alınıyor.
-        if not frames_per_second_config or frames_per_second_config <= 0:
-            frames_per_second_config = fps  # Eğer belirtilmemişse, videonun kendi FPS'ini kullan
-        
-        # Kaç kare atlayacağımızı hesapla (her saniye için kaç kare analiz edilecek)
-        frame_skip = max(1, int(fps / frames_per_second_config))
-        
-        # Kare indekslerini oluştur (istenen FPS'e göre)
-        # NOTE: VideoCapture'da cap.set(CAP_PROP_POS_FRAMES, idx) ile her karede random seek yapmak
-        # MP4 gibi codec'lerde çok yavaş olabiliyor ve UI'da "%6'da takıldı" gibi görünüyor.
-        # Bu yüzden kareleri sequential grab/read ile örnekleyip diske yazıyoruz.
-        frame_indices = list(range(0, frame_count, frame_skip))
+    try :
+        from flask import current_app 
 
-        # Video'dan işlenecek kareleri oku ve kaydet
-        frame_paths = []
-        frames_dir = os.path.join(current_app.config['PROCESSED_FOLDER'], f"frames_{analysis.id}")
-        os.makedirs(frames_dir, exist_ok=True)
+        file =File .query .get (analysis .file_id )
+        if not file :
+            logger .error (f"Analiz için dosya bulunamadı: #{analysis .id }")
+            return False ,"Dosya bulunamadı"
 
-        max_frame_dim = current_app.config.get('VIDEO_FRAME_MAX_DIM', 1280)
-        if frame_indices:
-            current_pos = 0
-            for i_frame, frame_idx in enumerate(frame_indices):
-                # İptal kontrolünü seyrek yap (DB'yi her karede yormayalım)
-                if i_frame % 25 == 0:
-                    try:
-                        analysis_db = Analysis.query.get(analysis.id)
-                        if analysis_db and analysis_db.check_if_cancelled():
-                            logger.info(f"Analiz #{analysis.id} iptal edilmiş, frame extraction durduruluyor.")
-                            cap.release()
-                            return False, "Analiz iptal edildi"
-                    except Exception:
-                        pass
+        file_path =os .path .join (current_app .config ['UPLOAD_FOLDER'],file .filename )
+        if not os .path .exists (file_path ):
+            logger .error (f"Video dosyası bulunamadı: {file_path }")
+            return False ,"Video dosyası bulunamadı"
 
-                while current_pos < frame_idx:
-                    ok = cap.grab()
-                    if not ok:
-                        break
-                    current_pos += 1
+            # ERSIN Video yakalama nesnesi oluştur
+        cap =cv2 .VideoCapture (file_path )
+        if not cap .isOpened ():
+            logger .error (f"Video dosyası açılamadı: {file_path }")
+            return False ,"Video dosyası açılamadı"
 
-                ret, frame = cap.read()
-                if not ret or frame is None:
-                    break
-                current_pos = frame_idx + 1
+            # ERSIN Video FPS, kare sayısı, süre hesapla
+        fps =cap .get (cv2 .CAP_PROP_FPS )
+        frame_count =int (cap .get (cv2 .CAP_PROP_FRAME_COUNT ))
+        # ERSIN duration şu an kullanılmıyor
+        _ =frame_count /fps if fps >0 else 0 
 
-                # High-resolution frame downscale (keeps aspect ratio)
-                try:
-                    if isinstance(max_frame_dim, int) and max_frame_dim > 0:
-                        h, w = frame.shape[:2]
-                        long_edge = max(h, w)
-                        if long_edge > max_frame_dim:
-                            scale = max_frame_dim / float(long_edge)
-                            new_w = max(1, int(w * scale))
-                            new_h = max(1, int(h * scale))
-                            frame = cv2.resize(frame, (new_w, new_h), interpolation=cv2.INTER_AREA)
-                            if i_frame == 0:
-                                logger.info(
-                                    f"[SVC_LOG][VID] Frame downscale enabled: {w}x{h} -> {new_w}x{new_h} (max_dim={max_frame_dim})"
+        frames_per_second_config =analysis .frames_per_second # ERSIN Bu değer kullanıcıdan geliyor mu yoksa configden mi alınmalı?
+        # ERSIN Şimdilik analysis objesinden alınıyor.
+        if not frames_per_second_config or frames_per_second_config <=0 :
+            frames_per_second_config =fps # ERSIN Eğer belirtilmemişse, videonun kendi FPS'ini kullan
+
+            # ERSIN Kaç kare atlayacağımızı hesapla (her saniye için kaç kare analiz edilecek)
+        frame_skip =max (1 ,int (fps /frames_per_second_config ))
+
+        # ERSIN Kare indekslerini oluştur (istenen FPS'e göre)
+        # ERSIN Not: VideoCapture'da cap.set(CAP_PROP_POS_FRAMES, idx) ile her karede random seek yapmak
+        # ERSIN MP4 gibi codec'lerde çok yavaş olabiliyor ve UI'da "%6'da takıldı" gibi görünüyor.
+        # ERSIN Bu yüzden kareleri sequential grab/read ile örnekleyip diske yazıyoruz.
+        frame_indices =list (range (0 ,frame_count ,frame_skip ))
+
+        # ERSIN Video'dan işlenecek kareleri oku ve kaydet
+        frame_paths =[]
+        frames_dir =os .path .join (current_app .config ['PROCESSED_FOLDER'],f"frames_{analysis .id }")
+        os .makedirs (frames_dir ,exist_ok =True )
+
+        max_frame_dim =current_app .config .get ('VIDEO_FRAME_MAX_DIM',1280 )
+        if frame_indices :
+            current_pos =0 
+            for i_frame ,frame_idx in enumerate (frame_indices ):
+            # ERSIN İptal kontrolünü seyrek yap (DB'yi her karede yormayalım)
+                if i_frame %25 ==0 :
+                    try :
+                        analysis_db =Analysis .query .get (analysis .id )
+                        if analysis_db and analysis_db .check_if_cancelled ():
+                            logger .info (f"Analiz #{analysis .id } iptal edilmiş, frame extraction durduruluyor.")
+                            cap .release ()
+                            return False ,"Analiz iptal edildi"
+                    except Exception :
+                        pass 
+
+                while current_pos <frame_idx :
+                    ok =cap .grab ()
+                    if not ok :
+                        break 
+                    current_pos +=1 
+
+                ret ,frame =cap .read ()
+                if not ret or frame is None :
+                    break 
+                current_pos =frame_idx +1 
+
+                # ERSIN High-resolution frame downscale (keeps aspect ratio)
+                try :
+                    if isinstance (max_frame_dim ,int )and max_frame_dim >0 :
+                        h ,w =frame .shape [:2 ]
+                        long_edge =max (h ,w )
+                        if long_edge >max_frame_dim :
+                            scale =max_frame_dim /float (long_edge )
+                            new_w =max (1 ,int (w *scale ))
+                            new_h =max (1 ,int (h *scale ))
+                            frame =cv2 .resize (frame ,(new_w ,new_h ),interpolation =cv2 .INTER_AREA )
+                            if i_frame ==0 :
+                                logger .info (
+                                f"[SVC_LOG][VID] Frame downscale enabled: {w }x{h } -> {new_w }x{new_h } (max_dim={max_frame_dim })"
                                 )
-                except Exception as resize_err:
-                    logger.warning(f"[SVC_LOG][VID] Frame resize failed: {resize_err}")
+                except Exception as resize_err :
+                    logger .warning (f"[SVC_LOG][VID] Frame resize failed: {resize_err }")
 
-                timestamp = frame_idx / fps
-                timestamp_str = f"{timestamp:.2f}" if timestamp % 1 != 0 else f"{timestamp:.0f}.00"
-                frame_path = os.path.join(frames_dir, f"frame_{frame_idx:06d}_{timestamp_str}.jpg")
-                cv2.imwrite(frame_path, frame)
-                frame_paths.append(frame_path)
+                timestamp =frame_idx /fps 
+                timestamp_str =f"{timestamp :.2f}"if timestamp %1 !=0 else f"{timestamp :.0f}.00"
+                frame_path =os .path .join (frames_dir ,f"frame_{frame_idx :06d}_{timestamp_str }.jpg")
+                cv2 .imwrite (frame_path ,frame )
+                frame_paths .append (frame_path )
 
-                # Extraction progress: 0..10%
-                try:
-                    if i_frame % 25 == 0:
-                        pct = min(10, int((i_frame / max(1, len(frame_indices))) * 10))
-                        analysis.update_progress(pct, f"Kareler hazırlanıyor... ({i_frame+1}/{len(frame_indices)})")
-                except Exception:
-                    pass
+                # ERSIN Extraction progress: 0..10%
+                try :
+                    if i_frame %25 ==0 :
+                        pct =min (10 ,int ((i_frame /max (1 ,len (frame_indices )))*10 ))
+                        analysis .update_progress (pct ,f"Kareler hazırlanıyor... ({i_frame +1 }/{len (frame_indices )})")
+                except Exception :
+                    pass 
 
-        # Extraction bitti; artık cap.seek maliyetini tamamen kaldırmak için VideoCapture'ı kapatıyoruz.
-        cap.release()
-        
-        # İçerik analizi için model yükle
-        try:
-            content_analyzer_instance = get_content_analyzer() # get_ ile alınıyor
-            logger.info(f"İçerik analiz modeli yüklendi: Analiz #{analysis.id}")
-        except Exception as model_err:
-            logger.error(f"İçerik analiz modeli yüklenemedi: {str(model_err)}")
-            return False, f"Model yükleme hatası: {str(model_err)}"
-        
-        # Yaş analizi için gerekli modelleri ve ayarları yükle
-        age_estimator = None
-        tracker = None
-        person_tracker_manager = None
+                    # ERSIN Extraction bitti; artık cap.seek maliyetini tamamen kaldırmak için VideoCapture'ı kapatıyoruz.
+        cap .release ()
 
-        if analysis.include_age_analysis:
-            try:
-                from app.utils.model_state import get_age_estimator
-                age_estimator = get_age_estimator() # model_state'den alınıyor
-                logger.info(f"Yaş tahmin modeli yüklendi: Analiz #{analysis.id}")
-                
-                # CLIP Sharing - Memory optimization
-                try:
-                    if hasattr(content_analyzer_instance, 'clip_model') and content_analyzer_instance.clip_model is not None:
-                        clip_preprocess = getattr(content_analyzer_instance, 'clip_preprocess', None)
-                        tokenizer = getattr(content_analyzer_instance, 'tokenizer', None)
-                        age_estimator.set_shared_clip(
-                            content_analyzer_instance.clip_model,
-                            clip_preprocess,
-                            tokenizer
+        # ERSIN İçerik analizi için model yükle
+        try :
+            content_analyzer_instance =get_content_analyzer ()# ERSIN get_ ile alınıyor
+            logger .info (f"İçerik analiz modeli yüklendi: Analiz #{analysis .id }")
+        except Exception as model_err :
+            logger .error (f"İçerik analiz modeli yüklenemedi: {str (model_err )}")
+            return False ,f"Model yükleme hatası: {str (model_err )}"
+
+            # ERSIN Yaş analizi için gerekli modelleri ve ayarları yükle
+        age_estimator =None 
+        tracker =None 
+        person_tracker_manager =None 
+
+        if analysis .include_age_analysis :
+            try :
+                from app .utils .model_state import get_age_estimator 
+                age_estimator =get_age_estimator ()# ERSIN model_state'den alınıyor
+                logger .info (f"Yaş tahmin modeli yüklendi: Analiz #{analysis .id }")
+
+                # ERSIN CLIP Sharing - Memory optimization
+                try :
+                    if hasattr (content_analyzer_instance ,'clip_model')and content_analyzer_instance .clip_model is not None :
+                        clip_preprocess =getattr (content_analyzer_instance ,'clip_preprocess',None )
+                        tokenizer =getattr (content_analyzer_instance ,'tokenizer',None )
+                        age_estimator .set_shared_clip (
+                        content_analyzer_instance .clip_model ,
+                        clip_preprocess ,
+                        tokenizer 
                         )
-                        logger.info(f"✅ CLIP model successfully shared between ContentAnalyzer and InsightFaceAgeEstimator")
-                    else:
-                        logger.warning("ContentAnalyzer CLIP model not available for sharing")
-                except Exception as clip_share_err:
-                    logger.error(f"CLIP sharing error: {str(clip_share_err)}")
-                    logger.warning("Age estimation will use fallback confidence (0.5)")
-                
-                # Config'den takip parametrelerini oku
-                max_lost_frames_config = current_app.config.get('MAX_LOST_FRAMES', FACTORY_DEFAULTS['MAX_LOST_FRAMES'])
-                if max_lost_frames_config is None:
-                    max_lost_frames_config = 30  # Default değer
-                tracking_reliability_thresh_config = current_app.config.get('TRACKING_RELIABILITY_THRESHOLD', FACTORY_DEFAULTS['TRACKING_RELIABILITY_THRESHOLD'])
-                id_change_thresh_config = current_app.config.get('ID_CHANGE_THRESHOLD', FACTORY_DEFAULTS['ID_CHANGE_THRESHOLD'])
-                embedding_dist_thresh_config = current_app.config.get('EMBEDDING_DISTANCE_THRESHOLD', FACTORY_DEFAULTS['EMBEDDING_DISTANCE_THRESHOLD'])
+                        logger .info (f"✅ CLIP model successfully shared between ContentAnalyzer and InsightFaceAgeEstimator")
+                    else :
+                        logger .warning ("ContentAnalyzer CLIP model not available for sharing")
+                except Exception as clip_share_err :
+                    logger .error (f"CLIP sharing error: {str (clip_share_err )}")
+                    logger .warning ("Age estimation will use fallback confidence (0.5)")
 
-                logger.info(f"DeepSORT başlatılıyor: max_age={max_lost_frames_config}, n_init=2, Analiz #{analysis.id}")
-                tracker = DeepSort(max_age=max_lost_frames_config, n_init=2, nms_max_overlap=1.0, embedder=None) # embedder=None (InsightFace kullanacak)
-                
-                person_tracker_manager = PersonTrackerManager(
-                    reliability_threshold=tracking_reliability_thresh_config,
-                    max_frames_missing=max_lost_frames_config,
-                    id_change_threshold=id_change_thresh_config,
-                    embedding_distance_threshold=embedding_dist_thresh_config
+                    # ERSIN Config'den takip parametrelerini oku
+                max_lost_frames_config =current_app .config .get ('MAX_LOST_FRAMES',FACTORY_DEFAULTS ['MAX_LOST_FRAMES'])
+                if max_lost_frames_config is None :
+                    max_lost_frames_config =30 # ERSIN Default değer
+                tracking_reliability_thresh_config =current_app .config .get ('TRACKING_RELIABILITY_THRESHOLD',FACTORY_DEFAULTS ['TRACKING_RELIABILITY_THRESHOLD'])
+                id_change_thresh_config =current_app .config .get ('ID_CHANGE_THRESHOLD',FACTORY_DEFAULTS ['ID_CHANGE_THRESHOLD'])
+                embedding_dist_thresh_config =current_app .config .get ('EMBEDDING_DISTANCE_THRESHOLD',FACTORY_DEFAULTS ['EMBEDDING_DISTANCE_THRESHOLD'])
+
+                logger .info (f"DeepSORT başlatılıyor: max_age={max_lost_frames_config }, n_init=2, Analiz #{analysis .id }")
+                # ERSIN DeepSort embedder: geçerli isim gerekli (boş string hata verir). update_tracks'ta kendi embeds'imizi veriyoruz.
+                tracker =DeepSort (
+                max_age =max_lost_frames_config ,
+                n_init =2 ,
+                nms_max_overlap =1.0 ,
+                embedder ="mobilenet"
                 )
-                logger.info(f"PersonTrackerManager başlatıldı (reliability_threshold={tracking_reliability_thresh_config}, max_frames_missing={max_lost_frames_config}, id_change_threshold={id_change_thresh_config}, embedding_distance_threshold={embedding_dist_thresh_config}): Analiz #{analysis.id}")
-            except Exception as age_err:
-                logger.error(f"Yaş tahmin modelleri veya takipçi yüklenemedi: {str(age_err)}", exc_info=True)
-                logger.warning(f"Yaş analizi devre dışı bırakıldı: Analiz #{analysis.id}")
-                analysis.include_age_analysis = False # Yaş analizi yapılamıyorsa kapat
-                db.session.commit()
-        
-        # İlerleme bilgisi
-        total_frames_to_process = len(frame_indices)
-        high_risk_frames_count = 0
-        detected_faces_count = 0
-        
-        # Tüm kareleri işle
-        # person_best_frames = {} # REMOVED
-        track_genders = {}
-        processed_persons_with_data = set() # Keep this to know which persons to process later
-        
-        # Video'yu baştan sonra kadar işle (kareleri diskten okuyarak)
-        for i, frame_idx in enumerate(frame_indices):
-            try: # ADDED MAIN TRY FOR FRAME PROCESSING
-                # frames_analyzed güncellemesi
-                analysis.frames_analyzed = i + 1
-                
-                # İptal kontrolü - her karede DB hit yapma; periyodik kontrol yeterli
-                if i % 10 == 0:
-                    try:
-                        analysis_db = Analysis.query.get(analysis.id)
-                        if analysis_db and analysis_db.check_if_cancelled():
-                            logger.info(f"Analiz #{analysis.id} iptal edilmiş, video analizi durduruluyor (kare {i+1}/{total_frames_to_process})")
-                            return False, "Analiz iptal edildi"
-                    except Exception:
-                        pass
 
-                progress = min(100, int((i / max(1, total_frames_to_process)) * 100))
-                analysis.update_progress(progress, f"Kare #{i+1}/{total_frames_to_process} işleniyor...")
-                timestamp = frame_idx / fps
-                status_message = f"Kare #{i+1}/{total_frames_to_process} işleniyor ({timestamp:.1f}s)"
-                
-                # Kareyi diskten oku (extraction adımında kaydedildi)
-                if i >= len(frame_paths):
-                    logger.warning(f"Kare yolu bulunamadı (frame_paths kısa): i={i}, len(frame_paths)={len(frame_paths)}")
-                    continue
-                frame_path = frame_paths[i]
-                if not frame_path or not os.path.exists(frame_path):
-                    logger.warning(f"Kare dosyası bulunamadı: {frame_path}")
-                    continue
-                image = cv2.imread(frame_path)
-                if image is None:
-                    logger.warning(f"Kare okunamadı (cv2.imread None): {frame_path}")
-                    continue
-                
-                # İçerik analizi yap (timeout koruması ile)
-                try:
-                    logger.info(f"[SVC_LOG][VID] Kare #{i} ({timestamp:.2f}s): İçerik analizi başlatılıyor...")
-                    # Content analysis'i async yap - GPU blocking'i önle
-                    # CRITICAL: Use shorter timeout (30s) to detect GPU hangs faster
-                    content_analysis_future = _content_analysis_executor.submit(
-                        content_analyzer_instance.analyze_image, image
+                person_tracker_manager =PersonTrackerManager (
+                reliability_threshold =tracking_reliability_thresh_config ,
+                max_frames_missing =max_lost_frames_config ,
+                id_change_threshold =id_change_thresh_config ,
+                embedding_distance_threshold =embedding_dist_thresh_config 
+                )
+                logger .info (f"PersonTrackerManager başlatıldı (reliability_threshold={tracking_reliability_thresh_config }, max_frames_missing={max_lost_frames_config }, id_change_threshold={id_change_thresh_config }, embedding_distance_threshold={embedding_dist_thresh_config }): Analiz #{analysis .id }")
+            except Exception as age_err :
+                logger .error (f"Yaş tahmin modelleri veya takipçi yüklenemedi: {str (age_err )}",exc_info =True )
+                logger .warning (f"Yaş analizi devre dışı bırakıldı: Analiz #{analysis .id }")
+                analysis .include_age_analysis =False # ERSIN Yaş analizi yapılamıyorsa kapat
+                db .session .commit ()
+
+                # ERSIN İlerleme bilgisi
+        total_frames_to_process =len (frame_indices )
+        high_risk_frames_count =0 
+        detected_faces_count =0 
+
+        # ERSIN Tüm kareleri işle
+        # ERSIN person_best_frames = {} # REMOVED
+        # ERSIN track_genders şu an kullanılmıyor
+        _ ={}
+        processed_persons_with_data =set ()# ERSIN Keep this to know için açıklama
+
+        # ERSIN Video'yu baştan sonra kadar işle (kareleri diskten okuyarak)
+        for i ,frame_idx in enumerate (frame_indices ):
+            try :# ERSIN ADDED MAIN TRY için FRAME PROCESSING
+            # ERSIN frames_analyzed güncellemesi
+                analysis .frames_analyzed =i +1 
+
+                # ERSIN İptal kontrolü - her karede DB hit yapma; periyodik kontrol yeterli
+                if i %10 ==0 :
+                    try :
+                        analysis_db =Analysis .query .get (analysis .id )
+                        if analysis_db and analysis_db .check_if_cancelled ():
+                            logger .info (f"Analiz #{analysis .id } iptal edilmiş, video analizi durduruluyor (kare {i +1 }/{total_frames_to_process })")
+                            return False ,"Analiz iptal edildi"
+                    except Exception :
+                        pass 
+
+                progress =min (100 ,int ((i /max (1 ,total_frames_to_process ))*100 ))
+                analysis .update_progress (progress ,f"Kare #{i +1 }/{total_frames_to_process } işleniyor...")
+                timestamp =frame_idx /fps 
+                # ERSIN status_message şu an kullanılmıyor
+                _ =f"Kare #{i +1 }/{total_frames_to_process } işleniyor ({timestamp :.1f}s)"
+
+                # ERSIN Kareyi diskten oku (extraction adımında kaydedildi)
+                if i >=len (frame_paths ):
+                    logger .warning (f"Kare yolu bulunamadı (frame_paths kısa): i={i }, len(frame_paths)={len (frame_paths )}")
+                    continue 
+                frame_path =frame_paths [i ]
+                if not frame_path or not os .path .exists (frame_path ):
+                    logger .warning (f"Kare dosyası bulunamadı: {frame_path }")
+                    continue 
+                image =cv2 .imread (frame_path )
+                if image is None :
+                    logger .warning (f"Kare okunamadı (cv2.imread None): {frame_path }")
+                    continue 
+
+                    # ERSIN İçerik analizi yap (timeout koruması ile)
+                try :
+                    logger .info (f"[SVC_LOG][VID] Kare #{i } ({timestamp :.2f}s): İçerik analizi başlatılıyor...")
+                    # ERSIN Content analysis'i async yap - GPU blocking'i önle
+                    # ERSIN Kritik: Use shorter timeout (30s) to detect GPU hangs faster
+                    content_analysis_future =_content_analysis_executor .submit (
+                    content_analyzer_instance .analyze_image ,image 
                     )
-                    logger.info(f"[SVC_LOG][VID] Kare #{i}: Content analysis future submitted, waiting for result (timeout=30s)...")
-                    try:
-                        # Her kategori için skorlar (30 saniye timeout - GPU hang detection için daha kısa)
-                        result = content_analysis_future.result(timeout=30.0)
-                        violence_score, adult_content_score, harassment_score, weapon_score, drug_score, safe_score, safe_objects = result
-                        logger.info(f"[SVC_LOG][VID] Kare #{i} ({timestamp:.2f}s): İçerik analizi tamamlandı.")
-                    except concurrent.futures.TimeoutError:
-                        logger.error(f"[SVC_LOG][VID] Kare #{i}: ⚠️ İçerik analizi zaman aşımına uğradı (30s) - GPU takılıyor olabilir! Default değerlerle devam ediliyor.")
-                        # Cancel the future to free resources
-                        content_analysis_future.cancel()
-                        violence_score, adult_content_score, harassment_score, weapon_score, drug_score, safe_score = 0.0, 0.0, 0.0, 0.0, 0.0, 1.0
-                        safe_objects = []
-                    except Exception as content_analysis_err:
-                        logger.error(f"[SVC_LOG][VID] Kare #{i}: İçerik analizi hatası: {str(content_analysis_err)}", exc_info=True)
-                        violence_score, adult_content_score, harassment_score, weapon_score, drug_score, safe_score = 0.0, 0.0, 0.0, 0.0, 0.0, 1.0
-                        safe_objects = []
-                    
-                    # Eğer herhangi bir kategoride yüksek risk varsa, yüksek riskli kare sayısını artır
-                    if max(violence_score, adult_content_score, harassment_score, weapon_score, drug_score) > 0.7:
-                        high_risk_frames_count += 1
-                except Exception as e_content_analysis: # ADDED EXCEPTION HANDLING
-                    logger.error(f"Kare #{i} ({frame_path}) içerik analizi hatası: {str(e_content_analysis)}")
-                    violence_score, adult_content_score, harassment_score, weapon_score, drug_score, safe_score = 0.0, 0.0, 0.0, 0.0, 0.0, 1.0 # Default to safe
-                    safe_objects = []
-                
-                # ContentDetection nesnesini oluştur ve veritabanına ekle
-                detection = ContentDetection(
-                    analysis_id=analysis.id,
-                    frame_path=frame_path,
-                        frame_timestamp=timestamp,
-                        frame_index=frame_idx
+                    logger .info (f"[SVC_LOG][VID] Kare #{i }: Content analysis future submitted, waiting for result (timeout=30s)...")
+                    try :
+                    # ERSIN Her kategori için skorlar (30 saniye timeout - GPU hang detection için daha kısa)
+                        result =content_analysis_future .result (timeout =30.0 )
+                        violence_score ,adult_content_score ,harassment_score ,weapon_score ,drug_score ,safe_score ,safe_objects =result 
+                        logger .info (f"[SVC_LOG][VID] Kare #{i } ({timestamp :.2f}s): İçerik analizi tamamlandı.")
+                    except concurrent .futures .TimeoutError :
+                        logger .error (f"[SVC_LOG][VID] Kare #{i }: ⚠️ İçerik analizi zaman aşımına uğradı (30s) - GPU takılıyor olabilir! Default değerlerle devam ediliyor.")
+                        # ERSIN Cancel the future to free resources
+                        content_analysis_future .cancel ()
+                        violence_score ,adult_content_score ,harassment_score ,weapon_score ,drug_score ,safe_score =0.0 ,0.0 ,0.0 ,0.0 ,0.0 ,1.0 
+                        safe_objects =[]
+                    except Exception as content_analysis_err :
+                        logger .error (f"[SVC_LOG][VID] Kare #{i }: İçerik analizi hatası: {str (content_analysis_err )}",exc_info =True )
+                        violence_score ,adult_content_score ,harassment_score ,weapon_score ,drug_score ,safe_score =0.0 ,0.0 ,0.0 ,0.0 ,0.0 ,1.0 
+                        safe_objects =[]
+
+                        # ERSIN Eğer herhangi bir kategoride yüksek risk varsa, yüksek riskli kare sayısını artır
+                    if max (violence_score ,adult_content_score ,harassment_score ,weapon_score ,drug_score )>0.7 :
+                        high_risk_frames_count +=1 
+                except Exception as e_content_analysis :# ERSIN ADDED EXCEPTION HANDLING
+                    logger .error (f"Kare #{i } ({frame_path }) içerik analizi hatası: {str (e_content_analysis )}")
+                    violence_score ,adult_content_score ,harassment_score ,weapon_score ,drug_score ,safe_score =0.0 ,0.0 ,0.0 ,0.0 ,0.0 ,1.0 # ERSIN Default to safe
+                    safe_objects =[]
+
+                    # ERSIN ContentDetection nesnesini oluştur ve veritabanına ekle
+                detection =ContentDetection (
+                analysis_id =analysis .id ,
+                frame_path =frame_path ,
+                frame_timestamp =timestamp ,
+                frame_index =frame_idx 
                 )
-                detection.violence_score = float(violence_score)
-                detection.adult_content_score = float(adult_content_score)
-                detection.harassment_score = float(harassment_score)
-                detection.weapon_score = float(weapon_score)
-                detection.drug_score = float(drug_score)
-                detection.safe_score = float(safe_score)
-                detection.set_detected_objects(safe_objects)
-                
-                # Nesnenin serileştirilebilir olup olmadığını kontrol et
-                try:
-                    detection_dict = detection.to_dict()
-                    json.dumps(detection_dict)
-                except Exception as json_err:
-                    logger.error(f"ContentDetection to_dict serileştirilemedi: {str(json_err)}")
-                    # Sorun detected_objects'de ise onu temizle
-                    detection._detected_objects = '[]'
-                
-                db.session.add(detection)
-                
-                # Yaş analizi yapılacaksa yüz tespiti ve yaş tahmini yap
-                if age_estimator and tracker:
-                    logger.info(f"[SVC_LOG][VID] Kare #{i} ({timestamp:.2f}s): Yüz tespiti başlatılıyor (age_estimator={age_estimator is not None}, tracker={tracker is not None})...")
-                    try:
-                        # InsightFace model.get() çağrısına timeout ekle - takılmayı önle
-                        # Thread pool executor kullanarak timeout ekle (thread-safe)
-                        logger.info(f"[SVC_LOG][VID] Kare #{i}: _async_face_detection submit ediliyor...")
-                        face_detection_future = _face_detection_executor.submit(_async_face_detection, age_estimator, image)
-                        logger.info(f"[SVC_LOG][VID] Kare #{i}: _async_face_detection submit edildi, result bekleniyor (timeout=30s)...")
-                        try:
-                            faces = face_detection_future.result(timeout=30.0)  # 30 saniye timeout
-                            logger.info(f"[SVC_LOG][VID] Kare #{i} ({timestamp:.2f}s): {len(faces) if faces else 0} yüz tespit edildi.")
-                        except concurrent.futures.TimeoutError:
-                            logger.error(f"[SVC_LOG][VID] Kare #{i}: Yüz tespiti zaman aşımına uğradı (30s). Bu kare için yüz analizi atlanıyor.")
-                            faces = []  # Timeout durumunda boş liste ile devam et
-                        except Exception as face_det_err:
-                            logger.error(f"[SVC_LOG][VID] Kare #{i}: Yüz tespiti sırasında hata: {str(face_det_err)}", exc_info=True)
-                            faces = []  # Hata durumunda boş liste ile devam et
-                        
-                        if not faces or len(faces) == 0:
-                            logger.warning(f"[SVC_LOG][VID] Karede hiç yüz tespit edilemedi: {frame_path}, overlay oluşturulmayacak.")
-                            continue
-                            
-                        detections = []
-                        face_features_list = []  # Yüz özelliklerini saklayacak liste
-                        
-                        for idx, face in enumerate(faces):
-                            try:
-                                # Yüz özelliklerini kontrol et
-                                if not hasattr(face, 'age') or not hasattr(face, 'confidence') or not hasattr(face, 'bbox'):
-                                    logger.warning(f"Yüz {idx} için gerekli özellikler eksik: {face}")
-                                    continue
-                                age = face.age
-                                confidence = face.confidence
-                                if confidence is None:
-                                    confidence = 0.5
-                                if not isinstance(age, (int, float)) or not isinstance(confidence, (int, float)):
-                                    logger.warning(f"Geçersiz yaş veya güven skoru: age={age}, confidence={confidence}")
-                                    continue
-                                if age < 1 or age > 100 or confidence < 0.1:
-                                    logger.warning(f"Geçersiz yaş aralığı veya düşük güven: age={age}, confidence={confidence}")
-                                    continue
-                                # Bounding box'ı kontrol et
-                                try:
-                                    x1, y1, x2, y2 = [int(v) for v in face.bbox]
-                                    if x1 < 0 or y1 < 0 or x2 <= x1 or y2 <= y1:
-                                        logger.warning(f"Geçersiz bounding box: x1={x1}, y1={y1}, x2={x2}, y2={y2}")
-                                        continue
-                                except (ValueError, TypeError) as bbox_err:
-                                    logger.warning(f"Bounding box dönüşüm hatası: {str(bbox_err)}")
-                                    continue
-                                w = x2 - x1
-                                h = y2 - y1
-                                bbox = [x1, y1, w, h]
-                                # Embedding kontrolü
-                                embedding = face.embedding if hasattr(face, 'embedding') and face.embedding is not None else None
-                                if embedding is not None:
-                                    if hasattr(embedding, 'tolist'):
-                                        embedding_vector = embedding.tolist()
-                                        embedding_str = ",".join(str(float(x)) for x in embedding_vector)
-                                    elif isinstance(embedding, (list, tuple)):
-                                        embedding_vector = list(embedding)
-                                        embedding_str = ",".join(str(float(x)) for x in embedding_vector)
-                                    else:
-                                        # Tek bir float veya yanlış tip
-                                        embedding_vector = [float(embedding)]
-                                        embedding_str = str(float(embedding))
-                                else:
-                                    embedding_vector = None
-                                    embedding_str = None
-                                # Yüz özelliklerini çıkar
-                                face_features = extract_face_features(image, face, bbox)
-                                face_features_list.append(face_features)
-                                # LOG EKLE: bbox veya embedding_vector None ise
-                                if bbox is None or embedding_vector is None:
-                                    logger.error(f"[DEBUG][ANALYZE_VIDEO] Kare: {frame_path}, Yüz: {idx}, bbox: {bbox}, embedding_vector: {embedding_vector}, face: {face}")
-                                detections.append({
-                                    'bbox': bbox,
-                                    'embedding_vector': embedding_vector,  # float vektör (DeepSORT için)
-                                    'embedding_str': embedding_str,        # string (veritabanı için)
-                                    'face': face
+                detection .violence_score =float (violence_score )
+                detection .adult_content_score =float (adult_content_score )
+                detection .harassment_score =float (harassment_score )
+                detection .weapon_score =float (weapon_score )
+                detection .drug_score =float (drug_score )
+                detection .safe_score =float (safe_score )
+                detection .set_detected_objects (safe_objects )
+
+                # ERSIN Nesnenin serileştirilebilir olup olmadığını kontrol et
+                try :
+                    detection_dict =detection .to_dict ()
+                    json .dumps (detection_dict )
+                except Exception as json_err :
+                    logger .error (f"ContentDetection to_dict serileştirilemedi: {str (json_err )}")
+                    # ERSIN Sorun detected_objects'de ise onu temizle
+                    detection ._detected_objects ='[]'
+
+                db .session .add (detection )
+
+                # ERSIN Yaş analizi yapılacaksa yüz tespiti ve yaş tahmini yap
+                if age_estimator and tracker :
+                    logger .info (f"[SVC_LOG][VID] Kare #{i } ({timestamp :.2f}s): Yüz tespiti başlatılıyor (age_estimator={age_estimator is not None }, tracker={tracker is not None })...")
+                    try :
+                    # ERSIN InsightFace model.get() çağrısına timeout ekle - takılmayı önle
+                    # ERSIN Thread pool executor kullanarak timeout ekle (thread-safe)
+                        logger .info (f"[SVC_LOG][VID] Kare #{i }: _async_face_detection submit ediliyor...")
+                        face_detection_future =_face_detection_executor .submit (_async_face_detection ,age_estimator ,image )
+                        logger .info (f"[SVC_LOG][VID] Kare #{i }: _async_face_detection submit edildi, result bekleniyor (timeout=30s)...")
+                        try :
+                            faces =face_detection_future .result (timeout =30.0 )# ERSIN 30 saniye timeout
+                            logger .info (f"[SVC_LOG][VID] Kare #{i } ({timestamp :.2f}s): {len (faces )if faces else 0 } yüz tespit edildi.")
+                        except concurrent .futures .TimeoutError :
+                            logger .error (f"[SVC_LOG][VID] Kare #{i }: Yüz tespiti zaman aşımına uğradı (30s). Bu kare için yüz analizi atlanıyor.")
+                            faces =[]# ERSIN Timeout durumunda boş liste ile devam et
+                        except Exception as face_det_err :
+                            logger .error (f"[SVC_LOG][VID] Kare #{i }: Yüz tespiti sırasında hata: {str (face_det_err )}",exc_info =True )
+                            faces =[]# ERSIN Hata durumunda boş liste ile devam et
+
+                        if not faces or len (faces )==0 :
+                            frame_path_str =frame_path if 'frame_path'in locals ()else f"frame_{i }"# ERSIN frame_path possibly unbound
+                            logger .warning (f"[SVC_LOG][VID] Karede hiç yüz tespit edilemedi: {frame_path_str }, overlay oluşturulmayacak.")
+                            continue 
+
+                        detections =[]
+                        face_features_list =[]# ERSIN Yüz özelliklerini saklayacak liste
+
+                        for idx ,face in enumerate (faces ):
+                            try :
+                            # ERSIN Yüz özelliklerini kontrol et
+                                if not hasattr (face ,'age')or not hasattr (face ,'confidence')or not hasattr (face ,'bbox'):
+                                    logger .warning (f"Yüz {idx } için gerekli özellikler eksik: {face }")
+                                    continue 
+                                age =face .age 
+                                confidence =face .confidence 
+                                if confidence is None :
+                                    confidence =0.5 
+                                if not isinstance (age ,(int ,float ))or not isinstance (confidence ,(int ,float )):
+                                    logger .warning (f"Geçersiz yaş veya güven skoru: age={age }, confidence={confidence }")
+                                    continue 
+                                if age <1 or age >100 or confidence <0.1 :
+                                    logger .warning (f"Geçersiz yaş aralığı veya düşük güven: age={age }, confidence={confidence }")
+                                    continue 
+                                    # ERSIN Bounding box'ı kontrol et
+                                try :
+                                    x1 ,y1 ,x2 ,y2 =[int (v )for v in face .bbox ]
+                                    if x1 <0 or y1 <0 or x2 <=x1 or y2 <=y1 :
+                                        logger .warning (f"Geçersiz bounding box: x1={x1 }, y1={y1 }, x2={x2 }, y2={y2 }")
+                                        continue 
+                                except (ValueError ,TypeError )as bbox_err :
+                                    logger .warning (f"Bounding box dönüşüm hatası: {str (bbox_err )}")
+                                    continue 
+                                w =x2 -x1 
+                                h =y2 -y1 
+                                bbox =[x1 ,y1 ,w ,h ]
+                                # ERSIN Embedding kontrolü
+                                embedding =face .embedding if hasattr (face ,'embedding')and face .embedding is not None else None 
+                                if embedding is not None :
+                                    if hasattr (embedding ,'tolist'):
+                                        embedding_vector =embedding .tolist ()
+                                        embedding_str =",".join (str (float (x ))for x in embedding_vector )
+                                    elif isinstance (embedding ,(list ,tuple )):
+                                        embedding_vector =list (embedding )
+                                        embedding_str =",".join (str (float (x ))for x in embedding_vector )
+                                    else :
+                                    # ERSIN Tek bir float veya yanlış tip
+                                        embedding_vector =[float (embedding )]
+                                        embedding_str =str (float (embedding ))
+                                else :
+                                    embedding_vector =None 
+                                    embedding_str =None 
+                                    # ERSIN Yüz özelliklerini çıkar
+                                    # ERSIN bbox list -> tuple conversion for type safety
+                                bbox_tuple =tuple (bbox )if isinstance (bbox ,(list ,tuple ))else bbox 
+                                face_features =extract_face_features (image ,face ,bbox_tuple )
+                                face_features_list .append (face_features )
+                                # ERSIN LOG EKLE: bbox veya embedding_vector None ise
+                                if bbox is None or embedding_vector is None :
+                                    logger .error (f"[DEBUG][ANALYZE_VIDEO] Kare: {frame_path }, Yüz: {idx }, bbox: {bbox }, embedding_vector: {embedding_vector }, face: {face }")
+                                detections .append ({
+                                'bbox':bbox ,
+                                'embedding_vector':embedding_vector ,# ERSIN float vektör (DeepSORT için)
+                                'embedding_str':embedding_str ,# ERSIN string (veritabanı için)
+                                'face':face 
                                 })
-                                logger.info(f"Kare: {frame_path}, Yüz {idx}: age={age}, confidence={confidence}")
-                            except Exception as face_err:
-                                logger.error(f"Yüz {idx} işlenirken hata: {str(face_err)}")
-                                continue
-                                
-                        if not detections:
-                            logger.warning(f"İşlenebilir yüz bulunamadı: {frame_path}")
-                            continue
-                            
-                        # DeepSORT ile takip
-                        try:
-                            tracks = tracker.update_tracks(
-                                [(d['bbox'], 1.0, "face") for d in detections],
-                                embeds=[d['embedding_vector'] for d in detections],  # float vektörler!
-                                frame=image
+                                logger .info (f"Kare: {frame_path }, Yüz {idx }: age={age }, confidence={confidence }")
+                            except Exception as face_err :
+                                logger .error (f"Yüz {idx } işlenirken hata: {str (face_err )}")
+                                continue 
+
+                        if not detections :
+                            logger .warning (f"İşlenebilir yüz bulunamadı: {frame_path }")
+                            continue 
+
+                            # ERSIN DeepSORT ile takip
+                        try :
+                            tracks =tracker .update_tracks (
+                            [(d ['bbox'],1.0 ,"face")for d in detections ],
+                            embeds =[d ['embedding_vector']for d in detections ],# ERSIN float vektörler!
+                            frame =image 
                             )
-                            logger.info(f"[SVC_LOG][VID] Kare #{i}: DeepSORT {len(tracks)} track döndürdü.")
-                                
-                            # PersonTrackerManager ile güvenilir takipleri filtrele
-                            reliable_tracks = person_tracker_manager.update(tracks, face_features_list, i)
-                            logger.info(f"[SVC_LOG][VID] Kare #{i}: PersonTrackerManager {len(reliable_tracks)} güvenilir track döndürdü.")
-                                
-                            processed_track_ids = set() # Aynı karede birden fazla kez loglamayı önle
-                            
-                            active_detections_in_frame = []
-                            for det_idx, (det_data, track_obj) in enumerate(zip(detections, tracks)):
-                                    # Sadece güvenilir takipleri ekle
-                                    if track_obj in reliable_tracks:
-                                        active_detections_in_frame.append({'det': det_data, 'track': track_obj})
+                            logger .info (f"[SVC_LOG][VID] Kare #{i }: DeepSORT {len (tracks )} track döndürdü.")
 
-                            for item in active_detections_in_frame:
-                                det = item['det']
-                                track = item['track']
+                            # ERSIN PersonTrackerManager ile güvenilir takipleri filtrele
+                            if person_tracker_manager is not None :# ERSIN type narrowing
+                                reliable_tracks =person_tracker_manager .update (tracks ,face_features_list ,i )
+                            else :
+                                reliable_tracks =tracks 
+                            logger .info (f"[SVC_LOG][VID] Kare #{i }: PersonTrackerManager {len (reliable_tracks )} güvenilir track döndürdü.")
 
-                                if not track.is_confirmed() or track.track_id in processed_track_ids:
-                                    continue
-                                processed_track_ids.add(track.track_id)
-                                    
-                                    # Bu kısımda gender_match kontrolü yerine PersonTrackerManager'ın güvenilirlik kontrolünü kullanıyoruz
-                                    # Artık mevcut gender_match bloğunu kullanmak yerine, güvenilir takipleri işliyoruz
-                                
-                                track_id_str = f"{analysis.id}_person_{track.track_id}"
-                                face_obj = det['face'] # Bu InsightFace face nesnesi
+                            processed_track_ids =set ()# ERSIN Aynı karede birden fazla kez loglamayı önle
 
-                                x1, y1, w, h = det['bbox']
-                                logger.info(f"[SVC_LOG][VID] Kare #{i}: Track ID={track.track_id} (person_id={track_id_str}) için ASYNC yaş tahmini başlatılıyor. BBox: [{x1},{y1},{w},{h}]")
-                                embedding_str = det['embedding_str']  # string (veritabanı için)
-                                
-                                # 🚀 ASYNC AGE ESTIMATION: Background thread'de yap - video frame processing bloklanmasın!
-                                from flask import current_app
-                                future = _age_estimation_executor.submit(
-                                    _async_age_estimation, 
-                                    age_estimator, image, face_obj, i, analysis.id, track_id_str, current_app._get_current_object()
+                            active_detections_in_frame =[]
+                            for _ ,(det_data ,track_obj )in enumerate (zip (detections ,tracks )):
+                            # ERSIN Sadece güvenilir takipleri ekle
+                                    if track_obj in reliable_tracks :
+                                        active_detections_in_frame .append ({'det':det_data ,'track':track_obj })
+
+                            for item in active_detections_in_frame :
+                                det =item ['det']
+                                track =item ['track']
+
+                                if not track .is_confirmed ()or track .track_id in processed_track_ids :
+                                    continue 
+                                processed_track_ids .add (track .track_id )
+
+                                # ERSIN Bu kısımda gender_match kontrolü yerine PersonTrackerManager'ın güvenilirl...
+                                # ERSIN Artık mevcut gender_match bloğunu kullanmak yerine, güvenilir takipleri işliyoruz
+
+                                track_id_str =f"{analysis .id }_person_{track .track_id }"
+                                face_obj =det ['face']# ERSIN Bu InsightFace face nesnesi
+
+                                x1 ,y1 ,w ,h =det ['bbox']
+                                logger .info (f"[SVC_LOG][VID] Kare #{i }: Track ID={track .track_id } (person_id={track_id_str }) için ASYNC yaş tahmini başlatılıyor. BBox: [{x1 },{y1 },{w },{h }]")
+                                embedding_str =det ['embedding_str']# ERSIN string (veritabanı için)
+
+                                # ERSIN 🚀 ASYNC AGE ESTIMATION: arka plan thread'de yap - video frame processing bloklanmasın!
+                                from flask import current_app 
+                                # ERSIN current_app is always a LocalProxy in Flask context, safely get actual Flask app
+                                get_current_obj =getattr (current_app ,'_get_current_object',None )
+                                if get_current_obj is not None and callable (get_current_obj ):
+                                    app_ctx_for_thread =get_current_obj ()
+                                else :
+                                    app_ctx_for_thread =current_app
+                                future =_age_estimation_executor .submit (
+                                _async_age_estimation ,
+                                age_estimator ,image ,face_obj ,i ,analysis .id ,track_id_str ,app_ctx_for_thread 
                                 )
-                                
-                                # Video için makul timeout - yaş tahmini tamamlansın (CLIP inference GPU kullanmıyorsa uzun sürebilir)
-                                try:
-                                    result = future.result(timeout=10.0)  # 10 saniye bekle - CLIP inference için yeterli
-                                    
-                                    # İptal edilmiş thread kontrolü
-                                    if result.get('cancelled', False):
-                                        logger.info(f"[SVC_LOG][VID] Kare #{i}: Track ID={track.track_id} age thread iptal edildi, atlanıyor")
-                                        continue
-                                        
-                                    estimated_age = result['estimated_age']
-                                    confidence = result['confidence']
-                                    pseudo_data = result['pseudo_data']
-                                    logger.info(f"[SVC_LOG][VID] Kare #{i}: Track ID={track.track_id} SYNC sonuç: Yaş={estimated_age}, Güven={confidence}")
-                                except concurrent.futures.TimeoutError:
-                                    # Age estimation timeout - fallback değerlerle devam et
-                                    logger.warning(f"[SVC_LOG][VID] Kare #{i}: Track ID={track.track_id} age estimation timeout (10s) - fallback kullanılıyor")
-                                    estimated_age = face_obj.age if hasattr(face_obj, 'age') and face_obj.age is not None else 25.0
-                                    confidence = 0.4  # Düşük güven
-                                    pseudo_data = None
 
-                                if estimated_age is None:
-                                    logger.warning(f"[SVC_LOG][VID] Kare #{i}: Track ID={track.track_id} için yaş None - fallback kullanılıyor")
-                                    estimated_age = face_obj.age if hasattr(face_obj, 'age') and face_obj.age is not None else 25.0
-                                    confidence = confidence or 0.3
-                                
-                                age = float(estimated_age)
+                                # ERSIN ERSIN Video için makul timeout - yaş tahmini tamamlansın (CLIP inference GPU kul...
+                                try :
+                                    result =future .result (timeout =10.0 )# ERSIN 10 saniye bekle - CLIP inference için yeterli
 
-                                # AgeEstimation record creation/update logic:
-                                try:
-                                    age_est = AgeEstimation.query.filter_by(analysis_id=analysis.id, person_id=track_id_str).first()
-                                    db_bbox_to_store = [x1, y1, w, h]
-                                    if not age_est:
-                                        age_est = AgeEstimation(
-                                            analysis_id=analysis.id,
-                                            person_id=track_id_str,
-                                            frame_path=frame_path,
-                                            frame_timestamp=timestamp,  # Timestamp eklendi
-                                            estimated_age=age,
-                                            confidence_score=confidence,
-                                            frame_index=frame_idx,
-                                            face_bbox=json.dumps(db_bbox_to_store),
-                                            embedding=embedding_str
+                                    # ERSIN İptal edilmiş thread kontrolü
+                                    if result .get ('cancelled',False ):
+                                        logger .info (f"[SVC_LOG][VID] Kare #{i }: Track ID={track .track_id } age thread iptal edildi, atlanıyor")
+                                        continue 
+
+                                    estimated_age =result ['estimated_age']
+                                    confidence =result ['confidence']
+                                    pseudo_data =result ['pseudo_data']
+                                    logger .info (f"[SVC_LOG][VID] Kare #{i }: Track ID={track .track_id } SYNC sonuç: Yaş={estimated_age }, Güven={confidence }")
+                                except concurrent .futures .TimeoutError :
+                                # ERSIN Age estimation timeout - fallback değerlerle devam et
+                                    logger .warning (f"[SVC_LOG][VID] Kare #{i }: Track ID={track .track_id } age estimation timeout (10s) - fallback kullanılıyor")
+                                    estimated_age =face_obj .age if hasattr (face_obj ,'age')and face_obj .age is not None else 25.0 
+                                    confidence =0.4 # ERSIN Düşük güven
+                                    pseudo_data =None 
+
+                                if estimated_age is None :
+                                    logger .warning (f"[SVC_LOG][VID] Kare #{i }: Track ID={track .track_id } için yaş None - fallback kullanılıyor")
+                                    estimated_age =face_obj .age if hasattr (face_obj ,'age')and face_obj .age is not None else 25.0 
+                                    confidence =confidence or 0.3 
+
+                                age =float (estimated_age )
+
+                                # ERSIN AgeEstimation record creation/update logic:
+                                try :
+                                    age_est =AgeEstimation .query .filter_by (analysis_id =analysis .id ,person_id =track_id_str ).first ()
+                                    db_bbox_to_store =[x1 ,y1 ,w ,h ]
+                                    if not age_est :
+                                        age_est =AgeEstimation (
+                                        analysis_id =analysis .id ,
+                                        person_id =track_id_str ,
+                                        frame_path =frame_path ,
+                                        frame_timestamp =timestamp ,# ERSIN Timestamp eklendi
+                                        estimated_age =age ,
+                                        confidence_score =confidence ,
+                                        frame_index =frame_idx ,
+                                        face_bbox =json .dumps (db_bbox_to_store ),
+                                        embedding =embedding_str 
                                         )
-                                        logger.info(f"[SVC_LOG][VID] Yeni AgeEstimation: {track_id_str}, Kare: {frame_idx}, BBox: {db_bbox_to_store}")
-                                    else:
-                                        if confidence > age_est.confidence_score:
-                                            age_est.frame_path = frame_path
-                                            age_est.frame_timestamp = timestamp  # Timestamp eklendi
-                                            age_est.estimated_age = age
-                                            age_est.confidence_score = confidence
-                                            age_est.frame_index = frame_idx
-                                            age_est.face_bbox = json.dumps(db_bbox_to_store)
-                                            age_est.embedding = embedding_str
-                                            logger.info(f"[SVC_LOG][VID] AgeEstimation Güncelleme: {track_id_str}, Yeni Güven: {confidence:.4f}, Kare: {frame_idx}")
-                                    db.session.add(age_est)
-                                    processed_persons_with_data.add(track_id_str)
-                                    
-                                    # Sözde etiket verisi varsa Feedback tablosuna kaydet
-                                    if pseudo_data:
-                                        try:
-                                            logger.info(f"[SVC_LOG][VID] Sözde etiket verisi kaydediliyor. Person ID: {track_id_str}, Kare Path: {frame_path}")
-                                            embedding_fb = pseudo_data.get("embedding")
-                                            if embedding_fb is not None:
-                                                if hasattr(embedding_fb, 'tolist'):
-                                                    embedding_fb_str = ",".join(str(float(x)) for x in embedding_fb.tolist())
-                                                elif isinstance(embedding_fb, (list, tuple)):
-                                                    embedding_fb_str = ",".join(str(float(x)) for x in embedding_fb)
-                                                else:
-                                                    embedding_fb_str = str(embedding_fb)
-                                            else:
-                                                embedding_fb_str = None
-                                            feedback_entry = Feedback(
-                                                frame_path=to_rel_path(file.file_path), 
-                                                face_bbox=pseudo_data.get("face_bbox"),
-                                                embedding=embedding_fb_str,
-                                                pseudo_label_original_age=pseudo_data.get("pseudo_label_original_age"),
-                                                pseudo_label_clip_confidence=pseudo_data.get("pseudo_label_clip_confidence"),
-                                                feedback_source=pseudo_data.get("feedback_source", "PSEUDO_BUFFALO_HIGH_CONF"),
-                                                feedback_type="age_pseudo",
-                                                content_id=analysis.file_id,  # DÜZELTİLDİ: Artık file_id kullanılıyor
-                                                analysis_id=analysis.id,
-                                                person_id=track_id_str 
+                                        logger .info (f"[SVC_LOG][VID] Yeni AgeEstimation: {track_id_str }, Kare: {frame_idx }, BBox: {db_bbox_to_store }")
+                                    else :
+                                        if confidence >age_est .confidence_score :
+                                            age_est .frame_path =frame_path 
+                                            age_est .frame_timestamp =timestamp # ERSIN Timestamp eklendi
+                                            age_est .estimated_age =age 
+                                            age_est .confidence_score =confidence 
+                                            age_est .frame_index =frame_idx 
+                                            age_est .face_bbox =json .dumps (db_bbox_to_store )
+                                            age_est .embedding =embedding_str 
+                                            logger .info (f"[SVC_LOG][VID] AgeEstimation Güncelleme: {track_id_str }, Yeni Güven: {confidence :.4f}, Kare: {frame_idx }")
+                                    db .session .add (age_est )
+                                    processed_persons_with_data .add (track_id_str )
+
+                                    # ERSIN Sözde etiket verisi varsa Feedback tablosuna kaydet
+                                    if pseudo_data and isinstance (pseudo_data ,dict ):
+                                        try :
+                                            logger .info (f"[SVC_LOG][VID] Sözde etiket verisi kaydediliyor. Person ID: {track_id_str }, Kare Path: {frame_path }")
+                                            embedding_fb =pseudo_data .get ("embedding")
+                                            if embedding_fb is not None :
+                                                if hasattr (embedding_fb ,'tolist'):
+                                                    tolist_method =getattr (embedding_fb ,'tolist',None )
+                                                    if tolist_method is not None and callable (tolist_method ):
+                                                        tolist_result =tolist_method ()
+                                                        if tolist_result is not None :
+                                                            # ERSIN Type checker için cast'i local scope'ta kullan
+                                                            from typing import cast as _cast ,Any as _Any
+                                                            embedding_fb_str =",".join (str (float (x ))for x in _cast (list [_Any ],tolist_result ))
+                                                        else :
+                                                            embedding_fb_str =str (embedding_fb )
+                                                    else :
+                                                        embedding_fb_str =str (embedding_fb )
+                                                elif isinstance (embedding_fb ,(list ,tuple )):
+                                                    embedding_fb_str =",".join (str (float (x ))for x in embedding_fb )
+                                                else :
+                                                    embedding_fb_str =str (embedding_fb )
+                                            else :
+                                                embedding_fb_str =None 
+                                            feedback_entry =Feedback (
+                                            frame_path =to_rel_path (file .file_path ),
+                                            face_bbox =pseudo_data .get ("face_bbox"),
+                                            embedding =embedding_fb_str ,
+                                            pseudo_label_original_age =pseudo_data .get ("pseudo_label_original_age"),
+                                            pseudo_label_clip_confidence =pseudo_data .get ("pseudo_label_clip_confidence"),
+                                            feedback_source =pseudo_data .get ("feedback_source","PSEUDO_BUFFALO_HIGH_CONF"),
+                                            feedback_type ="age_pseudo",
+                                            content_id =analysis .file_id ,# ERSIN DÜZELTİLDİ: Artık file_id kullanılıyor
+                                            analysis_id =analysis .id ,
+                                            person_id =track_id_str 
                                             )
-                                            db.session.add(feedback_entry)
-                                            logger.info(f"[SVC_LOG][VID] Sözde etiket için Feedback kaydı eklendi: {feedback_entry.id} (Person: {track_id_str})")
-                                        except Exception as fb_err:
-                                            logger.error(f"[SVC_LOG][VID] Sözde etiket Feedback kaydı oluşturulurken hata (Person: {track_id_str}): {str(fb_err)}")
+                                            db .session .add (feedback_entry )
+                                            logger .info (f"[SVC_LOG][VID] Sözde etiket için Feedback kaydı eklendi: {feedback_entry .id } (Person: {track_id_str })")
+                                        except Exception as fb_err :
+                                            logger .error (f"[SVC_LOG][VID] Sözde etiket Feedback kaydı oluşturulurken hata (Person: {track_id_str }): {str (fb_err )}")
 
-                                except Exception as db_err:
-                                    logger.error(f"[SVC_LOG][VID] DB hatası (track_id={track_id_str}, kare={i}): {str(db_err)}")
-                                    continue
-                                
-                        except Exception as track_err:
-                            logger.error(f"DeepSORT takip hatası: {str(track_err)}")
-                            continue
-                            
-                    except Exception as age_err:
-                        logger.error(f"Yaş analizi hatası: {str(age_err)}")
-                        continue
-                
-                # Progress güncellemesini her karede bir yap (frames_analyzed güncellemesi için)
-                # Her karede commit yaparak frames_analyzed'in güncellenmesini sağla
-                try:
-                    db.session.commit()
-                except Exception as commit_err:
-                    logger.error(f"DB commit hatası (kare {i+1}): {str(commit_err)}")
-                    db.session.rollback()
-                
-                # Progress bilgisi - her 3 karede bir log
-                if i % 3 == 0:
-                    try:
-                        # İlerleme durumunu logla
-                        logger.info(f"Analiz #{analysis.id}: Kare {i+1}/{len(frame_indices)} ({progress:.1f}%) - Risk: {high_risk_frames_count} kare")
-                    except Exception as progress_err:
-                        logger.warning(f"İlerleme bildirimi hatası: {str(progress_err)}")
-            
-            except Exception as frame_err: # ALIGNED WITH THE NEW MAIN TRY BLOCK
-                logger.error(f"Kare #{i} ({frame_path}) analiz hatası: {str(frame_err)}")
-                continue
-        
-        # Tüm değişiklikleri veritabanına kaydet
-        db.session.commit()
-        
-        logger.info(f"Video analizi DB commit sonrası. Analiz ID: {analysis.id}, Include Age: {analysis.include_age_analysis}, Processed Persons Count: {len(processed_persons_with_data) if processed_persons_with_data else 'None'}")
+                                except Exception as db_err :
+                                    logger .error (f"[SVC_LOG][VID] DB hatası (track_id={track_id_str }, kare={i }): {str (db_err )}")
+                                    continue 
 
-        # Analiz tamamlandı, istatistikleri logla
-        unique_persons_query = db.session.query(AgeEstimation.person_id).filter(AgeEstimation.analysis_id == analysis.id).distinct().count()
-        logger.info(f"Video analizi tamamlandı: Analiz #{analysis.id}, Dosya: {file.original_filename}")
-        logger.info(f"  - Toplam {len(frame_paths)} kare analiz edildi ({total_frames_to_process} hedeflenmişti)")
-        logger.info(f"  - {detected_faces_count} yüz tespiti, {unique_persons_query} benzersiz kişi")
-        logger.info(f"  - {high_risk_frames_count} yüksek riskli kare tespit edildi")
-        
-        # NEW OVERLAY GENERATION LOGIC
-        if analysis.include_age_analysis and processed_persons_with_data:
-            logger.info(f"Analiz #{analysis.id} için final overlayler oluşturuluyor. İşlenecek kişi sayısı: {len(processed_persons_with_data)}")
-            base_overlay_dir = os.path.join(current_app.config['PROCESSED_FOLDER'], f"frames_{analysis.id}", 'overlays')
-            os.makedirs(base_overlay_dir, exist_ok=True)
+                        except Exception as track_err :
+                            logger .error (f"DeepSORT takip hatası: {str (track_err )}")
+                            continue 
 
-            for person_id_str in processed_persons_with_data:
-                logger.info(f"Overlay oluşturma döngüsü: Kişi ID {person_id_str} işleniyor.")
-                try:
-                    best_est = db.session.query(AgeEstimation).filter_by(
-                        analysis_id=analysis.id,
-                        person_id=person_id_str
-                    ).order_by(AgeEstimation.confidence_score.desc(), AgeEstimation.id.desc()).first()
-                    
-                    logger.info(f"Kişi {person_id_str} için best_est sorgulandı. Sonuç: {{'Bulundu' if best_est else 'Bulunamadı'}}")
+                    except Exception as age_err :
+                        logger .error (f"Yaş analizi hatası: {str (age_err )}")
+                        continue 
 
-                    if not best_est:
-                        logger.warning(f"Kişi {person_id_str} için final AgeEstimation kaydı bulunamadı (best_est None), overlay atlanıyor.")
-                        continue
-                    
-                    # Kaynak kare yolunu best_est.frame_path'ten al (bu geçici tam yol olabilir)
-                    source_frame_for_overlay_path = best_est.frame_path
-                    logger.info(f"Kişi {person_id_str} için kaynak kare yolu (best_est.frame_path): {source_frame_for_overlay_path}, best_est.estimated_age: {best_est.estimated_age}, best_est.confidence_score: {best_est.confidence_score}")
+                        # ERSIN Progress güncellemesini her karede bir yap (frames_analyzed güncellemesi için)
+                        # ERSIN Her karede commit yaparak frames_analyzed'in güncellenmesini sağla
+                try :
+                    db .session .commit ()
+                except Exception as commit_err :
+                    logger .error (f"DB commit hatası (kare {i +1 }): {str (commit_err )}")
+                    db .session .rollback ()
 
-                    if not source_frame_for_overlay_path or not os.path.exists(source_frame_for_overlay_path):
-                        logger.error(f"Overlay için kaynak kare {source_frame_for_overlay_path} bulunamadı/geçersiz (Kişi: {person_id_str}). Disk kontrolü: {{'Var' if source_frame_for_overlay_path and os.path.exists(source_frame_for_overlay_path) else 'Yok veya Path Hatalı'}}")
-                        continue
-                    
-                    image_source_for_overlay = cv2.imread(source_frame_for_overlay_path)
-                    if image_source_for_overlay is None:
-                        logger.error(f"Overlay için kare okunamadı (Kişi: {person_id_str}): {source_frame_for_overlay_path}")
-                        continue
+                    # ERSIN Progress bilgisi - her 3 karede bir log
+                if i %3 ==0 :
+                    try :
+                    # ERSIN İlerleme durumunu logla
+                        logger .info (f"Analiz #{analysis .id }: Kare {i +1 }/{len (frame_indices )} ({progress :.1f}%) - Risk: {high_risk_frames_count } kare")
+                    except Exception as progress_err :
+                        logger .warning (f"İlerleme bildirimi hatası: {str (progress_err )}")
 
-                    age_to_display = round(best_est.estimated_age)  # JavaScript Math.round ile aynı davranış
-                    logger.info(f"DEBUG - Kişi {person_id_str}: best_est.estimated_age={best_est.estimated_age}, round()={age_to_display}")
-                    bbox_json_str = best_est.face_bbox
-                    if not bbox_json_str:
-                        logger.warning(f"Kişi {person_id_str} için BBox yok, overlay atlanıyor (Kayıt ID: {best_est.id}).")
-                        continue
-                    
-                    try:
-                        x1_bbox, y1_bbox, w_bbox, h_bbox = json.loads(bbox_json_str)
-                    except (TypeError, ValueError) as json_parse_err:
-                        logger.error(f"Kişi {person_id_str} BBox parse edilemedi ({bbox_json_str}): {json_parse_err}")
-                        continue
-                    
-                    # Overlay çizimi (yaş ve kutu)
-                    image_with_overlay = image_source_for_overlay.copy()
-                    # person_id_str'den ID numarasını çıkar ve 1'den başlatmak için +1 ekle
-                    person_number_raw = person_id_str.split('_person_')[-1] if '_person_' in person_id_str else person_id_str
-                    person_number = int(person_number_raw) + 1 if person_number_raw.isdigit() else person_number_raw
-                    label = f"Kişi {person_number}  Yaş: {age_to_display}"
-                    cv2.rectangle(image_with_overlay, (x1_bbox, y1_bbox), (x1_bbox + w_bbox, y1_bbox + h_bbox), (0, 255, 0), 2)
-                    
-                    # Türkçe destekli metin overlay
-                    text_y = y1_bbox - 10 if y1_bbox > 20 else y1_bbox + h_bbox + 25
-                    
-                    # Türkçe karakter destekli text overlay
-                    image_with_overlay = overlay_text_turkish(
-                        image_with_overlay, 
-                        label, 
-                        (x1_bbox + 5, text_y),
-                        color=(0, 255, 0),
-                        font_size=18,
-                        bg_color=(0, 0, 0),
-                        bg_padding=5
+            except Exception as frame_err :# ERSIN ALIGNED ile  NEW MAIN TRY BLOCK
+            # ERSIN frame_path possibly unbound - try-except içinde tanımlanmış olabilir
+                frame_path_str :str =f"frame_{i }"# ERSIN Default value
+                try :
+                # ERSIN frame_path bu scope'ta tanımlı olabilir, kontrol et
+                    frame_path_value =locals ().get ('frame_path')
+                    if frame_path_value is not None :
+                        frame_path_str =str (frame_path_value )
+                except (NameError ,UnboundLocalError ,KeyError ):
+                    pass # ERSIN Use default
+                logger .error (f"Kare #{i } ({frame_path_str }) analiz hatası: {str (frame_err )}")
+                continue 
+
+                # ERSIN Tüm değişiklikleri veritabanına kaydet
+        db .session .commit ()
+
+        logger .info (f"Video analizi DB commit sonrası. Analiz ID: {analysis .id }, Include Age: {analysis .include_age_analysis }, Processed Persons Count: {len (processed_persons_with_data )if processed_persons_with_data else 'None'}")
+
+        # ERSIN Analiz tamamlandı, istatistikleri logla
+        unique_persons_query =db .session .query (AgeEstimation .person_id ).filter (AgeEstimation .analysis_id ==analysis .id ).distinct ().count ()
+        logger .info (f"Video analizi tamamlandı: Analiz #{analysis .id }, Dosya: {file .original_filename }")
+        logger .info (f"  - Toplam {len (frame_paths )} kare analiz edildi ({total_frames_to_process } hedeflenmişti)")
+        logger .info (f"  - {detected_faces_count } yüz tespiti, {unique_persons_query } benzersiz kişi")
+        logger .info (f"  - {high_risk_frames_count } yüksek riskli kare tespit edildi")
+
+        # ERSIN NEW OVERLAY GENERATION LOGIC
+        if analysis .include_age_analysis and processed_persons_with_data :
+            logger .info (f"Analiz #{analysis .id } için final overlayler oluşturuluyor. İşlenecek kişi sayısı: {len (processed_persons_with_data )}")
+            base_overlay_dir =os .path .join (current_app .config ['PROCESSED_FOLDER'],f"frames_{analysis .id }",'overlays')
+            os .makedirs (base_overlay_dir ,exist_ok =True )
+
+            for person_id_str in processed_persons_with_data :
+                logger .info (f"Overlay oluşturma döngüsü: Kişi ID {person_id_str } işleniyor.")
+                try :
+                    best_est =db .session .query (AgeEstimation ).filter_by (
+                    analysis_id =analysis .id ,
+                    person_id =person_id_str 
+                    ).order_by (AgeEstimation .confidence_score .desc (),AgeEstimation .id .desc ()).first ()
+
+                    logger .info (f"Kişi {person_id_str } için best_est sorgulandı. Sonuç: {{'Bulundu' if best_est else 'Bulunamadı'}}")
+
+                    if not best_est :
+                        logger .warning (f"Kişi {person_id_str } için final AgeEstimation kaydı bulunamadı (best_est None), overlay atlanıyor.")
+                        continue 
+
+                        # ERSIN Kaynak kare yolunu best_est.frame_path'ten al (bu geçici tam yol olabilir)
+                    source_frame_for_overlay_path =best_est .frame_path 
+                    logger .info (f"Kişi {person_id_str } için kaynak kare yolu (best_est.frame_path): {source_frame_for_overlay_path }, best_est.estimated_age: {best_est .estimated_age }, best_est.confidence_score: {best_est .confidence_score }")
+
+                    if not source_frame_for_overlay_path or not os .path .exists (source_frame_for_overlay_path ):
+                        logger .error (f"Overlay için kaynak kare {source_frame_for_overlay_path } bulunamadı/geçersiz (Kişi: {person_id_str }). Disk kontrolü: {{'Var' if source_frame_for_overlay_path and os.path.exists(source_frame_for_overlay_path) else 'Yok veya Path Hatalı'}}")
+                        continue 
+
+                    image_source_for_overlay =cv2 .imread (source_frame_for_overlay_path )
+                    if image_source_for_overlay is None :
+                        logger .error (f"Overlay için kare okunamadı (Kişi: {person_id_str }): {source_frame_for_overlay_path }")
+                        continue 
+
+                    age_to_display =round (best_est .estimated_age )# ERSIN JavaScript Math.round ile aynı davranış
+                    logger .info (f"DEBUG - Kişi {person_id_str }: best_est.estimated_age={best_est .estimated_age }, round()={age_to_display }")
+                    bbox_json_str =best_est .face_bbox 
+                    if not bbox_json_str :
+                        logger .warning (f"Kişi {person_id_str } için BBox yok, overlay atlanıyor (Kayıt ID: {best_est .id }).")
+                        continue 
+
+                    try :
+                        x1_bbox ,y1_bbox ,w_bbox ,h_bbox =json .loads (bbox_json_str )
+                    except (TypeError ,ValueError )as json_parse_err :
+                        logger .error (f"Kişi {person_id_str } BBox parse edilemedi ({bbox_json_str }): {json_parse_err }")
+                        continue 
+
+                        # ERSIN Overlay çizimi (yaş ve kutu)
+                    image_with_overlay =image_source_for_overlay .copy ()
+                    # ERSIN person_id_str'den ID numarasını çıkar ve 1'den başlatmak için +1 ekle
+                    person_number_raw =person_id_str .split ('_person_')[-1 ]if '_person_'in person_id_str else person_id_str 
+                    person_number =int (person_number_raw )+1 if person_number_raw .isdigit ()else person_number_raw 
+                    label =f"Kişi {person_number }  Yaş: {age_to_display }"
+                    cv2 .rectangle (image_with_overlay ,(x1_bbox ,y1_bbox ),(x1_bbox +w_bbox ,y1_bbox +h_bbox ),(0 ,255 ,0 ),2 )
+
+                    # ERSIN Türkçe destekli metin overlay
+                    text_y =y1_bbox -10 if y1_bbox >20 else y1_bbox +h_bbox +25 
+
+                    # ERSIN Türkçe karakter destekli text overlay
+                    image_with_overlay =overlay_text_turkish (
+                    image_with_overlay ,
+                    label ,
+                    (x1_bbox +5 ,text_y ),
+                    color =(0 ,255 ,0 ),
+                    font_size =18 ,
+                    bg_color =(0 ,0 ,0 ),
+                    bg_padding =5 
                     )
-                    
-                    # Benzersiz ve anlamlı bir dosya adı oluştur (orijinal kare adını içerebilir)
-                    original_frame_basename = os.path.basename(source_frame_for_overlay_path) # ör: frame_000123.jpg
-                    overlay_filename = f"{person_id_str}_overlay_{original_frame_basename}"
-                    final_overlay_path_on_disk = os.path.join(base_overlay_dir, overlay_filename)
-                    
-                    # Overlay'li resmi diske kaydet
-                    save_success = cv2.imwrite(final_overlay_path_on_disk, image_with_overlay)
-                    if not save_success:
-                        logger.error(f"Overlay dosyası diske kaydedilemedi: {final_overlay_path_on_disk}")
-                        continue
-                    
-                    logger.info(f"Overlay başarıyla diske kaydedildi: {final_overlay_path_on_disk}")
 
-                    # GÖRECELİ YOLU OLUŞTUR VE VERİTABANINA KAYDET
-                    #STORAGE_FOLDER (örn: /.../WSANALIZ/storage) PROCESSED_FOLDER (örn: /.../WSANALIZ/storage/processed)
-                    # base_overlay_dir (örn: /.../WSANALIZ/storage/processed/frames_ANALYSISID/overlays)
-                    # final_overlay_path_on_disk (örn: /.../WSANALIZ/storage/processed/frames_ANALYSISID/overlays/FILENAME.jpg)
-                    # Hedef: processed/frames_ANALYSISID/overlays/FILENAME.jpg
-                    try:
-                        relative_overlay_path_for_db = to_rel_path(final_overlay_path_on_disk)
-                        relative_overlay_path_for_db = normalize_rel_storage_path(relative_overlay_path_for_db)
-                    except ValueError as ve:
-                        logger.error(f"Göreli yol oluşturulurken hata (final_overlay_path_on_disk='{final_overlay_path_on_disk}', STORAGE_FOLDER='{current_app.config['STORAGE_FOLDER']}'): {ve}")
-                        # Fallback to a simpler relative path construction if relpath fails due to different drives on Windows etc.
-                        # This assumes PROCESSED_FOLDER is a subfolder of STORAGE_FOLDER or correctly configured.
-                        path_parts = final_overlay_path_on_disk.split(os.sep)
-                        try:
-                            storage_index = path_parts.index('storage')
-                            relative_overlay_path_for_db = os.path.join(*path_parts[storage_index+1:]).replace('\\', '/')
-                            logger.info(f"Fallback göreceli yol oluşturuldu: {relative_overlay_path_for_db}")
-                        except ValueError:
-                            logger.error(f"'storage' fallback göreceli yol için path içinde bulunamadı: {final_overlay_path_on_disk}")
-                            relative_overlay_path_for_db = os.path.join('processed', f"frames_{analysis.id}", 'overlays', overlay_filename).replace('\\', '/') # Son çare
-                            logger.warning(f"Son çare göreceli yol kullanıldı: {relative_overlay_path_for_db}")
+                    # ERSIN Benzersiz ve anlamlı bir dosya adı oluştur (orijinal kare adını içerebilir)
+                    original_frame_basename =os .path .basename (source_frame_for_overlay_path )# ERSIN ör: frame_000123.jpg
+                    overlay_filename =f"{person_id_str }_overlay_{original_frame_basename }"
+                    final_overlay_path_on_disk =os .path .join (base_overlay_dir ,overlay_filename )
 
-                    if best_est:
-                        best_est.processed_image_path = relative_overlay_path_for_db
-                        logger.info(f"Kişi {person_id_str} için AgeEstimation.processed_image_path güncellendi: {relative_overlay_path_for_db}")
-                    
-                except Exception as e:
-                    logger.error(f"Kişi {person_id_str} için overlay oluşturma/kaydetme hatası: {str(e)} - Traceback: {traceback.format_exc()}")
-                    continue
-            
-            try:
-                db.session.commit()
-                logger.info(f"Analiz #{analysis.id} için tüm AgeEstimation.processed_image_path güncellemeleri commit edildi.")
-            except Exception as commit_err:
-                logger.error(f"AgeEstimation.processed_image_path güncellemeleri commit edilirken hata: {str(commit_err)}")
-                db.session.rollback()
-        # END NEW OVERLAY GENERATION LOGIC
-        
-        # Genel skorları hesapla (içerik analizi için)
-        try:
-            # Tüm içerik tespitlerini veritabanından al
-            detections = ContentDetection.query.filter_by(analysis_id=analysis.id).all()
-            
-            if not detections:
-                logger.warning(f"ContentDetection kaydı bulunamadı: Analiz #{analysis.id}")
-                db.session.commit()
-                return
-            
-            logger.info(f"Calculate_overall_scores: Analiz #{analysis.id} için {len(detections)} ContentDetection kaydı bulundu")
-            
-            categories = ['violence', 'adult_content', 'harassment', 'weapon', 'drug', 'safe']
-            category_scores_sum = {cat: 0 for cat in categories}
-            category_counts = {cat: 0 for cat in categories} # Her kategoride skoru olan kare sayısı
-            category_scores_list = {cat: [] for cat in categories}
-            
-            category_specific_highest_risks = {
-                cat: {'score': -1, 'frame_path': None, 'timestamp': None, 'detection_id': None} for cat in categories
+                    # ERSIN Overlay'li resmi diske kaydet - None kontrolü
+                    if image_with_overlay is not None :
+                        save_success =cv2 .imwrite (final_overlay_path_on_disk ,image_with_overlay )
+                    else :
+                        logger .warning (f"Overlay oluşturulamadı: {final_overlay_path_on_disk }")
+                        save_success =False 
+                    if not save_success :
+                        logger .error (f"Overlay dosyası diske kaydedilemedi: {final_overlay_path_on_disk }")
+                        continue 
+
+                    logger .info (f"Overlay başarıyla diske kaydedildi: {final_overlay_path_on_disk }")
+
+                    # ERSIN GÖRECELİ YOLU OLUŞTUR VE VERİTABANINA KAYDET
+                    # ERSIN STORAGE_FOLDER (örn: /
+                    # ERSIN base_overlay_dir (örn: /.../WSANALIZ/storage/processed/frames_ANALYSISID/overlays)
+                    # ERSIN final_overlay_path_on_disk (örn: /
+                    # ERSIN Hedef: processed/frames_ANALYSISID/overlays/FILENAME.jpg
+                    try :
+                        relative_overlay_path_for_db =to_rel_path (final_overlay_path_on_disk )
+                        relative_overlay_path_for_db =normalize_rel_storage_path (relative_overlay_path_for_db )
+                    except ValueError as ve :
+                        logger .error (f"Göreli yol oluşturulurken hata (final_overlay_path_on_disk='{final_overlay_path_on_disk }', STORAGE_FOLDER='{current_app .config ['STORAGE_FOLDER']}'): {ve }")
+                        # ERSIN Fallback to a simpler relative path construction if relpath fails due to d...
+                        # ERSIN bu assumes PROCESSED_FOLDER yapılandırılmıştır.
+                        path_parts =final_overlay_path_on_disk .split (os .sep )
+                        try :
+                            storage_index =path_parts .index ('storage')
+                            relative_overlay_path_for_db =os .path .join (*path_parts [storage_index +1 :]).replace ('\\','/')
+                            logger .info (f"Fallback göreceli yol oluşturuldu: {relative_overlay_path_for_db }")
+                        except ValueError :
+                            logger .error (f"'storage' fallback göreceli yol için path içinde bulunamadı: {final_overlay_path_on_disk }")
+                            relative_overlay_path_for_db =os .path .join ('processed',f"frames_{analysis .id }",'overlays',overlay_filename ).replace ('\\','/')# ERSIN Aciklama.
+                            logger .warning (f"Son çare göreceli yol kullanıldı: {relative_overlay_path_for_db }")
+
+                    if best_est :
+                        best_est .processed_image_path =relative_overlay_path_for_db 
+                        logger .info (f"Kişi {person_id_str } için AgeEstimation.processed_image_path güncellendi: {relative_overlay_path_for_db }")
+
+                except Exception as e :
+                    logger .error (f"Kişi {person_id_str } için overlay oluşturma/kaydetme hatası: {str (e )} - Traceback: {traceback .format_exc ()}")
+                    continue 
+
+            try :
+                db .session .commit ()
+                logger .info (f"Analiz #{analysis .id } için tüm AgeEstimation.processed_image_path güncellemeleri commit edildi.")
+            except Exception as commit_err :
+                logger .error (f"AgeEstimation.processed_image_path güncellemeleri commit edilirken hata: {str (commit_err )}")
+                db .session .rollback ()
+                # ERSIN END NEW OVERLAY GENERATION LOGIC
+
+                # ERSIN Genel skorları hesapla (içerik analizi için)
+        try :
+        # ERSIN Tüm içerik tespitlerini veritabanından al
+            detections =ContentDetection .query .filter_by (analysis_id =analysis .id ).all ()
+
+            if not detections :
+                logger .warning (f"ContentDetection kaydı bulunamadı: Analiz #{analysis .id }")
+                db .session .commit ()
+                # ERSIN analyze_video returns tuple, but calculate_overall_scores is called inline
+                # ERSIN Continue execution after calculate_overall_scores completes
+                pass 
+
+            logger .info (f"Calculate_overall_scores: Analiz #{analysis .id } için {len (detections )} ContentDetection kaydı bulundu")
+
+            categories =['violence','adult_content','harassment','weapon','drug','safe']
+            category_scores_sum ={cat :0 for cat in categories }
+            category_counts ={cat :0 for cat in categories }# ERSIN Her kategoride skoru olan kare sayısı
+            category_scores_list ={cat :[]for cat in categories }
+
+            category_specific_highest_risks ={
+            cat :{'score':-1 ,'frame_path':None ,'timestamp':None ,'detection_id':None }for cat in categories 
             }
 
-            for detection in detections:
-                detection_scores = {
-                    'violence': detection.violence_score,
-                    'adult_content': detection.adult_content_score,
-                    'harassment': detection.harassment_score,
-                    'weapon': detection.weapon_score,
-                    'drug': detection.drug_score,
-                    'safe': detection.safe_score
+            for detection in detections :
+                detection_scores ={
+                'violence':detection .violence_score ,
+                'adult_content':detection .adult_content_score ,
+                'harassment':detection .harassment_score ,
+                'weapon':detection .weapon_score ,
+                'drug':detection .drug_score ,
+                'safe':detection .safe_score 
                 }
-                
-                for category in categories:
-                    score = detection_scores.get(category)
-                    if score is not None:
-                        category_scores_sum[category] += score
-                        category_counts[category] += 1
-                        category_scores_list[category].append(score)
-                        
-                        if score > category_specific_highest_risks[category]['score']:
-                            category_specific_highest_risks[category]['score'] = score
-                            category_specific_highest_risks[category]['frame_path'] = detection.frame_path
-                            category_specific_highest_risks[category]['timestamp'] = detection.frame_timestamp
-                            category_specific_highest_risks[category]['detection_id'] = detection.id
 
-            # Genel skorları hesapla (violence/harassment için peak ağırlıklı)
-            avg_scores = {}
-            avg_scores['violence'] = _robust_overall_score(category_scores_list['violence'])
-            avg_scores['harassment'] = _robust_overall_score(category_scores_list['harassment'])
-            # Adult içerik videolarda "seyrek ama ağır" olabilir; ortalama yerine peak ağırlıklı (p90+avg blend)
-            # kullanmak overall'ı daha doğru yükseltir.
-            avg_scores['adult_content'] = _robust_overall_score(category_scores_list['adult_content'], peak_weight=0.85)
-            avg_scores['weapon'] = category_scores_sum['weapon'] / category_counts['weapon'] if category_counts['weapon'] > 0 else 0
-            avg_scores['drug'] = category_scores_sum['drug'] / category_counts['drug'] if category_counts['drug'] > 0 else 0
-            # avg_scores['safe'] = category_scores_sum['safe'] / category_counts['safe'] if category_counts['safe'] > 0 else 0 # Eski safe hesaplaması
-            
-            logger.info(f"Analiz #{analysis.id} - Ham Ortalama Skorlar (safe hariç): {json.dumps({k: f'{v:.4f}' for k, v in avg_scores.items() if k != 'safe'})}")
+                for category in categories :
+                    score =detection_scores .get (category )
+                    if score is not None :
+                        category_scores_sum [category ]+=score 
+                        category_counts [category ]+=1 
+                        category_scores_list [category ].append (score )
 
-            # --- UX PRINCIPLE: Safe skoru = maksimum risk skorundan türetilmeli ---
-            # Eğer herhangi bir risk kategorisi yüksekse, safe skoru düşük olmalı
-            risk_categories_for_safe_calc = ['violence', 'adult_content', 'harassment', 'weapon', 'drug']
-            
-            # Güç dönüşümü ile risk kategorilerini ayrıştır (görselleştirme için)
-            power_value = 1.5
-            enhanced_scores = {}
-            for category in risk_categories_for_safe_calc:
-                avg_score_cat = avg_scores.get(category, 0)
-                enhanced_scores[category] = avg_score_cat ** power_value
-            
-            # Safe skorunu maksimum risk skorundan hesapla (UX: yüksek risk = düşük safe)
-            max_risk_score = max(avg_scores.get(rc, 0) for rc in risk_categories_for_safe_calc) if risk_categories_for_safe_calc else 0
-            enhanced_scores['safe'] = max(0.0, 1.0 - max_risk_score)
-            
-            # Eğer maksimum risk çok yüksekse (>0.8), safe skorunu daha da düşür
-            if max_risk_score > 0.8:
-                enhanced_scores['safe'] = max(0.0, 1.0 - (max_risk_score ** 1.2))
-            
-            logger.info(f"Analiz #{analysis.id} - Güç Dönüşümü Sonrası Skorlar (p={power_value}): {json.dumps({k: f'{v:.4f}' for k, v in enhanced_scores.items()})}")
-            logger.info(f"[SAFE_OVERALL_CALC] Max risk: {max_risk_score:.4f}, Calculated overall safe score: {enhanced_scores['safe']:.4f}")
+                        if score >category_specific_highest_risks [category ]['score']:
+                            category_specific_highest_risks [category ]['score']=score 
+                            category_specific_highest_risks [category ]['frame_path']=detection .frame_path 
+                            category_specific_highest_risks [category ]['timestamp']=detection .frame_timestamp 
+                            category_specific_highest_risks [category ]['detection_id']=detection .id 
 
-            # Genel skorları güncelle (geliştirilmiş skorlarla)
-            analysis.overall_violence_score = enhanced_scores['violence']
-            analysis.overall_adult_content_score = enhanced_scores['adult_content']
-            analysis.overall_harassment_score = enhanced_scores['harassment']
-            analysis.overall_weapon_score = enhanced_scores['weapon']
-            analysis.overall_drug_score = enhanced_scores['drug']
-            analysis.overall_safe_score = enhanced_scores['safe']
-            
-            logger.info(f"Analiz #{analysis.id} - Geliştirilmiş Ortalama Skorlar: Violence={analysis.overall_violence_score:.4f}, Adult={analysis.overall_adult_content_score:.4f}, Harassment={analysis.overall_harassment_score:.4f}, Weapon={analysis.overall_weapon_score:.4f}, Drug={analysis.overall_drug_score:.4f}, Safe={analysis.overall_safe_score:.4f}")
+                            # ERSIN Genel skorları hesapla (violence/harassment için peak ağırlıklı)
+            avg_scores ={}
+            avg_scores ['violence']=_robust_overall_score (category_scores_list ['violence'])
+            avg_scores ['harassment']=_robust_overall_score (category_scores_list ['harassment'])
+            # ERSIN Adult içerik videolarda "seyrek ama ağır" olabilir; ortalama yerine peak a...
+            # ERSIN kullanmak overall'ı daha doğru yükseltir.
+            avg_scores ['adult_content']=_robust_overall_score (category_scores_list ['adult_content'],peak_weight =0.85 )
+            avg_scores ['weapon']=category_scores_sum ['weapon']/category_counts ['weapon']if category_counts ['weapon']>0 else 0 
+            avg_scores ['drug']=category_scores_sum ['drug']/category_counts ['drug']if category_counts ['drug']>0 else 0 
+            # ERSIN avg_scores['safe'] = category_scores_sum['safe'] / category_counts['safe']...
 
-            # Kategori bazlı en yüksek risk bilgilerini JSON olarak kaydetmek için (Analysis modelinde alan olmalı)
-            # Şimdilik loglayalım ve dinamik attribute olarak ekleyelim. DB'ye yazmak için model değişikliği gerekebilir.
-            analysis.category_specific_highest_risks_data = json.dumps(category_specific_highest_risks, cls=NumPyJSONEncoder) # NumPyJSONEncoder eklendi
-            logger.info(f"Analiz #{analysis.id} - Kategori Bazlı En Yüksek Riskler: {analysis.category_specific_highest_risks_data}")
+            logger .info (f"Analiz #{analysis .id } - Ham Ortalama Skorlar (safe hariç): {json .dumps ({k :f'{v :.4f}'for k ,v in avg_scores .items ()if k !='safe'})}")
 
-            # Mevcut en yüksek risk alanlarını (safe hariç genel en yüksek) yine de dolduralım, ama bu yeni mantığa göre olacak.
-            # ÖNCE genel skorlara göre en yüksek riskli kategoriyi bul, SONRA o kategorinin en yüksek riskli karesini seç.
-            # Bu, genel skorların (örn: Yetişkin İçeriği %70) öncelikli olmasını sağlar.
-            overall_highest_risk_score = -1
-            overall_highest_risk_category = None
-            overall_highest_risk_frame_path = None
-            overall_highest_risk_timestamp = None
+            # ERSIN --- UX PRINCIPLE: Safe skoru = maksimum risk skorundan türetilmeli ---
+            # ERSIN Eğer herhangi bir risk kategorisi yüksekse, safe skoru düşük olmalı
+            risk_categories_for_safe_calc =['violence','adult_content','harassment','weapon','drug']
 
-            # Önce genel skorlara göre en yüksek riskli kategoriyi bul (enhanced_scores kullan)
-            max_overall_score = -1
-            max_overall_category = None
-            for cat in risk_categories_for_safe_calc:
-                if cat == 'safe':
-                    continue
-                overall_cat_score = enhanced_scores.get(cat, 0)
-                if overall_cat_score > max_overall_score:
-                    max_overall_score = overall_cat_score
-                    max_overall_category = cat
-            
-            # Eğer genel skorlara göre bir kategori bulunduysa, o kategorinin en yüksek riskli karesini seç
-            if max_overall_category and max_overall_category in category_specific_highest_risks:
-                risk_timestamp = category_specific_highest_risks[max_overall_category]['timestamp']
-                # İlk 2 saniyedeki kareleri filtrele (genellikle boş/bulanık olur)
-                if risk_timestamp is None or risk_timestamp > 2.0:
-                    overall_highest_risk_score = category_specific_highest_risks[max_overall_category]['score']
-                    overall_highest_risk_category = max_overall_category
-                    overall_highest_risk_frame_path = category_specific_highest_risks[max_overall_category]['frame_path']
-                    overall_highest_risk_timestamp = category_specific_highest_risks[max_overall_category]['timestamp']
-                    logger.info(f"Genel skorlara göre en yüksek riskli kategori: {max_overall_category} (genel skor: {max_overall_score:.4f}, frame skoru: {overall_highest_risk_score:.4f})")
-                else:
-                    logger.info(f"İlk kare filtreleme: {max_overall_category} kategorisi ilk 2 saniye içinde ({risk_timestamp:.2f}s), fallback'e geçiliyor")
-                    # Fallback: Genel skorlara göre ikinci en yüksek kategoriyi dene veya frame skorlarına göre seç
-                    max_overall_score = -1
-                    max_overall_category = None
-            
-            # Fallback: Eğer genel skorlara göre seçim yapılamadıysa, frame skorlarına göre seç
-            if overall_highest_risk_category is None:
-                for cat in categories:
-                    if cat == 'safe': # 'safe' kategorisini genel en yüksek risk için dahil etme
-                        continue
-                    
-                    # İlk 2 saniyedeki kareleri filtrele (genellikle boş/bulanık olur)
-                    risk_timestamp = category_specific_highest_risks[cat]['timestamp']
-                    if risk_timestamp is not None and risk_timestamp <= 2.0:
-                        logger.info(f"İlk kare filtreleme: {cat} kategorisi ilk 2 saniye içinde ({risk_timestamp:.2f}s), atlaniyor")
-                        continue
-                        
-                    if category_specific_highest_risks[cat]['score'] > overall_highest_risk_score:
-                        overall_highest_risk_score = category_specific_highest_risks[cat]['score']
-                        overall_highest_risk_category = cat
-                        overall_highest_risk_frame_path = category_specific_highest_risks[cat]['frame_path']
-                        overall_highest_risk_timestamp = category_specific_highest_risks[cat]['timestamp']
-            
-            if overall_highest_risk_category:
-                analysis.highest_risk_frame = overall_highest_risk_frame_path
-                analysis.highest_risk_frame_timestamp = overall_highest_risk_timestamp
-                analysis.highest_risk_score = overall_highest_risk_score
-                analysis.highest_risk_category = overall_highest_risk_category
-                logger.info(f"Analiz #{analysis.id} - Genel En Yüksek Risk ('safe' hariç): {overall_highest_risk_category} skoru {overall_highest_risk_score:.4f}, kare: {overall_highest_risk_frame_path}")
-            else:
-                # Eğer safe dışında hiçbir kategoride risk bulunamazsa (çok nadir olmalı)
-                analysis.highest_risk_score = category_specific_highest_risks['safe']['score']
-                analysis.highest_risk_category = 'safe'
-                analysis.highest_risk_frame = category_specific_highest_risks['safe']['frame_path']
-                analysis.highest_risk_frame_timestamp = category_specific_highest_risks['safe']['timestamp']
-                logger.info(f"Analiz #{analysis.id} - 'safe' dışında risk bulunamadı. En yüksek 'safe' skoru: {analysis.highest_risk_score:.4f}")
+            # ERSIN Güç dönüşümü ile risk kategorilerini ayrıştır (görselleştirme için)
+            power_value =1.5 
+            enhanced_scores ={}
+            for category in risk_categories_for_safe_calc :
+                avg_score_cat =avg_scores .get (category ,0 )
+                enhanced_scores [category ]=avg_score_cat **power_value 
 
-            db.session.commit()
-            
-        except Exception as e:
-            current_app.logger.error(f"Genel skor hesaplama hatası: {str(e)}")
-            logger.error(f"Hata detayı: {traceback.format_exc()}")
-            db.session.rollback()
+                # ERSIN Safe skorunu maksimum risk skorundan hesapla (UX: yüksek risk = düşük safe)
+            max_risk_score =max (avg_scores .get (rc ,0 )for rc in risk_categories_for_safe_calc )if risk_categories_for_safe_calc else 0 
+            enhanced_scores ['safe']=max (0.0 ,1.0 -max_risk_score )
 
-        logger.info(f"Video analizi başarıyla tamamlandı: Analiz #{analysis.id}")
-        return True, "Video analizi başarıyla tamamlandı"
+            # ERSIN Eğer maksimum risk çok yüksekse (>0.8), safe skorunu daha da düşür
+            if max_risk_score >0.8 :
+                enhanced_scores ['safe']=max (0.0 ,1.0 -(max_risk_score **1.2 ))
 
-    except Exception as e: # analyze_video için ana try bloğunun (satır 809'daki) except kısmı
-        error_message = f"Video analizi sırasında genel hata: Analiz #{analysis.id}, Hata: {str(e)}"
-        logger.error(error_message, exc_info=True)
-        logger.error(traceback.format_exc())
-        db.session.rollback() 
-        return False, f"Video analizi hatası: {str(e)}"
+            logger .info (f"Analiz #{analysis .id } - Güç Dönüşümü Sonrası Skorlar (p={power_value }): {json .dumps ({k :f'{v :.4f}'for k ,v in enhanced_scores .items ()})}")
+            logger .info (f"[SAFE_OVERALL_CALC] Max risk: {max_risk_score :.4f}, Calculated overall safe score: {enhanced_scores ['safe']:.4f}")
+
+            # ERSIN Genel skorları güncelle (geliştirilmiş skorlarla)
+            analysis .overall_violence_score =enhanced_scores ['violence']
+            analysis .overall_adult_content_score =enhanced_scores ['adult_content']
+            analysis .overall_harassment_score =enhanced_scores ['harassment']
+            analysis .overall_weapon_score =enhanced_scores ['weapon']
+            analysis .overall_drug_score =enhanced_scores ['drug']
+            analysis .overall_safe_score =enhanced_scores ['safe']
+
+            logger .info (f"Analiz #{analysis .id } - Geliştirilmiş Ortalama Skorlar: Violence={analysis .overall_violence_score :.4f}, Adult={analysis .overall_adult_content_score :.4f}, Harassment={analysis .overall_harassment_score :.4f}, Weapon={analysis .overall_weapon_score :.4f}, Drug={analysis .overall_drug_score :.4f}, Safe={analysis .overall_safe_score :.4f}")
+
+            # ERSIN ERSIN Kategori bazlı en yüksek risk bilgilerini JSON olarak kaydetmek için (Anal...
+            # ERSIN Şimdilik loglayalım ve dinamik attribute olarak ekleyelim
+            analysis .category_specific_highest_risks_data =json .dumps (category_specific_highest_risks ,cls =NumPyJSONEncoder )# ERSIN NumPyJSONEncoder eklendi
+            logger .info (f"Analiz #{analysis .id } - Kategori Bazlı En Yüksek Riskler: {analysis .category_specific_highest_risks_data }")
+
+            # ERSIN Mevcut en yüksek risk alanlarını (safe hariç genel en yüksek) yine de dold...
+            # ERSIN ÖNCE genel skorlara göre en yüksek riskli kategoriyi bul, SONRA o kategori...
+            # ERSIN Bu, genel skorların (örn: Yetişkin İçeriği %70) öncelikli olmasını sağlar.
+            overall_highest_risk_score =-1 
+            overall_highest_risk_category =None 
+            overall_highest_risk_frame_path =None 
+            overall_highest_risk_timestamp =None 
+
+            # ERSIN Önce genel skorlara göre en yüksek riskli kategoriyi bul (enhanced_scores kullan)
+            max_overall_score =-1 
+            max_overall_category =None 
+            for cat in risk_categories_for_safe_calc :
+                if cat =='safe':
+                    continue 
+                overall_cat_score =enhanced_scores .get (cat ,0 )
+                if overall_cat_score >max_overall_score :
+                    max_overall_score =overall_cat_score 
+                    max_overall_category =cat 
+
+                    # ERSIN Eğer genel skorlara göre bir kategori bulunduysa, o kategorinin en yüksek riskli karesini seç
+            if max_overall_category and max_overall_category in category_specific_highest_risks :
+                risk_timestamp =category_specific_highest_risks [max_overall_category ]['timestamp']
+                # ERSIN İlk 2 saniyedeki kareleri filtrele (genellikle boş/bulanık olur)
+                if risk_timestamp is None or risk_timestamp >2.0 :
+                    overall_highest_risk_score =category_specific_highest_risks [max_overall_category ]['score']
+                    overall_highest_risk_category =max_overall_category 
+                    overall_highest_risk_frame_path =category_specific_highest_risks [max_overall_category ]['frame_path']
+                    overall_highest_risk_timestamp =category_specific_highest_risks [max_overall_category ]['timestamp']
+                    logger .info (f"Genel skorlara göre en yüksek riskli kategori: {max_overall_category } (genel skor: {max_overall_score :.4f}, frame skoru: {overall_highest_risk_score :.4f})")
+                else :
+                    logger .info (f"İlk kare filtreleme: {max_overall_category } kategorisi ilk 2 saniye içinde ({risk_timestamp :.2f}s), fallback'e geçiliyor")
+                    # ERSIN Fallback: Genel skorlara göre ikinci en yüksek kategoriyi dene veya frame skorlarına göre seç
+                    max_overall_score =-1 
+                    max_overall_category =None 
+
+                    # ERSIN Fallback: Eğer genel skorlara göre seçim yapılamadıysa, frame skorlarına göre seç
+            if overall_highest_risk_category is None :
+                for cat in categories :
+                    if cat =='safe':# ERSIN 'safe' kategorisini genel en yüksek risk için dahil etme
+                        continue 
+
+                        # ERSIN İlk 2 saniyedeki kareleri filtrele (genellikle boş/bulanık olur)
+                    risk_timestamp =category_specific_highest_risks [cat ]['timestamp']
+                    if risk_timestamp is not None and risk_timestamp <=2.0 :
+                        logger .info (f"İlk kare filtreleme: {cat } kategorisi ilk 2 saniye içinde ({risk_timestamp :.2f}s), atlaniyor")
+                        continue 
+
+                    # ERSIN Type checker için score'ları güvenli şekilde karşılaştır
+                    cat_score =category_specific_highest_risks [cat ].get ('score',-1 )
+                    if isinstance (cat_score ,(int ,float ))and isinstance (overall_highest_risk_score ,(int ,float )):
+                        if cat_score >overall_highest_risk_score :
+                            overall_highest_risk_score =cat_score 
+                            overall_highest_risk_category =cat 
+                            overall_highest_risk_frame_path =category_specific_highest_risks [cat ].get ('frame_path')
+                            overall_highest_risk_timestamp =category_specific_highest_risks [cat ].get ('timestamp')
+
+            if overall_highest_risk_category :
+                analysis .highest_risk_frame =overall_highest_risk_frame_path 
+                analysis .highest_risk_frame_timestamp =overall_highest_risk_timestamp 
+                analysis .highest_risk_score =overall_highest_risk_score 
+                analysis .highest_risk_category =overall_highest_risk_category 
+                logger .info (f"Analiz #{analysis .id } - Genel En Yüksek Risk ('safe' hariç): {overall_highest_risk_category } skoru {overall_highest_risk_score :.4f}, kare: {overall_highest_risk_frame_path }")
+            else :
+            # ERSIN Eğer safe dışında hiçbir kategoride risk bulunamazsa (çok nadir olmalı)
+                analysis .highest_risk_score =category_specific_highest_risks ['safe']['score']
+                analysis .highest_risk_category ='safe'
+                analysis .highest_risk_frame =category_specific_highest_risks ['safe']['frame_path']
+                analysis .highest_risk_frame_timestamp =category_specific_highest_risks ['safe']['timestamp']
+                logger .info (f"Analiz #{analysis .id } - 'safe' dışında risk bulunamadı. En yüksek 'safe' skoru: {analysis .highest_risk_score :.4f}")
+
+            db .session .commit ()
+
+        except Exception as e :
+            current_app .logger .error (f"Genel skor hesaplama hatası: {str (e )}")
+            logger .error (f"Hata detayı: {traceback .format_exc ()}")
+            db .session .rollback ()
+
+        logger .info (f"Video analizi başarıyla tamamlandı: Analiz #{analysis .id }")
+        return True ,"Video analizi başarıyla tamamlandı"
+
+    except Exception as e :# ERSIN analyze_video için ana try bloğunun (satır 809'daki) except kısmı
+        error_message =f"Video analizi sırasında genel hata: Analiz #{analysis .id }, Hata: {str (e )}"
+        logger .error (error_message ,exc_info =True )
+        logger .error (traceback .format_exc ())
+        db .session .rollback ()
+        return False ,f"Video analizi hatası: {str (e )}"
 
 
-def calculate_overall_scores(analysis):
+def calculate_overall_scores (analysis :'Analysis')->None :
     """
     Bir analiz için genel skorları hesaplar.
     Her kategori için tüm karelerdeki skorların basit aritmetik ortalamasını alır
@@ -1580,171 +1687,176 @@ def calculate_overall_scores(analysis):
     Args:
         analysis: Skorları hesaplanacak analiz nesnesi
     """
-    try:
-        # Tüm içerik tespitlerini veritabanından al
-        detections = ContentDetection.query.filter_by(analysis_id=analysis.id).all()
-        
-        if not detections:
-            logger.warning(f"ContentDetection kaydı bulunamadı: Analiz #{analysis.id}")
-            db.session.commit()
-            return
-        
-        logger.info(f"Calculate_overall_scores: Analiz #{analysis.id} için {len(detections)} ContentDetection kaydı bulundu")
-        
-        categories = ['violence', 'adult_content', 'harassment', 'weapon', 'drug', 'safe']
-        category_scores_sum = {cat: 0 for cat in categories}
-        category_counts = {cat: 0 for cat in categories} # Her kategoride skoru olan kare sayısı
-        category_scores_list = {cat: [] for cat in categories}
-        
-        category_specific_highest_risks = {
-            cat: {'score': -1, 'frame_path': None, 'timestamp': None, 'detection_id': None} for cat in categories
+    try :
+    # ERSIN Tüm içerik tespitlerini veritabanından al
+        detections =ContentDetection .query .filter_by (analysis_id =analysis .id ).all ()
+
+        if not detections :
+            logger .warning (f"ContentDetection kaydı bulunamadı: Analiz #{analysis .id }")
+            db .session .commit ()
+            return 
+
+        logger .info (f"Calculate_overall_scores: Analiz #{analysis .id } için {len (detections )} ContentDetection kaydı bulundu")
+
+        categories =['violence','adult_content','harassment','weapon','drug','safe']
+        category_scores_sum ={cat :0 for cat in categories }
+        category_counts ={cat :0 for cat in categories }# ERSIN Her kategoride skoru olan kare sayısı
+        category_scores_list ={cat :[]for cat in categories }
+
+        category_specific_highest_risks ={
+        cat :{'score':-1 ,'frame_path':None ,'timestamp':None ,'detection_id':None }for cat in categories 
         }
 
-        for detection in detections:
-            detection_scores = {
-                'violence': detection.violence_score,
-                'adult_content': detection.adult_content_score,
-                'harassment': detection.harassment_score,
-                'weapon': detection.weapon_score,
-                'drug': detection.drug_score,
-                'safe': detection.safe_score
+        for detection in detections :
+            detection_scores ={
+            'violence':detection .violence_score ,
+            'adult_content':detection .adult_content_score ,
+            'harassment':detection .harassment_score ,
+            'weapon':detection .weapon_score ,
+            'drug':detection .drug_score ,
+            'safe':detection .safe_score 
             }
-            
-            for category in categories:
-                score = detection_scores.get(category)
-                if score is not None:
-                    category_scores_sum[category] += score
-                    category_counts[category] += 1
-                    category_scores_list[category].append(score)
-                    
-                    if score > category_specific_highest_risks[category]['score']:
-                        category_specific_highest_risks[category]['score'] = score
-                        category_specific_highest_risks[category]['frame_path'] = detection.frame_path
-                        category_specific_highest_risks[category]['timestamp'] = detection.frame_timestamp
-                        category_specific_highest_risks[category]['detection_id'] = detection.id
 
-        # Genel skorları hesapla (violence/harassment için peak ağırlıklı)
-        avg_scores = {}
-        avg_scores['violence'] = _robust_overall_score(category_scores_list['violence'])
-        avg_scores['harassment'] = _robust_overall_score(category_scores_list['harassment'])
-        avg_scores['adult_content'] = category_scores_sum['adult_content'] / category_counts['adult_content'] if category_counts['adult_content'] > 0 else 0
-        avg_scores['weapon'] = category_scores_sum['weapon'] / category_counts['weapon'] if category_counts['weapon'] > 0 else 0
-        avg_scores['drug'] = category_scores_sum['drug'] / category_counts['drug'] if category_counts['drug'] > 0 else 0
-        # avg_scores['safe'] = category_scores_sum['safe'] / category_counts['safe'] if category_counts['safe'] > 0 else 0 # Eski safe hesaplaması
-            
-        logger.info(f"Analiz #{analysis.id} - Ham Ortalama Skorlar (safe hariç): {json.dumps({k: f'{v:.4f}' for k, v in avg_scores.items() if k != 'safe'})}")
+            for category in categories :
+                score =detection_scores .get (category )
+                if score is not None :
+                    category_scores_sum [category ]+=score 
+                    category_counts [category ]+=1 
+                    category_scores_list [category ].append (score )
 
-        # --- UX PRINCIPLE: Safe skoru = maksimum risk skorundan türetilmeli ---
-        # Eğer herhangi bir risk kategorisi yüksekse, safe skoru düşük olmalı
-        risk_categories_for_safe_calc = ['violence', 'adult_content', 'harassment', 'weapon', 'drug']
-        
-        # Güç dönüşümü ile risk kategorilerini ayrıştır (görselleştirme için)
-        power_value = 1.5
-        enhanced_scores = {}
-        for category in risk_categories_for_safe_calc:
-            avg_score_cat = avg_scores.get(category, 0)
-            enhanced_scores[category] = avg_score_cat ** power_value
-        
-        # Safe skorunu maksimum risk skorundan hesapla (UX: yüksek risk = düşük safe)
-        max_risk_score = max(avg_scores.get(rc, 0) for rc in risk_categories_for_safe_calc) if risk_categories_for_safe_calc else 0
-        enhanced_scores['safe'] = max(0.0, 1.0 - max_risk_score)
-        
-        # Eğer maksimum risk çok yüksekse (>0.8), safe skorunu daha da düşür
-        if max_risk_score > 0.8:
-            enhanced_scores['safe'] = max(0.0, 1.0 - (max_risk_score ** 1.2))
-            
-        logger.info(f"Analiz #{analysis.id} - Güç Dönüşümü Sonrası Skorlar (p={power_value}): {json.dumps({k: f'{v:.4f}' for k, v in enhanced_scores.items()})}")
-        logger.info(f"[SAFE_OVERALL_CALC] Max risk: {max_risk_score:.4f}, Calculated overall safe score: {enhanced_scores['safe']:.4f}")
+                    if score >category_specific_highest_risks [category ]['score']:
+                        category_specific_highest_risks [category ]['score']=score 
+                        category_specific_highest_risks [category ]['frame_path']=detection .frame_path 
+                        category_specific_highest_risks [category ]['timestamp']=detection .frame_timestamp 
+                        category_specific_highest_risks [category ]['detection_id']=detection .id 
 
-        # Genel skorları güncelle (geliştirilmiş skorlarla)
-        analysis.overall_violence_score = enhanced_scores['violence']
-        analysis.overall_adult_content_score = enhanced_scores['adult_content']
-        analysis.overall_harassment_score = enhanced_scores['harassment']
-        analysis.overall_weapon_score = enhanced_scores['weapon']
-        analysis.overall_drug_score = enhanced_scores['drug']
-        analysis.overall_safe_score = enhanced_scores['safe']
-            
-        logger.info(f"Analiz #{analysis.id} - Geliştirilmiş Ortalama Skorlar: Violence={analysis.overall_violence_score:.4f}, Adult={analysis.overall_adult_content_score:.4f}, Harassment={analysis.overall_harassment_score:.4f}, Weapon={analysis.overall_weapon_score:.4f}, Drug={analysis.overall_drug_score:.4f}, Safe={analysis.overall_safe_score:.4f}")
+                        # ERSIN Genel skorları hesapla (violence/harassment için peak ağırlıklı)
+        avg_scores ={}
+        avg_scores ['violence']=_robust_overall_score (category_scores_list ['violence'])
+        avg_scores ['harassment']=_robust_overall_score (category_scores_list ['harassment'])
+        # ERSIN Adult içerik videolarda "seyrek ama ağır" olabilir; ortalama yerine peak a...
+        # ERSIN kullanmak overall'ı daha doğru yükseltir. analyze_video ile tutarlı olmalı.
+        avg_scores ['adult_content']=_robust_overall_score (category_scores_list ['adult_content'],peak_weight =0.85 )
+        avg_scores ['weapon']=category_scores_sum ['weapon']/category_counts ['weapon']if category_counts ['weapon']>0 else 0 
+        avg_scores ['drug']=category_scores_sum ['drug']/category_counts ['drug']if category_counts ['drug']>0 else 0 
+        # ERSIN avg_scores['safe'] = category_scores_sum['safe'] / category_counts['safe']...
 
-        # Kategori bazlı en yüksek risk bilgilerini JSON olarak kaydetmek için (Analysis modelinde alan olmalı)
-        # Şimdilik loglayalım ve dinamik attribute olarak ekleyelim. DB'ye yazmak için model değişikliği gerekebilir.
-        analysis.category_specific_highest_risks_data = json.dumps(category_specific_highest_risks, cls=NumPyJSONEncoder)
-        logger.info(f"Analiz #{analysis.id} - Kategori Bazlı En Yüksek Riskler: {analysis.category_specific_highest_risks_data}")
+        logger .info (f"Analiz #{analysis .id } - Ham Ortalama Skorlar (safe hariç): {json .dumps ({k :f'{v :.4f}'for k ,v in avg_scores .items ()if k !='safe'})}")
 
-        # Mevcut en yüksek risk alanlarını (safe hariç genel en yüksek) yine de dolduralım, ama bu yeni mantığa göre olacak.
-        # ÖNCE genel skorlara göre en yüksek riskli kategoriyi bul, SONRA o kategorinin en yüksek riskli karesini seç.
-        # Bu, genel skorların (örn: Yetişkin İçeriği %70) öncelikli olmasını sağlar.
-        overall_highest_risk_score = -1
-        overall_highest_risk_category = None
-        overall_highest_risk_frame_path = None
-        overall_highest_risk_timestamp = None
+        # ERSIN --- UX PRINCIPLE: Safe skoru = maksimum risk skorundan türetilmeli ---
+        # ERSIN Eğer herhangi bir risk kategorisi yüksekse, safe skoru düşük olmalı
+        risk_categories_for_safe_calc =['violence','adult_content','harassment','weapon','drug']
 
-        # Önce genel skorlara göre en yüksek riskli kategoriyi bul (enhanced_scores kullan)
-        max_overall_score = -1
-        max_overall_category = None
-        for cat in risk_categories_for_safe_calc:
-            if cat == 'safe':
-                continue
-            overall_cat_score = enhanced_scores.get(cat, 0)
-            if overall_cat_score > max_overall_score:
-                max_overall_score = overall_cat_score
-                max_overall_category = cat
-        
-        # Eğer genel skorlara göre bir kategori bulunduysa, o kategorinin en yüksek riskli karesini seç
-        if max_overall_category and max_overall_category in category_specific_highest_risks:
-            risk_timestamp = category_specific_highest_risks[max_overall_category]['timestamp']
-            # İlk 2 saniyedeki kareleri filtrele (genellikle boş/bulanık olur)
-            if risk_timestamp is None or risk_timestamp > 2.0:
-                overall_highest_risk_score = category_specific_highest_risks[max_overall_category]['score']
-                overall_highest_risk_category = max_overall_category
-                overall_highest_risk_frame_path = category_specific_highest_risks[max_overall_category]['frame_path']
-                overall_highest_risk_timestamp = category_specific_highest_risks[max_overall_category]['timestamp']
-                logger.info(f"Genel skorlara göre en yüksek riskli kategori: {max_overall_category} (genel skor: {max_overall_score:.4f}, frame skoru: {overall_highest_risk_score:.4f})")
-            else:
-                logger.info(f"İlk kare filtreleme: {max_overall_category} kategorisi ilk 2 saniye içinde ({risk_timestamp:.2f}s), fallback'e geçiliyor")
-                # Fallback: Genel skorlara göre ikinci en yüksek kategoriyi dene veya frame skorlarına göre seç
-                max_overall_score = -1
-                max_overall_category = None
-        
-        # Fallback: Eğer genel skorlara göre seçim yapılamadıysa, frame skorlarına göre seç
-        if overall_highest_risk_category is None:
-            for cat in categories:
-                if cat == 'safe': 
-                    continue
-                    
-                # İlk 2 saniyedeki kareleri filtrele (genellikle boş/bulanık olur)
-                risk_timestamp = category_specific_highest_risks[cat]['timestamp']
-                if risk_timestamp is not None and risk_timestamp <= 2.0:
-                    logger.info(f"İlk kare filtreleme (calculate_overall_scores): {cat} kategorisi ilk 2 saniye içinde ({risk_timestamp:.2f}s), atlaniyor")
-                    continue
-                    
-                if category_specific_highest_risks[cat]['score'] > overall_highest_risk_score:
-                    overall_highest_risk_score = category_specific_highest_risks[cat]['score']
-                    overall_highest_risk_category = cat
-                    overall_highest_risk_frame_path = category_specific_highest_risks[cat]['frame_path']
-                    overall_highest_risk_timestamp = category_specific_highest_risks[cat]['timestamp']
-        
-        if overall_highest_risk_category:
-            analysis.highest_risk_frame = overall_highest_risk_frame_path
-            analysis.highest_risk_frame_timestamp = overall_highest_risk_timestamp
-            analysis.highest_risk_score = overall_highest_risk_score
-            analysis.highest_risk_category = overall_highest_risk_category
-            logger.info(f"Analiz #{analysis.id} - Genel En Yüksek Risk ('safe' hariç): {overall_highest_risk_category} skoru {overall_highest_risk_score:.4f}, kare: {overall_highest_risk_frame_path}")
-        else:
-            analysis.highest_risk_score = category_specific_highest_risks['safe']['score']
-            analysis.highest_risk_category = 'safe'
-            analysis.highest_risk_frame = category_specific_highest_risks['safe']['frame_path']
-            analysis.highest_risk_frame_timestamp = category_specific_highest_risks['safe']['timestamp']
-            logger.info(f"Analiz #{analysis.id} - 'safe' dışında risk bulunamadı. En yüksek 'safe' skoru: {analysis.highest_risk_score:.4f}")
+        # ERSIN Güç dönüşümü ile risk kategorilerini ayrıştır (görselleştirme için)
+        power_value =1.5 
+        enhanced_scores ={}
+        for category in risk_categories_for_safe_calc :
+            avg_score_cat =avg_scores .get (category ,0 )
+            enhanced_scores [category ]=avg_score_cat **power_value 
 
-        db.session.commit()
-        
-    except Exception as e:
-        current_app.logger.error(f"Genel skor hesaplama hatası: {str(e)}")
-        logger.error(f"Hata detayı: {traceback.format_exc()}")
-        db.session.rollback()
+            # ERSIN Safe skorunu maksimum risk skorundan hesapla (UX: yüksek risk = düşük safe)
+        max_risk_score =max (avg_scores .get (rc ,0 )for rc in risk_categories_for_safe_calc )if risk_categories_for_safe_calc else 0 
+        enhanced_scores ['safe']=max (0.0 ,1.0 -max_risk_score )
 
-def get_analysis_results(analysis_id):
+        # ERSIN Eğer maksimum risk çok yüksekse (>0.8), safe skorunu daha da düşür
+        if max_risk_score >0.8 :
+            enhanced_scores ['safe']=max (0.0 ,1.0 -(max_risk_score **1.2 ))
+
+        logger .info (f"Analiz #{analysis .id } - Güç Dönüşümü Sonrası Skorlar (p={power_value }): {json .dumps ({k :f'{v :.4f}'for k ,v in enhanced_scores .items ()})}")
+        logger .info (f"[SAFE_OVERALL_CALC] Max risk: {max_risk_score :.4f}, Calculated overall safe score: {enhanced_scores ['safe']:.4f}")
+
+        # ERSIN Genel skorları güncelle (geliştirilmiş skorlarla)
+        analysis .overall_violence_score =enhanced_scores ['violence']
+        analysis .overall_adult_content_score =enhanced_scores ['adult_content']
+        analysis .overall_harassment_score =enhanced_scores ['harassment']
+        analysis .overall_weapon_score =enhanced_scores ['weapon']
+        analysis .overall_drug_score =enhanced_scores ['drug']
+        analysis .overall_safe_score =enhanced_scores ['safe']
+
+        logger .info (f"Analiz #{analysis .id } - Geliştirilmiş Ortalama Skorlar: Violence={analysis .overall_violence_score :.4f}, Adult={analysis .overall_adult_content_score :.4f}, Harassment={analysis .overall_harassment_score :.4f}, Weapon={analysis .overall_weapon_score :.4f}, Drug={analysis .overall_drug_score :.4f}, Safe={analysis .overall_safe_score :.4f}")
+
+        # ERSIN ERSIN Kategori bazlı en yüksek risk bilgilerini JSON olarak kaydetmek için (Anal...
+        # ERSIN Şimdilik loglayalım ve dinamik attribute olarak ekleyelim
+        analysis .category_specific_highest_risks_data =json .dumps (category_specific_highest_risks ,cls =NumPyJSONEncoder )
+        logger .info (f"Analiz #{analysis .id } - Kategori Bazlı En Yüksek Riskler: {analysis .category_specific_highest_risks_data }")
+
+        # ERSIN Mevcut en yüksek risk alanlarını (safe hariç genel en yüksek) yine de dold...
+        # ERSIN ÖNCE genel skorlara göre en yüksek riskli kategoriyi bul, SONRA o kategori...
+        # ERSIN Bu, genel skorların (örn: Yetişkin İçeriği %70) öncelikli olmasını sağlar.
+        overall_highest_risk_score =-1 
+        overall_highest_risk_category =None 
+        overall_highest_risk_frame_path =None 
+        overall_highest_risk_timestamp =None 
+
+        # ERSIN Önce genel skorlara göre en yüksek riskli kategoriyi bul (enhanced_scores kullan)
+        max_overall_score =-1 
+        max_overall_category =None 
+        for cat in risk_categories_for_safe_calc :
+            if cat =='safe':
+                continue 
+            overall_cat_score =enhanced_scores .get (cat ,0 )
+            if overall_cat_score >max_overall_score :
+                max_overall_score =overall_cat_score 
+                max_overall_category =cat 
+
+                # ERSIN Eğer genel skorlara göre bir kategori bulunduysa, o kategorinin en yüksek riskli karesini seç
+        if max_overall_category and max_overall_category in category_specific_highest_risks :
+            risk_timestamp =category_specific_highest_risks [max_overall_category ]['timestamp']
+            # ERSIN İlk 2 saniyedeki kareleri filtrele (genellikle boş/bulanık olur)
+            if risk_timestamp is None or risk_timestamp >2.0 :
+                overall_highest_risk_score =category_specific_highest_risks [max_overall_category ]['score']
+                overall_highest_risk_category =max_overall_category 
+                overall_highest_risk_frame_path =category_specific_highest_risks [max_overall_category ]['frame_path']
+                overall_highest_risk_timestamp =category_specific_highest_risks [max_overall_category ]['timestamp']
+                logger .info (f"Genel skorlara göre en yüksek riskli kategori: {max_overall_category } (genel skor: {max_overall_score :.4f}, frame skoru: {overall_highest_risk_score :.4f})")
+            else :
+                logger .info (f"İlk kare filtreleme: {max_overall_category } kategorisi ilk 2 saniye içinde ({risk_timestamp :.2f}s), fallback'e geçiliyor")
+                # ERSIN Fallback: Genel skorlara göre ikinci en yüksek kategoriyi dene veya frame skorlarına göre seç
+                max_overall_score =-1 
+                max_overall_category =None 
+
+                # ERSIN Fallback: Eğer genel skorlara göre seçim yapılamadıysa, frame skorlarına göre seç
+        if overall_highest_risk_category is None :
+            for cat in categories :
+                if cat =='safe':
+                    continue 
+
+                    # ERSIN İlk 2 saniyedeki kareleri filtrele (genellikle boş/bulanık olur)
+                risk_timestamp =category_specific_highest_risks [cat ]['timestamp']
+                if risk_timestamp is not None and risk_timestamp <=2.0 :
+                    logger .info (f"İlk kare filtreleme (calculate_overall_scores): {cat } kategorisi ilk 2 saniye içinde ({risk_timestamp :.2f}s), atlaniyor")
+                    continue 
+
+                # ERSIN Type checker için score'ları güvenli şekilde karşılaştır
+                cat_score =category_specific_highest_risks [cat ].get ('score',-1 )
+                if isinstance (cat_score ,(int ,float ))and isinstance (overall_highest_risk_score ,(int ,float )):
+                    if cat_score >overall_highest_risk_score :
+                        overall_highest_risk_score =cat_score 
+                        overall_highest_risk_category =cat 
+                        overall_highest_risk_frame_path =category_specific_highest_risks [cat ].get ('frame_path')
+                        overall_highest_risk_timestamp =category_specific_highest_risks [cat ].get ('timestamp')
+
+        if overall_highest_risk_category :
+            analysis .highest_risk_frame =overall_highest_risk_frame_path 
+            analysis .highest_risk_frame_timestamp =overall_highest_risk_timestamp 
+            analysis .highest_risk_score =overall_highest_risk_score 
+            analysis .highest_risk_category =overall_highest_risk_category 
+            logger .info (f"Analiz #{analysis .id } - Genel En Yüksek Risk ('safe' hariç): {overall_highest_risk_category } skoru {overall_highest_risk_score :.4f}, kare: {overall_highest_risk_frame_path }")
+        else :
+            analysis .highest_risk_score =category_specific_highest_risks ['safe']['score']
+            analysis .highest_risk_category ='safe'
+            analysis .highest_risk_frame =category_specific_highest_risks ['safe']['frame_path']
+            analysis .highest_risk_frame_timestamp =category_specific_highest_risks ['safe']['timestamp']
+            logger .info (f"Analiz #{analysis .id } - 'safe' dışında risk bulunamadı. En yüksek 'safe' skoru: {analysis .highest_risk_score :.4f}")
+
+        db .session .commit ()
+
+    except Exception as e :
+        current_app .logger .error (f"Genel skor hesaplama hatası: {str (e )}")
+        logger .error (f"Hata detayı: {traceback .format_exc ()}")
+        db .session .rollback ()
+
+def get_analysis_results (analysis_id :str )->dict [str ,Any ]|None :
     """
     Bir analizin tüm sonuçlarını getirir.
     Bu fonksiyon, analiz sonuçlarını kapsamlı bir şekilde raporlamak için
@@ -1756,82 +1868,82 @@ def get_analysis_results(analysis_id):
     Returns:
         dict: Analiz sonuçlarını içeren sözlük
     """
-    logger.info(f"[SVC_LOG][ENTRY] get_analysis_results fonksiyonu çağrıldı. analysis_id: {analysis_id}") # YENİ GİRİŞ LOGU
-    analysis = Analysis.query.get(analysis_id)
+    logger .info (f"[SVC_LOG][ENTRY] get_analysis_results fonksiyonu çağrıldı. analysis_id: {analysis_id }")# ERSIN YENİ GİRİŞ LOGU
+    analysis =Analysis .query .get (analysis_id )
 
-    if not analysis:
-        return {'error': 'Analiz bulunamadı'}
-    
-    if analysis.status != 'completed':
+    if not analysis :
+        return {'error':'Analiz bulunamadı'}
+
+    if analysis .status !='completed':
         return {
-            'status': analysis.status,
-            'message': 'Analiz henüz tamamlanmadı - WebSocket üzerinden progress takip edin'
+        'status':analysis .status ,
+        'message':'Analiz henüz tamamlanmadı - WebSocket üzerinden progress takip edin'
         }
-    
-    result = analysis.to_dict()
-    
-    content_detections = ContentDetection.query.filter_by(analysis_id=analysis_id).all()
-    result['content_detections'] = [cd.to_dict() for cd in content_detections]
-    
-    if analysis.include_age_analysis:
-        age_estimations = AgeEstimation.query.filter_by(analysis_id=analysis_id).all()
-        logger.info(f"[SVC_LOG][RESULTS] get_analysis_results: DB'den {len(age_estimations)} AgeEstimation kaydı çekildi.")
-        persons = {}
-        for estimation in age_estimations:
-            person_id = estimation.person_id
-            if person_id not in persons:
-                persons[person_id] = []
-            persons[person_id].append(estimation.to_dict())
-        
-        logger.info(f"[SVC_LOG][RESULTS] get_analysis_results: {len(persons)} kişiye göre gruplandı.")
-        best_estimations = []
-        for person_id, estimations in persons.items():
-            if not estimations:  # Boş liste kontrolü
-                logger.warning(f"[SVC_LOG][RESULTS] Kişi {person_id} için tahmin listesi boş, atlanıyor.")
-                continue
-                
-            best_estimation = max(estimations, key=lambda e: e.get('confidence_score', 0) if e else 0)
-            if not best_estimation:  # None kontrolü
-                logger.warning(f"[SVC_LOG][RESULTS] Kişi {person_id} için en iyi tahmin None, atlanıyor.")
-                continue
-                
-            logger.info(f"[SVC_LOG][RESULTS] get_analysis_results: Kişi {person_id} için en iyi tahmin seçildi (Güven: {best_estimation.get('confidence_score', 0):.4f}).")
-            logger.info(f"DEBUG - Frontend'e gönderilecek yaş: person_id={person_id}, estimated_age={best_estimation.get('estimated_age', 'N/A')}, all_estimations_for_person={[(e.get('estimated_age', 'N/A') if e else 'None', e.get('confidence_score', 0) if e else 0) for e in estimations]}")
-            logger.info(f"DEBUG - best_estimation tüm alanları: {best_estimation}")
-            best_estimations.append(best_estimation)
-        result['age_estimations'] = best_estimations
-        logger.info(f"[SVC_LOG][RESULTS] get_analysis_results: API yanıtına {len(best_estimations)} en iyi tahmin eklendi.")
 
-    # ---- YENİ LOGLAR ----
-    logger.info(f"[SVC_LOG][DEBUG] get_analysis_results - json.dumps öncesi.")
-    if 'category_specific_highest_risks_data' in result:
-        logger.info(f"[SVC_LOG][DEBUG] result['category_specific_highest_risks_data'] var. Türü: {type(result['category_specific_highest_risks_data'])}")
-        logger.info(f"[SVC_LOG][DEBUG] result['category_specific_highest_risks_data'] içeriği: {result['category_specific_highest_risks_data']}")
-    else:
-        logger.info(f"[SVC_LOG][DEBUG] result['category_specific_highest_risks_data'] YOK.")
-    # ---- YENİ LOGLAR SONU ----
+    result =analysis .to_dict ()
 
-    try:
-        # Orijinal log satırını try-except içine alalım
-        final_result_json = json.dumps(result, indent=2, cls=NumPyJSONEncoder)
-        logger.info(f"[SVC_LOG][RESULTS] get_analysis_results sonu - Dönecek Result: {final_result_json}")
-    except Exception as e_dumps:
-        logger.error(f"[SVC_LOG][ERROR] get_analysis_results - json.dumps sırasında HATA: {str(e_dumps)}", exc_info=True)
-        logger.error(f"[SVC_LOG][ERROR] Hata anındaki result sözlüğü (ilk 1000 karakter): {str(result)[:1000]}") # Hata anındaki result'ı logla (çok uzunsa kırp)
-        # Hata durumunda da bir şeyler döndürmek gerekebilir, yoksa frontend askıda kalabilir.
-        # Şimdilik orijinal davranışı koruyup, sadece logluyoruz.
-        # Sorun buysa, buraya bir `return {'error': 'Sonuçlar serileştirilemedi'}` eklenebilir.
-    return result
+    content_detections =ContentDetection .query .filter_by (analysis_id =analysis_id ).all ()
+    result ['content_detections']=[cd .to_dict ()for cd in content_detections ]
 
-# Model yükleme için yardımcı fonksiyonlar
-def get_content_analyzer():
+    if analysis .include_age_analysis :
+        age_estimations =AgeEstimation .query .filter_by (analysis_id =analysis_id ).all ()
+        logger .info (f"[SVC_LOG][RESULTS] get_analysis_results: DB'den {len (age_estimations )} AgeEstimation kaydı çekildi.")
+        persons ={}
+        for estimation in age_estimations :
+            person_id =estimation .person_id 
+            if person_id not in persons :
+                persons [person_id ]=[]
+            persons [person_id ].append (estimation .to_dict ())
+
+        logger .info (f"[SVC_LOG][RESULTS] get_analysis_results: {len (persons )} kişiye göre gruplandı.")
+        best_estimations =[]
+        for person_id ,estimations in persons .items ():
+            if not estimations :# ERSIN Boş liste kontrolü
+                logger .warning (f"[SVC_LOG][RESULTS] Kişi {person_id } için tahmin listesi boş, atlanıyor.")
+                continue 
+
+            best_estimation =max (estimations ,key =lambda e :e .get ('confidence_score',0 )if e else 0 )
+            if not best_estimation :# ERSIN None kontrolü
+                logger .warning (f"[SVC_LOG][RESULTS] Kişi {person_id } için en iyi tahmin None, atlanıyor.")
+                continue 
+
+            logger .info (f"[SVC_LOG][RESULTS] get_analysis_results: Kişi {person_id } için en iyi tahmin seçildi (Güven: {best_estimation .get ('confidence_score',0 ):.4f}).")
+            logger .info (f"DEBUG - Frontend'e gönderilecek yaş: person_id={person_id }, estimated_age={best_estimation .get ('estimated_age','N/A')}, all_estimations_for_person={[(e .get ('estimated_age','N/A')if e else 'None',e .get ('confidence_score',0 )if e else 0 )for e in estimations ]}")
+            logger .info (f"DEBUG - best_estimation tüm alanları: {best_estimation }")
+            best_estimations .append (best_estimation )
+        result ['age_estimations']=best_estimations 
+        logger .info (f"[SVC_LOG][RESULTS] get_analysis_results: API yanıtına {len (best_estimations )} en iyi tahmin eklendi.")
+
+        # ERSIN ---- YENİ LOGLAR ----
+    logger .info (f"[SVC_LOG][DEBUG] get_analysis_results - json.dumps öncesi.")
+    if 'category_specific_highest_risks_data'in result :
+        logger .info (f"[SVC_LOG][DEBUG] result['category_specific_highest_risks_data'] var. Türü: {type (result ['category_specific_highest_risks_data'])}")
+        logger .info (f"[SVC_LOG][DEBUG] result['category_specific_highest_risks_data'] içeriği: {result ['category_specific_highest_risks_data']}")
+    else :
+        logger .info (f"[SVC_LOG][DEBUG] result['category_specific_highest_risks_data'] YOK.")
+        # ERSIN ---- YENİ LOGLAR SONU ----
+
+    try :
+    # ERSIN Orijinal log satırını try-except içine alalım
+        final_result_json =json .dumps (result ,indent =2 ,cls =NumPyJSONEncoder )
+        logger .info (f"[SVC_LOG][RESULTS] get_analysis_results sonu - Dönecek Result: {final_result_json }")
+    except Exception as e_dumps :
+        logger .error (f"[SVC_LOG][ERROR] get_analysis_results - json.dumps sırasında HATA: {str (e_dumps )}",exc_info =True )
+        logger .error (f"[SVC_LOG][ERROR] Hata anındaki result sözlüğü (ilk 1000 karakter): {str (result )[:1000 ]}")# ERSIN Hata anındaki result'ı logla (çok uzunsa kırp)
+        # ERSIN Hata durumunda da bir şeyler döndürmek gerekebilir, yoksa frontend askıda kalabilir.
+        # ERSIN Şimdilik orijinal davranışı koruyup, sadece logluyoruz.
+        # ERSIN Sorun buysa, buraya bir `return {'error': 'Sonuçlar serileştirilemedi'}` eklenebilir.
+    return result 
+
+    # ERSIN Model yükleme için yardımcı fonksiyonlar
+def get_content_analyzer ()->ContentAnalyzer :
     """İçerik analizi için ContentAnalyzer nesnesi döndürür"""
-    return ContentAnalyzer()
+    return ContentAnalyzer ()
 
-# Deprecated get_age_estimator function removed - use app.utils.model_state.get_age_estimator() instead
+    # ERSIN Deprecated get_age_estimator function removed - use app
 
-# --- PATH NORMALİZASYON HELPER ---
-def normalize_rel_storage_path(rel_path: str) -> str:
+    # ERSIN --- PATH NORMALİZASYON HELPER ---
+def normalize_rel_storage_path (rel_path :str )->str :
     """
     Göreli depolama yolunu normalize eder.
     Args:
@@ -1839,12 +1951,12 @@ def normalize_rel_storage_path(rel_path: str) -> str:
     Returns:
         str: Normalize edilmiş yol.
     """
-    rel_path = os.path.normpath(rel_path).replace("\\", "/")
-    # Başındaki ../ veya ./ gibi ifadeleri tamamen temizle
-    while rel_path.startswith("../") or rel_path.startswith("./"):
-        rel_path = rel_path[3:] if rel_path.startswith("../") else rel_path[2:]
-    # Sadece 'storage/...' ile başlayan kısmı al
-    idx = rel_path.find("storage/")
-    if idx != -1:
-        rel_path = rel_path[idx:]
-    return rel_path
+    rel_path =os .path .normpath (rel_path ).replace ("\\","/")
+    # ERSIN Başındaki ../ veya ./ gibi ifadeleri tamamen temizle
+    while rel_path .startswith ("../")or rel_path .startswith ("./"):
+        rel_path =rel_path [3 :]if rel_path .startswith ("../")else rel_path [2 :]
+        # ERSIN Sadece 'storage/...' ile başlayan kısmı al
+    idx =rel_path .find ("storage/")
+    if idx !=-1 :
+        rel_path =rel_path [idx :]
+    return rel_path 

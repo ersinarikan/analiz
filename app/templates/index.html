@@ -7,26 +7,26 @@
     <meta http-equiv="Permissions-Policy" content="notifications=()">
     <title>T.C. Aile ve Sosyal Hizmetler Bakanlığı - İçerik Güvenlik Analiz Sistemi</title>
     
-    <!-- Favicon -->
+    <!-- ERSIN Aciklama. -->
     <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}" type="image/x-icon">
     <link rel="shortcut icon" href="{{ url_for('static', filename='favicon.ico') }}" type="image/x-icon">
     
-    <!-- Bootstrap CSS -->
+    <!-- ERSIN Aciklama. -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/css/bootstrap.min.css" rel="stylesheet">
     
-    <!-- Font Awesome -->
+    <!-- ERSIN Aciklama. -->
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
     
-    <!-- Google Fonts -->
+    <!-- ERSIN Aciklama. -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     
-    <!-- Custom CSS -->
+    <!-- ERSIN Aciklama. -->
     <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
     
-    <!-- Help Documentation CSS -->
+    <!-- ERSIN Aciklama. -->
     <link href="{{ url_for('static', filename='css/help.css') }}" rel="stylesheet">
     
-    <!-- Model Management Modal CSS -->
+    <!-- ERSIN Aciklama. -->
     <style>
         .model-card {
             transition: transform 0.2s;
@@ -75,7 +75,7 @@
     </style>
 </head>
 <body>
-    <!-- Navbar -->
+    <!-- ERSIN Aciklama. -->
     <nav class="navbar navbar-expand-lg navbar-dark mb-4">
         <div class="container">
             <a class="navbar-brand" href="/">
@@ -122,7 +122,7 @@
     </nav>
     
     <div class="container-fluid">
-        <!-- 🎯 Hero Section -->
+        <!-- ERSIN Aciklama. -->
         <div class="hero-section mb-5">
             <div class="row align-items-center">
                 <div class="col-lg-6 mb-4 mb-lg-0">
@@ -181,9 +181,9 @@
             </div>
         </div>
 
-        <!-- Ana İçerik -->
+        <!-- ERSIN Aciklama. -->
         <div class="row">
-            <!-- Dosya Yükleme Alanı -->
+            <!-- ERSIN Aciklama. -->
             <div class="col-lg-12 mb-4">
                 <div class="card">
                     <div class="card-header">
@@ -236,7 +236,7 @@
                                 </div>
                             </div>
                             
-                            <!-- Upload Status Indicators -->
+                            <!-- ERSIN Aciklama. -->
                             <div class="upload-status" id="uploadStatus">
                                 <div class="status-item status-processing">
                                     <div class="status-icon">
@@ -265,7 +265,7 @@
                 </div>
             </div>
             
-            <!-- Dosya Listesi Bölümü -->
+            <!-- ERSIN Aciklama. -->
             <div class="col-lg-12 mb-4" id="fileListSection" style="display: none;">
                 <div class="card">
                     <div class="card-header d-flex justify-content-between align-items-center">
@@ -278,13 +278,13 @@
                     </div>
                     <div class="card-body">
                         <div class="row" id="fileList">
-                            <!-- Dosya kartları buraya eklenecek -->
+                            <!-- ERSIN Aciklama. -->
                         </div>
                     </div>
                 </div>
             </div>
             
-            <!-- Overall Progress Bar -->
+            <!-- ERSIN Aciklama. -->
             <div class="col-lg-12 mb-4" id="overall-progress-container" style="display: none;">
                 <div class="card border-info">
                     <div class="card-body py-3">
@@ -306,7 +306,7 @@
                 </div>
             </div>
             
-            <!-- Global İlerleme Çubuğu -->
+            <!-- ERSIN Aciklama. -->
             <div id="globalProgressSection" class="mt-4 mb-2 container-fluid" style="display:none;">
                 <div class="row">
                     <div class="col-12">
@@ -332,7 +332,7 @@
                 </div>
             </div>
             
-            <!-- Sonuçlar Bölümü -->
+            <!-- ERSIN Aciklama. -->
             <div class="col-lg-12" id="resultsSection" style="display: none;">
                 <div class="card">
                     <div class="card-header d-flex justify-content-between align-items-center">
@@ -343,7 +343,7 @@
                     </div>
                     <div class="card-body">
                         <div id="resultsList">
-                            <!-- Sonuç kartları buraya eklenecek -->
+                            <!-- ERSIN Aciklama. -->
                         </div>
                     </div>
                 </div>
@@ -351,7 +351,7 @@
         </div>
     </div>
     
-    <!-- 🏛️ Resmi Footer -->
+    <!-- ERSIN Aciklama. -->
     <footer class="official-footer">
         <div class="container-fluid">
             <div class="footer-content">
@@ -379,12 +379,12 @@
         </div>
     </footer>
     
-    <!-- 🍞 Toast Notification Container -->
+    <!-- ERSIN Aciklama. -->
     <div class="toast-container" id="toastContainer">
-        <!-- Dynamic toasts will be added here -->
+        <!-- ERSIN Aciklama. -->
     </div>
     
-    <!-- Dosya Kartı Template -->
+    <!-- ERSIN Aciklama. -->
     <template id="fileCardTemplate">
         <div class="col-12 mb-3">
             <div class="file-card file-list-layout" id="">
@@ -411,7 +411,7 @@
         </div>
     </template>
     
-    <!-- Sonuç Kartı Template -->
+    <!-- ERSIN Aciklama. -->
     <template id="resultCardTemplate">
         <div class="result-card mb-4">
             <div class="card">
@@ -438,13 +438,13 @@
                     </ul>
                     
                     <div class="tab-content mt-3">
-                        <!-- Özet Tab -->
+                        <!-- ERSIN Aciklama. -->
                         <div class="tab-pane fade show active" id="summary" role="tabpanel" aria-labelledby="summary-tab">
                             <div class="row">
                                 <div class="col-md-6">
                                     <h5>Risk Skorları</h5>
                                     <div class="risk-scores-container">
-                                        <!-- Risk skorları buraya eklenecek -->
+                                        <!-- ERSIN Aciklama. -->
                                     </div>
                                 </div>
                                 <div class="col-md-6">
@@ -464,28 +464,28 @@
                             </div>
                         </div>
                         
-                        <!-- Detaylar Tab -->
+                        <!-- ERSIN Aciklama. -->
                         <div class="tab-pane fade" id="details" role="tabpanel" aria-labelledby="details-tab">
                             <div class="row">
                                 <div class="col-md-6">
                                     <h5>İçerik Tespitleri</h5>
                                     <div class="content-detections">
-                                        <!-- İçerik tespitleri buraya eklenecek -->
+                                        <!-- ERSIN Aciklama. -->
                                     </div>
                                 </div>
                                 <div class="col-md-6">
                                     <h5>Yaş Tahminleri</h5>
                                     <div class="age-estimations">
-                                        <!-- Yaş tahminleri buraya eklenecek -->
+                                        <!-- ERSIN Aciklama. -->
                                     </div>
                                 </div>
                             </div>
                         </div>
                         
-                        <!-- Geri Bildirim Tab -->
+                        <!-- ERSIN Aciklama. -->
                         <div class="tab-pane fade" id="feedback" role="tabpanel" aria-labelledby="feedback-tab">
                             <div class="row">
-                                <!-- İçerik Analizi Geri Bildirimi -->
+                                <!-- ERSIN Aciklama. -->
                                 <div class="col-md-6 mb-4">
                                     <h5>İçerik Analizi Geri Bildirimi</h5>
                                     <div class="alert alert-info">
@@ -507,11 +507,11 @@
                                             </select>
                                         </div>
 
-                                        <!-- Kategori bazlı geri bildirimler -->
+                                        <!-- ERSIN Aciklama. -->
                                         <div class="mb-3">
                                             <label class="form-label">Kategori Değerlendirmeleri</label>
                                             
-                                            <!-- Şiddet -->
+                                            <!-- ERSIN Aciklama. -->
                                             <div class="card mb-2">
                                                 <div class="card-body">
                                                     <div class="d-flex justify-content-between align-items-center">
@@ -533,7 +533,7 @@
                                                 </div>
                                             </div>
 
-                                            <!-- Yetişkin İçeriği -->
+                                            <!-- ERSIN Aciklama. -->
                                             <div class="card mb-2">
                                                 <div class="card-body">
                                                     <div class="d-flex justify-content-between align-items-center">
@@ -555,7 +555,7 @@
                                                 </div>
                                             </div>
 
-                                            <!-- Taciz -->
+                                            <!-- ERSIN Aciklama. -->
                                             <div class="card mb-2">
                                                 <div class="card-body">
                                                     <div class="d-flex justify-content-between align-items-center">
@@ -577,7 +577,7 @@
                                                 </div>
                                             </div>
 
-                                            <!-- Silah -->
+                                            <!-- ERSIN Aciklama. -->
                                             <div class="card mb-2">
                                                 <div class="card-body">
                                                     <div class="d-flex justify-content-between align-items-center">
@@ -599,7 +599,7 @@
                                                 </div>
                                             </div>
 
-                                            <!-- Madde Kullanımı -->
+                                            <!-- ERSIN Aciklama. -->
                                             <div class="card mb-2">
                                                 <div class="card-body">
                                                     <div class="d-flex justify-content-between align-items-center">
@@ -633,7 +633,7 @@
                                     </form>
                                 </div>
                                 
-                                <!-- Yaş Tahminleri Geri Bildirimi -->
+                                <!-- ERSIN Aciklama. -->
                                 <div class="col-md-6">
                                     <h5>Yaş Tahminleri Geri Bildirimi</h5>
                                     <div class="alert alert-info">
@@ -642,7 +642,7 @@
                                         Geri bildiriminiz yapay zeka modelinin geliştirilmesinde kullanılacaktır.
                                     </div>
                                     <div class="age-feedback-container">
-                                        <!-- Yaş tahminleri geri bildirim kartları buraya eklenecek -->
+                                        <!-- ERSIN Aciklama. -->
                                     </div>
                                 </div>
                             </div>
@@ -653,7 +653,7 @@
         </div>
     </template>
     
-    <!-- Yaş Geri Bildirimi Template -->
+    <!-- ERSIN Aciklama. -->
     <template id="ageFeedbackTemplate">
         <div class="age-feedback-item mb-3 p-3 border rounded d-flex align-items-center">
             <div class="flex-shrink-0 me-3">
@@ -677,7 +677,7 @@
         </div>
     </template>
     
-    <!-- Anlık Analiz Ayarları Modalı ("Analiz Et" butonu için) -->
+    <!-- ERSIN Aciklama. -->
     <div class="modal fade" id="runAnalysisSettingsModal" tabindex="-1" aria-labelledby="runAnalysisSettingsModalLabel" aria-hidden="true">
         <div class="modal-dialog">
             <div class="modal-content">
@@ -704,7 +704,7 @@
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">İptal</button>
-                    <button type="button" class="btn btn-primary" id="startAnalysisBtn"> <!-- main.js bu ID'yi bekliyor -->
+                    <button type="button" class="btn btn-primary" id="startAnalysisBtn"> <!-- ERSIN Aciklama. -->
                         <i class="fas fa-play me-1"></i> Analizi Başlat
                     </button>
                 </div>
@@ -712,7 +712,7 @@
         </div>
     </div>
 
-    <!-- Analiz Parametreleri Modal (NAVBAR İÇİN GLOBAL AYARLAR) -->
+    <!-- ERSIN Aciklama. -->
     <div class="modal fade" id="analysisParamsModal" tabindex="-1" aria-labelledby="analysisParamsModalLabel" aria-hidden="true">
         <div class="modal-dialog modal-lg">
             <div class="modal-content">
@@ -722,7 +722,7 @@
                 </div>
                 <div class="modal-body">
                     <form id="analysisParamsForm">
-                        <!-- Yüz Algılama Güveni -->
+                        <!-- ERSIN Aciklama. -->
                         <div class="mb-3 row">
                             <label for="faceDetectionConfidence" class="col-sm-4 col-form-label">Yüz Algılama Güveni: <span id="faceDetectionConfidenceValue">0.5</span></label>
                             <div class="col-sm-8">
@@ -731,7 +731,7 @@
                             </div>
                         </div>
 
-                        <!-- Takip Güvenilirlik Eşiği -->
+                        <!-- ERSIN Aciklama. -->
                         <div class="mb-3 row">
                             <label for="trackingReliabilityThreshold" class="col-sm-4 col-form-label">Takip Güvenilirlik Eşiği: <span id="trackingReliabilityThresholdValue">0.5</span></label>
                             <div class="col-sm-8">
@@ -740,7 +740,7 @@
                             </div>
                         </div>
 
-                        <!-- ID Değişim Eşiği -->
+                        <!-- ERSIN Aciklama. -->
                         <div class="mb-3 row">
                             <label for="idChangeThreshold" class="col-sm-4 col-form-label">ID Değişim Eşiği: <span id="idChangeThresholdValue">0.45</span></label>
                             <div class="col-sm-8">
@@ -749,7 +749,7 @@
                             </div>
                         </div>
 
-                        <!-- Maksimum Kayıp Kare -->
+                        <!-- ERSIN Aciklama. -->
                         <div class="mb-3 row">
                             <label for="maxLostFrames" class="col-sm-4 col-form-label">Maksimum Kayıp Kare:</label>
                             <div class="col-sm-8">
@@ -758,7 +758,7 @@
                             </div>
                         </div>
 
-                        <!-- Embedding Mesafe Eşiği -->
+                        <!-- ERSIN Aciklama. -->
                         <div class="mb-3 row">
                             <label for="embeddingDistanceThreshold" class="col-sm-4 col-form-label">Embedding Mesafe Eşiği: <span id="embeddingDistanceThresholdValue">0.4</span></label>
                             <div class="col-sm-8">
@@ -778,7 +778,7 @@
         </div>
     </div>
     
-    <!-- Model Yönetimi Modal -->
+    <!-- ERSIN Aciklama. -->
     <div class="modal fade" id="modelManagementModal" tabindex="-1" aria-labelledby="modelManagementModalLabel" aria-hidden="true" data-bs-backdrop="static">
         <div class="modal-dialog modal-xl">
             <div class="modal-content">
@@ -789,9 +789,9 @@
                     <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close" onclick="initializeModelManagementModal();"></button>
                 </div>
                 <div class="modal-body">
-                    <!-- Model Kartları -->
+                    <!-- ERSIN Aciklama. -->
                     <div class="row">
-                        <!-- Yaş Tahmin Modeli -->
+                        <!-- ERSIN Aciklama. -->
                         <div class="col-md-6 mb-4">
                             <div class="card model-card h-100">
                                 <div class="card-header bg-primary text-white">
@@ -851,7 +851,7 @@
                             </div>
                         </div>
 
-                        <!-- İçerik Analiz Modeli -->
+                        <!-- ERSIN Aciklama. -->
                         <div class="col-md-6 mb-4">
                             <div class="card model-card h-100">
                                 <div class="card-header bg-info text-white">
@@ -884,7 +884,7 @@
                                         </div>
                                     </div>
 
-                                    <!-- Eğitim Parametreleri (Sadece CLIP için) -->
+                                    <!-- ERSIN Aciklama. -->
                                     <div class="row mb-3">
                                         <div class="col-6 mb-2">
                                             <label for="clip-epochs" class="form-label">Epoch:</label>
@@ -930,7 +930,7 @@
                         </div>
                     </div>
 
-                    <!-- Eğitim Durumu -->
+                    <!-- ERSIN Aciklama. -->
                     <div class="row mt-4">
                         <div class="col-12">
                             <div class="card">
@@ -982,7 +982,7 @@
         </div>
     </div>
     
-    <!-- Model Metrikleri Modal -->
+    <!-- ERSIN Aciklama. -->
     <div class="modal fade" id="modelMetricsModal" tabindex="-1" aria-labelledby="modelMetricsModalLabel" aria-hidden="true">
         <div class="modal-dialog modal-xl">
             <div class="modal-content">
@@ -1004,9 +1004,9 @@
                     </ul>
                     <div class="tab-content mt-3" id="modelMetricsTabContent">
                         <div class="tab-pane fade show active" id="contentMetricsTab" role="tabpanel" aria-labelledby="content-metrics-tab">
-                            <!-- 🎯 CONTENT MODEL METRICS CONTAINER -->
+                            <!-- ERSIN Aciklama. -->
                             <div id="contentModelMetricsContainer">
-                                <!-- Loading spinner will be removed by JavaScript -->
+                                <!-- ERSIN Aciklama. -->
                                 <div class="d-flex justify-content-center" id="contentLoadingSpinner">
                                     <div class="spinner-border text-primary" role="status">
                                         <span class="visually-hidden">Yükleniyor...</span>
@@ -1014,7 +1014,7 @@
                                 </div>
                             </div>
                             
-                            <!-- Metrikler yüklenirken gösterilen spinner'ı değiştirecek olan içerik -->
+                            <!-- ERSIN Aciklama. -->
                             <div class="row mt-4">
                                 <div class="col-md-6">
                                     <div class="card">
@@ -1100,7 +1100,7 @@
                         </div>
                     </div>
                                     
-                                    <!-- Model Versiyonları için yeni kart -->
+                                    <!-- ERSIN Aciklama. -->
                                     <div class="card mt-3">
                                         <div class="card-header">
                                             <h5 class="mb-0">Model Versiyonları</h5>
@@ -1120,9 +1120,9 @@
                         </div>
                         
                         <div class="tab-pane fade" id="ageMetricsTab" role="tabpanel" aria-labelledby="age-metrics-tab">
-                            <!-- 🎯 AGE MODEL METRICS CONTAINER -->
+                            <!-- ERSIN Aciklama. -->
                             <div id="ageModelMetricsContainer">
-                                <!-- Loading spinner will be removed by JavaScript -->
+                                <!-- ERSIN Aciklama. -->
                                 <div class="d-flex justify-content-center" id="ageLoadingSpinner">
                                     <div class="spinner-border text-primary" role="status">
                                         <span class="visually-hidden">Yükleniyor...</span>
@@ -1130,7 +1130,7 @@
                                 </div>
                             </div>
                             
-                            <!-- Metrikler yüklenirken gösterilen spinner'ı değiştirecek olan içerik -->
+                            <!-- ERSIN Aciklama. -->
                             <div class="row mt-4">
                                 <div class="col-md-6">
                                     <div class="card">
@@ -1196,7 +1196,7 @@
                                     </div>
                                 </div>
                                 
-                                <!-- Yaş Tahmin Modeli Metrikleri -->
+                                <!-- ERSIN Aciklama. -->
                                 <div class="col-md-6">
                                     <div class="card h-100">
                                         <div class="card-header">
@@ -1253,7 +1253,7 @@
                         
                         <div class="tab-pane fade" id="trainingDataTab" role="tabpanel" aria-labelledby="training-data-tab">
                             <div class="row">
-                                <!-- İçerik Analiz Modeli Eğitim Verileri -->
+                                <!-- ERSIN Aciklama. -->
                                 <div class="col-md-6">
                                     <div class="card">
                                         <div class="card-header bg-info text-white">
@@ -1286,7 +1286,7 @@
                                     </div>
                                 </div>
                                 
-                                <!-- Yaş Tahmin Modeli Eğitim Verileri -->
+                                <!-- ERSIN Aciklama. -->
                                 <div class="col-md-6">
                                     <div class="card">
                                         <div class="card-header bg-primary text-white">
@@ -1329,7 +1329,7 @@
         </div>
     </div>
     
-    <!-- Yardım ve Dokümantasyon Modal -->
+    <!-- ERSIN Aciklama. -->
     <div class="modal fade help-modal" id="helpModal" tabindex="-1" aria-labelledby="helpModalLabel" aria-hidden="true">
         <div class="modal-dialog modal-xl">
             <div class="modal-content">
@@ -1341,7 +1341,7 @@
                 </div>
                 <div class="modal-body">
                     <div class="row">
-                        <!-- Sol Menü -->
+                        <!-- ERSIN Aciklama. -->
                         <div class="col-md-3">
                             <div class="nav flex-column nav-pills help-nav" id="v-pills-tab" role="tablist" aria-orientation="vertical">
                                 <button class="nav-link active" id="v-pills-overview-tab" data-bs-toggle="pill" data-bs-target="#v-pills-overview" type="button" role="tab">
@@ -1374,7 +1374,7 @@
                             </div>
                         </div>
                         
-                        <!-- İçerik Alanı - Detaylı yardım içeriği -->
+                        <!-- ERSIN Aciklama. -->
                         <div class="col-md-9">
                             {% include 'help_content.html' %}
                         </div>
@@ -1387,7 +1387,7 @@
         </div>
     </div>
     
-    <!-- Resim Büyütme Modal -->
+    <!-- ERSIN Aciklama. -->
     <div class="modal fade" id="imageZoomModal" tabindex="-1" aria-labelledby="imageZoomModalLabel" aria-hidden="true" data-bs-backdrop="true" data-bs-keyboard="true">
         <div class="modal-dialog modal-lg modal-dialog-centered" style="z-index: 1060; width: 90%; max-width: 800px; margin: 0 auto;">
             <div class="modal-content" style="width: 100%; height: auto;">
@@ -1405,7 +1405,7 @@
         </div>
     </div>
 
-    <!-- Yaş Tahmini Geri Bildirimi için Modal -->
+    <!-- ERSIN Aciklama. -->
     <div class="modal fade" id="ageFeedbackModal" tabindex="-1" aria-labelledby="ageFeedbackModalLabel" aria-hidden="true">
         <div class="modal-dialog">
             <div class="modal-content">
@@ -1448,25 +1448,35 @@
         </div>
     </div>
     
-    <!-- Bootstrap JS -->
+    <!-- ERSIN Aciklama. -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/js/bootstrap.bundle.min.js"></script>
     
-    <!-- Chart.js -->
+    <!-- ERSIN Aciklama. -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     
-    <!-- Socket.IO Client Library -->
+    <!-- ERSIN Aciklama. -->
     <script src="https://cdn.socket.io/3.1.3/socket.io.min.js"></script>
     
-    <!-- WebSocket Client -->
+    <!-- ERSIN F5 load balancer desteği: SocketIO path + API base (video timeline vb.) -->
+    <script>
+        window.SOCKETIO_PATH = "{{ socketio_path }}";
+        {% if socketio_url %}
+        window.SOCKETIO_URL = "{{ socketio_url }}";
+        {% endif %}
+        window.API_BASE = "{{ api_base }}";
+        console.log('[WebSocket Config] Path:', window.SOCKETIO_PATH, 'URL:', window.SOCKETIO_URL || 'window.location.origin kullanılacak', 'API_BASE:', window.API_BASE);
+    </script>
+    
+    <!-- ERSIN Aciklama. -->
     <script src="{{ url_for('static', filename='js/websocket-client.js') }}"></script>
     
-    <!-- Training Stats JS -->
+    <!-- ERSIN Aciklama. -->
     <script src="{{ url_for('static', filename='js/training-stats.js') }}"></script>
     
-    <!-- Main JS - Modular Architecture -->
+    <!-- ERSIN Aciklama. -->
     <script type="module" src="{{ url_for('static', filename='js/main.js') }}"></script>
 
-    <!-- Video Timeline Player Modal -->
+    <!-- ERSIN Aciklama. -->
     <div class="modal fade" id="videoPlayerModal" tabindex="-1" aria-labelledby="videoPlayerModalLabel" aria-hidden="true">
         <div class="modal-dialog modal-lg">
             <div class="modal-content">
@@ -1520,7 +1530,7 @@
         </div>
     </div>
 
-    <!-- Yükleme Göstergesi Overlay -->
+    <!-- ERSIN Aciklama. -->
     <div id="settingsSaveLoader" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5); z-index: 9999; justify-content: center; align-items: center; flex-direction: column; color: white; text-align: center;">
         <div class="spinner-border text-light" role="status" style="width: 3rem; height: 3rem;">
             <span class="visually-hidden">Yükleniyor...</span>

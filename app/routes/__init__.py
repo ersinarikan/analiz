@@ -1,2 +1,2 @@
-# Routes package
-# Tüm API rotaları buradan import edilir 
+# ERSIN Routes package
+# ERSIN Tüm API rotaları buradan import edilir

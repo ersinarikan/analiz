@@ -1,9 +1,4 @@
-/**
- * WSANALIZ - Analysis Manager Module
- * 
- * Bu modül analiz süreçlerini, kuyruk yönetimini ve progress tracking'i yönetir.
- * main.js'ten extract edilmiştir.
- */
+/* ERSIN Aciklama. */
 
 import { 
     uploadedFiles,
@@ -19,15 +14,11 @@ import {
 import { updateFileStatus } from './file-manager.js';
 import { emitSocketEvent, isSocketConnected } from './websocket-manager.js';
 
-// =====================================
-// UTILITY FUNCTIONS
-// =====================================
+// ERSIN =====================================
+// ERSIN UTILITY FUNCTIONS
+// ERSIN =====================================
 
-/**
- * Kategori adlarını Türkçe'ye çevirir
- * @param {string} category - İngilizce kategori adı
- * @returns {string} Türkçe kategori adı
- */
+/* ERSIN Aciklama. */
 function getCategoryNameTurkish(category) {
     const names = {
         'violence': 'Şiddet',
@@ -40,23 +31,19 @@ function getCategoryNameTurkish(category) {
     return names[category] || category;
 }
 
-// =====================================
-// ANALYSIS MANAGEMENT
-// =====================================
+// ERSIN =====================================
+// ERSIN ANALYSIS MANAGEMENT
+// ERSIN =====================================
 
 let queueStatusChecker = null;
-const QUEUE_CHECK_INTERVAL = 10000; // 10 saniye - Rate limiting önlemi
+const QUEUE_CHECK_INTERVAL = 10000;  // ERSIN 10 saniye - Rate limiting önlemi
 
-/**
- * Tüm yüklenen dosyalar için analiz başlatır
- * @param {number} framesPerSecond - Video için FPS
- * @param {boolean} includeAgeAnalysis - Yaş analizi dahil edilsin mi
- */
+/* ERSIN Aciklama. */
 export function startAnalysisForAllFiles(framesPerSecond, includeAgeAnalysis) {
     const settingsSaveLoader = document.getElementById('settingsSaveLoader');
     console.log('[DEBUG] startAnalysisForAllFiles: settingsSaveLoader element:', settingsSaveLoader);
     
-    // Loading spinner göster
+    // ERSIN Loading spinner göster
     if (settingsSaveLoader) {
         settingsSaveLoader.style.display = 'inline-block';
         settingsSaveLoader.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Analiz başlatılıyor...';
@@ -65,31 +52,25 @@ export function startAnalysisForAllFiles(framesPerSecond, includeAgeAnalysis) {
         console.error('[DEBUG] startAnalysisForAllFiles: settingsSaveLoader element BULUNAMADI!');
     }
     
-    // Analiz Et ve Analiz Başlat butonlarını "Analizi Durdur" moduna çevir
+    // ERSIN Analiz Et ve Analiz Başlat butonlarını "Analizi Durdur" moduna çevir
     changeButtonsToStopMode();
     
-    // Her dosya için analiz başlat
+    // ERSIN Her dosya için analiz başlat
     uploadedFiles.forEach(file => {
         if (file.serverFileId) {
-            // File status'ını güncelle
+            // ERSIN File status'ını güncelle
             updateFileStatus(file.id, 'Sırada', 0);
             
-            // Analizi başlat
+            // ERSIN Analizi başlat
             startAnalysis(file.id, file.serverFileId, framesPerSecond, includeAgeAnalysis);
         }
     });
     
-    // Queue status checker'ı başlat
+    // ERSIN Queue status checker'ı başlat
     startQueueStatusChecker();
 }
 
-/**
- * Tek bir dosya için analiz başlatır
- * @param {string} fileId - Client file ID
- * @param {number} serverFileId - Server file ID
- * @param {number} framesPerSecond - Video için FPS
- * @param {boolean} includeAgeAnalysis - Yaş analizi dahil edilsin mi
- */
+/* ERSIN Aciklama. */
 export function startAnalysis(fileId, serverFileId, framesPerSecond, includeAgeAnalysis) {
     const analysisParams = {
         file_id: serverFileId,
@@ -101,7 +82,7 @@ export function startAnalysis(fileId, serverFileId, framesPerSecond, includeAgeA
     console.log("🔍 include_age_analysis değeri:", analysisParams.include_age_analysis);
     console.log("🔍 includeAgeAnalysis parameter değeri:", includeAgeAnalysis);
     
-    // Temporary mapping oluştur (analysis ID gelmeden önce)
+    // ERSIN Temporary mapping oluştur (analysis ID gelmeden önce)
     const tempMappingKey = `temp_${serverFileId}`;
     window.fileIdToCardId = window.fileIdToCardId || {};
     window.fileIdToCardId[tempMappingKey] = fileId;
@@ -120,16 +101,16 @@ export function startAnalysis(fileId, serverFileId, framesPerSecond, includeAgeA
         if (data.analysis) {
             console.log("Analysis started", data);
             
-            // Temporary mapping'i temizle
+            // ERSIN Temporary mapping'i temizle
             delete window.fileIdToCardId[tempMappingKey];
             console.log(`[DEBUG] Temp mapping temizlendi: ${tempMappingKey}`);
             
-            // Real mapping oluştur
+            // ERSIN Real mapping oluştur
             const analysisId = data.analysis.id;
             fileAnalysisMap.set(analysisId, fileId);
             console.log(`[DEBUG] fileAnalysisMap güncellendi: ${analysisId} ${fileId}`, fileAnalysisMap);
             
-            // DOM'da analysis-id attribute'unu set et
+            // ERSIN DOM'da analysis-id attribute'unu set et
             const fileCard = document.getElementById(fileId);
             if (fileCard) {
                 fileCard.setAttribute('data-analysis-id', analysisId);
@@ -142,7 +123,7 @@ export function startAnalysis(fileId, serverFileId, framesPerSecond, includeAgeA
                 }
             }
             
-            // WebSocket analysis room'una katıl
+            // ERSIN WebSocket analysis room'una katıl
             joinAnalysisRoom(analysisId, fileId);
             
         } else {
@@ -156,11 +137,7 @@ export function startAnalysis(fileId, serverFileId, framesPerSecond, includeAgeA
     });
 }
 
-/**
- * WebSocket analysis room'una katılır
- * @param {string} analysisId - Analysis ID
- * @param {string} fileId - File ID
- */
+/* ERSIN Aciklama. */
 function joinAnalysisRoom(analysisId, fileId) {
     console.log(`[DEBUG] WebSocket join kontrolleri:`, {
         analysisId,
@@ -175,12 +152,12 @@ function joinAnalysisRoom(analysisId, fileId) {
         emitSocketEvent('join_analysis', analysisId);
         console.log(`[WebSocket] Analiz odasına katılındı: analysis_${analysisId}`);
         
-        // Alert timeout ayarla (48 saniye)
+        // ERSIN Alert timeout ayarla (48 saniye)
         const alertTimeout = setTimeout(() => {
             console.log(`[DEBUG] 🔥 Alert timeout set for file: ${fileId}`, Date.now());
         }, 48000);
         
-        // Timeout'u global bir yerde sakla (gerekirse iptal etmek için)
+        // ERSIN Timeout'u global bir yerde sakla (gerekirse iptal etmek için)
         if (!window.analysisAlertTimeouts) {
             window.analysisAlertTimeouts = {};
         }
@@ -190,19 +167,17 @@ function joinAnalysisRoom(analysisId, fileId) {
     }
 }
 
-/**
- * Analizi durdur fonksiyonu (Direkt Force Stop)
- */
+/* ERSIN Aciklama. */
 export function stopAnalysis() {
     console.log('[DEBUG] stopAnalysis çağrıldı - Force Stop modunda');
     
-    // Kullanıcı onayı 
+    // ERSIN Kullanıcı onayı
     let userConfirmed = false;
     try {
         userConfirmed = confirm('🚨 ZORLA DURDURMA 🚨\n\n• Tüm aktif analizler zorla durdurulacak\n• Veritabanından silinecek\n• Dosyalar temizlenecek\n• Uygulama restart edilecek\n\nEmin misiniz?');
     } catch(e) {
         console.log('[DEBUG] stopAnalysis: Confirm dialog hatası/engellendi');
-        userConfirmed = false; // Force stop için kesinlikle onay gerekli
+        userConfirmed = false;  // ERSIN Force stop için kesinlikle onay gerekli
     }
     
     if (!userConfirmed) {
@@ -212,13 +187,13 @@ export function stopAnalysis() {
     
     console.log('[DEBUG] stopAnalysis: Force Stop onaylandı, loading başlatılıyor...');
     
-    // Loading overlay göster
+    // ERSIN Loading overlay göster
     showFullPageLoading();
     
-    // Force stop bildirim göster
+    // ERSIN Force stop bildirim göster
     showToast('Zorla Durdurma', 'Aktif analizler zorla durduruluyor...', 'warning');
     
-    // API'ye force-stop isteği gönder
+    // ERSIN API'ye force-stop isteği gönder
     fetch('/api/queue/force-stop', {
         method: 'POST',
         headers: {
@@ -233,20 +208,20 @@ export function stopAnalysis() {
         console.log('[DEBUG] forceStopAnalysis API response:', data);
         
         if (data.force_stopped) {
-            // Başarılı force stop
+            // ERSIN Başarılı force stop
             showToast('Zorla Durduruldu', data.message || 'Tüm analizler zorla durduruldu, sistem restart ediliyor...', 'success');
             
-            // UI'yi temizle
+            // ERSIN UI'yi temizle
             for (const [fileId, status] of fileStatuses.entries()) {
                 updateFileStatus(fileId, "cancelled", 0, null, null);
             }
             resetAnalyzeButton();
             stopQueueStatusChecker();
             
-            // Loading mesajını güncelle
+            // ERSIN Loading mesajını güncelle
             updateLoadingMessage('Uygulama restart ediliyor...', 'Thread\'ler durduruluyor, lütfen bekleyin...');
             
-            // 8 saniye bekle sonra sayfa yenile (thread cleanup + restart)
+            // ERSIN 8 saniye bekle sonra sayfa yenile (thread cleanup + restart)
             setTimeout(() => {
                 console.log('[DEBUG] forceStopAnalysis: Sayfa yeniden yükleniyor (restart bekleniyor)...');
                 updateLoadingMessage('Sayfa yeniden yükleniyor...', 'Sistem restart tamamlanıyor.');
@@ -265,11 +240,9 @@ export function stopAnalysis() {
     });
 }
 
-/**
- * Full page loading overlay göster
- */
+/* ERSIN Aciklama. */
 function showFullPageLoading() {
-    // Mevcut loading overlay'i kaldır
+    // ERSIN Mevcut loading overlay'i kaldır
     hideFullPageLoading();
     
     const loadingHTML = `
@@ -300,23 +273,19 @@ function showFullPageLoading() {
     `;
     
     document.body.insertAdjacentHTML('beforeend', loadingHTML);
-    document.body.style.overflow = 'hidden'; // Scroll'u engelle
+    document.body.style.overflow = 'hidden';  // ERSIN Scroll'u engelle
 }
 
-/**
- * Full page loading overlay gizle
- */
+/* ERSIN Aciklama. */
 function hideFullPageLoading() {
     const loadingElement = document.getElementById('fullPageLoading');
     if (loadingElement) {
         loadingElement.remove();
-        document.body.style.overflow = ''; // Scroll'u geri getir
+        document.body.style.overflow = '';  // ERSIN Scroll'u geri getir
     }
 }
 
-/**
- * Loading mesajını güncelle
- */
+/* ERSIN Aciklama. */
 function updateLoadingMessage(title, message) {
     const titleElement = document.getElementById('loadingTitle');
     const messageElement = document.getElementById('loadingMessage');
@@ -325,19 +294,17 @@ function updateLoadingMessage(title, message) {
     if (messageElement) messageElement.textContent = message;
 }
 
-/**
- * Zorla analizi durdur fonksiyonu (CTRL+C benzeri + VT temizlik + restart)
- */
+/* ERSIN Aciklama. */
 export function forceStopAnalysis() {
     console.log('[DEBUG] forceStopAnalysis çağrıldı');
     
-    // Kullanıcı onayı - Bu daha ciddi bir işlem
+    // ERSIN Kullanıcı onayı - Bu daha ciddi bir işlem
     let userConfirmed = false;
     try {
         userConfirmed = confirm('🚨 ZORLA DURDURMA 🚨\n\n• Tüm aktif analizler zorla durdurulacak\n• Veritabanından silinecek\n• Dosyalar temizlenecek\n• Uygulama restart edilecek\n\nBu işlem geri alınamaz! Emin misiniz?');
     } catch(e) {
         console.log('[DEBUG] forceStopAnalysis: Confirm dialog hatası/engellendi');
-        userConfirmed = false; // Force stop için kesinlikle onay gerekli
+        userConfirmed = false;  // ERSIN Force stop için kesinlikle onay gerekli
     }
     
     if (!userConfirmed) {
@@ -347,10 +314,10 @@ export function forceStopAnalysis() {
     
     console.log('[DEBUG] forceStopAnalysis: Zorla durdurma onaylandı, API çağrısı yapılıyor...');
     
-    // Force stop bildirim göster
+    // ERSIN Force stop bildirim göster
     showToast('Zorla Durdurma', 'Aktif analizler zorla durduruluyor...', 'warning');
     
-    // API'ye force-stop isteği gönder
+    // ERSIN API'ye force-stop isteği gönder
     fetch('/api/queue/force-stop', {
         method: 'POST',
         headers: {
@@ -365,17 +332,17 @@ export function forceStopAnalysis() {
         console.log('[DEBUG] forceStopAnalysis API response:', data);
         
         if (data.force_stopped) {
-            // Başarılı force stop
+            // ERSIN Başarılı force stop
             showToast('Zorla Durduruldu', data.message || 'Tüm analizler zorla durduruldu, sistem restart ediliyor...', 'success');
             
-            // UI'yi temizle
+            // ERSIN UI'yi temizle
             for (const [fileId, status] of fileStatuses.entries()) {
                 updateFileStatus(fileId, "cancelled", 0, null, null);
             }
             resetAnalyzeButton();
             stopQueueStatusChecker();
             
-            // 3 saniye bekle sonra sayfa yenile (uygulama restart olacak)
+            // ERSIN 3 saniye bekle sonra sayfa yenile (uygulama restart olacak)
             setTimeout(() => {
                 console.log('[DEBUG] forceStopAnalysis: Sayfa yeniden yükleniyor (restart bekleniyor)...');
                 window.location.reload();
@@ -391,21 +358,19 @@ export function forceStopAnalysis() {
     });
 }
 
-/**
- * Analyze butonlarını "Durdur" moduna çevirir
- */
+/* ERSIN Aciklama. */
 function changeButtonsToStopMode() {
-    // "Analiz Et" butonunu direkt "Force Stop" butonu olarak değiştir
+    // ERSIN "Analiz Et" butonunu direkt "Force Stop" butonu olarak değiştir
     const analyzeBtn = document.getElementById('analyzeBtn');
     if (analyzeBtn) {
         analyzeBtn.innerHTML = '<i class="fas fa-power-off me-1"></i> Analizi Durdur';
         analyzeBtn.className = 'btn btn-danger';
         
-        // 🔧 TÜM EVENT LISTENER'LARI TEMİZLE
+        // ERSIN 🔧 TÜM EVENT LISTENER'LARI TEMİZLE
         const newAnalyzeBtn = analyzeBtn.cloneNode(true);
         analyzeBtn.parentNode.replaceChild(newAnalyzeBtn, analyzeBtn);
         
-        // Sadece stopAnalysis handler'ını ekle (artık force stop)
+        // ERSIN Sadece stopAnalysis handler'ını ekle (artık force stop)
         newAnalyzeBtn.onclick = function(e) {
             e.preventDefault();
             e.stopPropagation();
@@ -415,17 +380,17 @@ function changeButtonsToStopMode() {
         console.log('[DEBUG] Analiz Et butonu -> Force Stop butonu olarak değiştirildi');
     }
     
-    // Ana sayfadaki "Analiz Başlat" butonunu da force stop butonu olarak değiştir
+    // ERSIN Ana sayfadaki "Analiz Başlat" butonunu da force stop butonu olarak değiştir
     const startAnalysisMainBtn = document.getElementById('startAnalysisMainBtn');
     if (startAnalysisMainBtn) {
         startAnalysisMainBtn.innerHTML = '<i class="fas fa-power-off me-2"></i>Analizi Durdur';
         startAnalysisMainBtn.className = 'btn btn-danger btn-lg me-3';
         
-        // 🔧 TÜM EVENT LISTENER'LARI TEMİZLE
+        // ERSIN 🔧 TÜM EVENT LISTENER'LARI TEMİZLE
         const newStartAnalysisMainBtn = startAnalysisMainBtn.cloneNode(true);
         startAnalysisMainBtn.parentNode.replaceChild(newStartAnalysisMainBtn, startAnalysisMainBtn);
         
-        // Sadece stopAnalysis handler'ını ekle (artık force stop)
+        // ERSIN Sadece stopAnalysis handler'ını ekle (artık force stop)
         newStartAnalysisMainBtn.onclick = function(e) {
             e.preventDefault();
             e.stopPropagation();
@@ -436,44 +401,42 @@ function changeButtonsToStopMode() {
     }
 }
 
-/**
- * Analyze butonlarını orijinal haline döndürür
- */
+/* ERSIN Aciklama. */
 export function resetAnalyzeButton() {
-    // "Analizi Durdur" butonunu "Analiz Et" olarak değiştir
+    // ERSIN "Analizi Durdur" butonunu "Analiz Et" olarak değiştir
     const analyzeBtn = document.getElementById('analyzeBtn');
     if (analyzeBtn) {
         analyzeBtn.innerHTML = '<i class="fas fa-play me-1"></i> Analiz Et';
         analyzeBtn.className = 'btn btn-primary';
         
-        // 🔧 TÜM EVENT LISTENER'LARI TEMİZLE
+        // ERSIN 🔧 TÜM EVENT LISTENER'LARI TEMİZLE
         const newAnalyzeBtn = analyzeBtn.cloneNode(true);
         analyzeBtn.parentNode.replaceChild(newAnalyzeBtn, analyzeBtn);
         
-        // Yeni referansı al ve orijinal event listener'ı ekle
+        // ERSIN Yeni referansı al ve orijinal event listener'ı ekle
         const newAnalyzeBtnRef = document.getElementById('analyzeBtn');
         newAnalyzeBtnRef.onclick = function(e) {
             e.preventDefault();
             e.stopPropagation();
             if (uploadedFiles.length > 0) {
-                // Analiz parametreleri modalını aç (ANLIK AYARLAR İÇİN YENİ MODAL)
+                // ERSIN Analiz parametreleri modalını aç (ANLIK AYARLAR İÇİN YENİ MODAL)
                 const modal = new bootstrap.Modal(document.getElementById('runAnalysisSettingsModal'));
                 modal.show();
             }
         };
     }
     
-    // Ana sayfadaki butonu da değiştir
+    // ERSIN Ana sayfadaki butonu da değiştir
     const startAnalysisMainBtn = document.getElementById('startAnalysisMainBtn');
     if (startAnalysisMainBtn) {
         startAnalysisMainBtn.innerHTML = '<i class="fas fa-upload me-2"></i>Dosya Ekle ve Analiz Et';
         startAnalysisMainBtn.className = 'btn btn-primary btn-lg me-3';
         
-        // 🔧 TÜM EVENT LISTENER'LARI TEMİZLE
+        // ERSIN 🔧 TÜM EVENT LISTENER'LARI TEMİZLE
         const newStartAnalysisMainBtn = startAnalysisMainBtn.cloneNode(true);
         startAnalysisMainBtn.parentNode.replaceChild(newStartAnalysisMainBtn, startAnalysisMainBtn);
         
-        // Yeni referansı al ve orijinal event listener'ı ekle
+        // ERSIN Yeni referansı al ve orijinal event listener'ı ekle
         const newStartAnalysisMainBtnRef = document.getElementById('startAnalysisMainBtn');
         newStartAnalysisMainBtnRef.onclick = function(e) {
             e.preventDefault();
@@ -483,21 +446,19 @@ export function resetAnalyzeButton() {
     }
 }
 
-// =====================================
-// QUEUE STATUS MANAGEMENT
-// =====================================
+// ERSIN =====================================
+// ERSIN QUEUE STATUS MANAGEMENT
+// ERSIN =====================================
 
-/**
- * Queue status checker'ı başlatır
- */
+/* ERSIN Aciklama. */
 export function startQueueStatusChecker() {
-    // Önceki checker'ı temizle
+    // ERSIN Önceki checker'ı temizle
     if (queueStatusChecker) {
         clearInterval(queueStatusChecker);
         queueStatusChecker = null;
     }
     
-    // Global duplicate prevention
+    // ERSIN Global duplicate önlemekion
     if (window.queueStatusActive) {
         console.log('⚠️ Queue status checker zaten aktif - duplikasyon önlendi');
         return;
@@ -512,24 +473,20 @@ export function startQueueStatusChecker() {
     console.log(`🔄 Queue status checker başlatıldı (${QUEUE_CHECK_INTERVAL}ms interval)`);
 }
 
-/**
- * Queue status checker'ı durdurur
- */
+/* ERSIN Aciklama. */
 export function stopQueueStatusChecker() {
     if (queueStatusChecker) {
         clearInterval(queueStatusChecker);
         queueStatusChecker = null;
     }
     
-    // Global flag'i temizle
+    // ERSIN Global flag'i temizle
     window.queueStatusActive = false;
     
     console.log('🛑 Queue status checker durduruldu');
 }
 
-/**
- * Queue status'ını kontrol eder
- */
+/* ERSIN Aciklama. */
 function checkQueueStatus() {
     fetch(`${API_URL}/queue/status`)
     .then(response => response.json())
@@ -541,33 +498,29 @@ function checkQueueStatus() {
     });
 }
 
-/**
- * Genel kuyruk durumunu günceller
- */
+/* ERSIN Aciklama. */
 function updateQueueStatus(response) {
     console.log('🔄 İlk yükleme - Queue status:', response);
     
-    // Overall progress bar sistemini güncelle
+    // ERSIN Overall progress bar sistemini güncelle
     updateOverallProgress(response);
     
-    // Queue display'i güncelle
+    // ERSIN Queue display'i güncelle
     updateQueueDisplay(response);
     
-    // Buton state'ini güncelle
+    // ERSIN Buton state'ini güncelle
     updateButtonStateBasedOnQueue(response.queue_size, response.is_processing);
     
     if (response.queue_size === 0 && !response.is_processing) {
         console.log('Kuyruk boş ve işlem yok, status checker durduruluyor');
         stopQueueStatusChecker();
         
-        // Tüm analizler tamamlandığını kontrol et
+        // ERSIN Tüm analizler tamamlandığını kontrol et
         checkAllAnalysesCompleted();
     }
 }
 
-/**
- * 🎯 Overall progress bar ve status mesajlarını günceller
- */
+/* ERSIN Aciklama. */
 function updateOverallProgress(queueData) {
     const overallProgressBar = document.getElementById('overall-progress-bar');
     const overallProgressText = document.getElementById('overall-progress-text');
@@ -578,9 +531,9 @@ function updateOverallProgress(queueData) {
         return;
     }
     
-    // NOTE: uploadedFiles içine "recent/stored analyses restore" için fake kayıtlar da eklenebiliyor.
-    // Genel ilerleme sayacı sadece bu oturumda gerçekten upload edilmiş dosyaları göstermeli.
-    // Bu yüzden serverFileId'si olanları "aktif upload" kabul ediyoruz.
+    // ERSIN Not: uploadedFiles içine "recent/stored analyses restore" için fake kayıtlar da eklenebiliyor.
+    // ERSIN Genel ilerleme sayacı sadece bu oturumda gerçekten upload edilmiş dosyaları göstermeli.
+    // ERSIN Bu yüzden serverFileId'si olanları "aktif upload" kabul ediyoruz.
     const activeFiles = uploadedFiles.filter(f => f && f.serverFileId !== undefined && f.serverFileId !== null);
     const activeFileIds = new Set(activeFiles.map(f => f.id));
     const totalFiles = activeFiles.length;
@@ -588,27 +541,27 @@ function updateOverallProgress(queueData) {
     const queueSize = queueData.queue_size || 0;
     const isProcessing = queueData.is_processing || false;
     
-    // Progress hesaplama
+    // ERSIN Progress hesaplama
     let progressPercent = 0;
     if (totalFiles > 0) {
         progressPercent = Math.round((completedFiles / totalFiles) * 100);
     }
     
-    // 🎯 OVERALL PROGRESS BAR GÖRÜNÜRLÜK KONTROLÜ
-    // Sadece 2+ dosya varsa göster
+    // ERSIN 🎯 OVERALL PROGRESS BAR GÖRÜNÜRLÜK KONTROLÜ
+    // ERSIN Sadece 2+ dosya varsa göster
     if (totalFiles >= 2) {
         if (overallProgressContainer) {
             overallProgressContainer.style.display = 'block';
         }
         
-        // Progress bar güncelle
+        // ERSIN Progress bar güncelle
         overallProgressBar.style.width = `${progressPercent}%`;
         overallProgressBar.setAttribute('aria-valuenow', progressPercent);
         
-        // Text güncelle
+        // ERSIN Text güncelle
         overallProgressText.textContent = `${completedFiles}/${totalFiles} dosya`;
         
-        // Renk ve animasyon durumları
+        // ERSIN Renk ve animasyon durumları
         if (completedFiles === totalFiles) {
             overallProgressText.textContent = `✅ ${completedFiles}/${totalFiles} dosya tamamlandı`;
             overallProgressBar.className = 'progress-bar bg-success';
@@ -622,7 +575,7 @@ function updateOverallProgress(queueData) {
         
         console.log(`✅ Overall Progress Bar: ${completedFiles}/${totalFiles} (${progressPercent}%) - Queue: ${queueSize}, Processing: ${isProcessing}`);
     } else {
-        // 1 dosya veya hiç dosya yoksa gizle
+        // ERSIN 1 dosya veya hiç dosya yoksa gizle
         if (overallProgressContainer) {
             overallProgressContainer.style.display = 'none';
         }
@@ -630,9 +583,7 @@ function updateOverallProgress(queueData) {
     }
 }
 
-/**
- * 🎯 Queue status display'ini günceller  
- */
+/* ERSIN Aciklama. */
 function updateQueueDisplay(queueData) {
     const queueStatus = document.getElementById('queueStatus');
     if (!queueStatus) return;
@@ -652,20 +603,16 @@ function updateQueueDisplay(queueData) {
     }
 }
 
-/**
- * 🎯 Queue durumuna göre buton state'ini günceller
- * @param {number} queueSize - Kuyruktaki dosya sayısı
- * @param {boolean} isProcessing - İşlem devam ediyor mu
- */
+/* ERSIN Aciklama. */
 function updateButtonStateBasedOnQueue(queueSize, isProcessing) {
-    // Local olarak herhangi bir dosya halen işleniyor mu?
+    // ERSIN Local olarak herhangi bir dosya halen işleniyor mu?
     const hasActiveLocalProcessing = Array.from(fileStatuses.values()).some(
         status => status === 'processing' || status === 'queued' || status === 'Sırada'
     );
     
     const hasActiveQueue = queueSize > 0 || isProcessing || hasActiveLocalProcessing;
     
-    // Mevcut buton durumunu kontrol et
+    // ERSIN Mevcut buton durumunu kontrol et
     const analyzeBtn = document.getElementById('analyzeBtn');
     if (!analyzeBtn) return;
     
@@ -673,21 +620,19 @@ function updateButtonStateBasedOnQueue(queueSize, isProcessing) {
     
     console.log(`🔄 Button state check: queueSize=${queueSize}, isProcessing=${isProcessing}, hasActiveLocalProcessing=${hasActiveLocalProcessing}, hasActiveQueue=${hasActiveQueue}, isCurrentlyStopMode=${isCurrentlyStopMode}`);
     
-    // Queue aktifse ve buton henüz "Durdur" modunda değilse
+    // ERSIN Queue aktifse ve buton henüz "Durdur" modunda değilse
     if (hasActiveQueue && !isCurrentlyStopMode) {
         console.log('📍 Queue aktif - butonu "Durdur" moduna çeviriliyor');
         changeButtonsToStopMode();
     }
-    // Hiçbir analiz yoksa "Analiz Et" moduna dön
+    // ERSIN Hiçbir analiz yoksa "Analiz Et" moduna dön
     else if (!hasActiveQueue && isCurrentlyStopMode) {
         console.log('📍 Queue boş - butonu "Analiz Et" moduna çeviriliyor');
         resetAnalyzeButton();
     }
 }
 
-/**
- * Tüm analizlerin tamamlanıp tamamlanmadığını kontrol eder
- */
+/* ERSIN Aciklama. */
 function checkAllAnalysesCompleted() {
     const activeFiles = uploadedFiles.filter(f => f && f.serverFileId !== undefined && f.serverFileId !== null);
     const activeFileIds = new Set(activeFiles.map(f => f.id));
@@ -698,23 +643,21 @@ function checkAllAnalysesCompleted() {
         console.log('🎉 Tüm analizler tamamlandı!');
         showToast('Başarılı', 'Tüm analizler tamamlandı!', 'success');
         
-        // Butonları reset et
+        // ERSIN Butonları reset et
         resetAnalyzeButton();
         
-        // Loading spinner'ı gizle
+        // ERSIN Loading spinner'ı gizle
         const settingsSaveLoader = document.getElementById('settingsSaveLoader');
         if (settingsSaveLoader) {
             settingsSaveLoader.style.display = 'none';
         }
         
-        // 🎯 Overall progress bar'ı final state'e güncelle
+        // ERSIN 🎯 Overall progress bar'ı final state'e güncelle
         updateOverallProgress({ queue_size: 0, is_processing: false });
     }
 }
 
-/**
- * Tamamlanan analiz sayısını döndürür
- */
+/* ERSIN Aciklama. */
 function getCompletedAnalysesCount(activeFileIds = null) {
     let completedCount = 0;
     for (const [fileId, status] of fileStatuses.entries()) {
@@ -728,27 +671,24 @@ function getCompletedAnalysesCount(activeFileIds = null) {
     return completedCount;
 }
 
-// =====================================
-// ANALYSIS PROGRESS HANDLING
-// =====================================
+// ERSIN =====================================
+// ERSIN ANALYSIS PROGRESS HANDLING
+// ERSIN =====================================
 
-/**
- * Analysis progress event'ini işler
- * @param {Object} data - Progress data
- */
+/* ERSIN Aciklama. */
 export function handleAnalysisProgress(data) {
     const analysisId = data.analysis_id;
     const progress = data.progress || 0;
     const message = data.message || '';
     
-    // Analysis ID'den file ID'yi bul
+    // ERSIN Analysis ID'den file ID'yi bul
     const fileId = fileAnalysisMap.get(analysisId);
     if (fileId) {
-        // Processing status tespit et
+        // ERSIN Processing status tespit et
         if (data.status === 'processing' || progress > 0) {
             console.log(`[DEBUG] updateFileStatus - Processing status tespit edildi, progress: ${progress} , mesaj: ${message}`);
             
-            // Loading spinner'ı gizle (processing başladığında)
+            // ERSIN Loading spinner'ı gizle (processing başladığında)
             const settingsSaveLoader = document.getElementById('settingsSaveLoader');
             if (settingsSaveLoader && settingsSaveLoader.style.display !== 'none') {
                 settingsSaveLoader.style.display = 'none';
@@ -760,16 +700,13 @@ export function handleAnalysisProgress(data) {
     }
 }
 
-/**
- * Analysis completed event'ini işler
- * @param {Object} data - Completion data
- */
+/* ERSIN Aciklama. */
 export function handleAnalysisCompleted(data) {
     const analysisId = data.analysis_id;
     const message = data.message || 'Analiz tamamlandı';
     const success = data.success !== false;
     
-    // Analysis ID'den file ID'yi bul
+    // ERSIN Analysis ID'den file ID'yi bul
     const fileId = fileAnalysisMap.get(analysisId);
     if (fileId) {
         const status = success ? 'completed' : 'failed';
@@ -777,19 +714,19 @@ export function handleAnalysisCompleted(data) {
         
         updateFileStatus(fileId, status, progress, message);
         
-        // Alert timeout'u temizle
+        // ERSIN Alert timeout'u temizle
         if (window.analysisAlertTimeouts && window.analysisAlertTimeouts[fileId]) {
             clearTimeout(window.analysisAlertTimeouts[fileId]);
             delete window.analysisAlertTimeouts[fileId];
         }
         
-        // 🎯 OTOMATİK SONUÇ GÖSTERİMİ (yedek main.js'teki gibi)
+        // ERSIN 🎯 OTOMATİK SONUÇ GÖSTERİMİ (yedek main.js'teki gibi)
         if (success) {
             try {
                 console.log(`🎉 Analiz tamamlandı, sonuçlar getiriliyor: ${fileNameFromId(fileId)}`);
                 getAnalysisResults(fileId, analysisId);
                 
-                // 💾 localStorage'a ekle (persistent storage için)
+                // ERSIN 💾 localStorage'a ekle (persistent storage için)
                 if (window.addAnalysisToLocalStorage) {
                     window.addAnalysisToLocalStorage(fileId, analysisId, fileNameFromId(fileId));
                 }
@@ -804,13 +741,11 @@ export function handleAnalysisCompleted(data) {
     }
 }
 
-// =====================================
-// ANALYSIS RESULTS DISPLAY (from backup main.js)
-// =====================================
+// ERSIN =====================================
+// ERSIN ANALYSIS RESULTS DISPLAY (from backup main.js)
+// ERSIN =====================================
 
-/**
- * Analiz sonuçlarını API'den alır (Yedek main.js'ten)
- */
+/* ERSIN Aciklama. */
 export function getAnalysisResults(fileId, analysisId, isPartial = false) {
     console.log(`Analiz sonuçları alınıyor: fileId=${fileId}, analysisId=${analysisId}, partial=${isPartial}`);
     
@@ -822,7 +757,7 @@ export function getAnalysisResults(fileId, analysisId, isPartial = false) {
         return;
     }
     
-    // Yükleme göstergesi ekle
+    // ERSIN Yükleme göstergesi ekle
     const resultsList = document.getElementById('resultsList');
     if (resultsList && !isPartial) {
         const existingLoading = document.getElementById(`loading-${fileId}`);
@@ -835,7 +770,7 @@ export function getAnalysisResults(fileId, analysisId, isPartial = false) {
         }
     }
     
-    // 🎯 RATE LIMITING İÇİN RETRY MECHANISM
+    // ERSIN 🎯 RATE LIMITING İÇİN RETRY MECHANISM
     const fetchWithRetry = async (url, retries = 3, delay = 2000) => {
         for (let i = 0; i < retries; i++) {
             try {
@@ -844,7 +779,7 @@ export function getAnalysisResults(fileId, analysisId, isPartial = false) {
                     if (i < retries - 1) {
                         console.log(`⚠️ Rate limit (429) - ${delay}ms bekleyip yeniden deneniyor... (${i + 1}/${retries})`);
                         await new Promise(resolve => setTimeout(resolve, delay));
-                        delay *= 2; // Exponential backoff
+                        delay *= 2;  // ERSIN Exponential backoff
                         continue;
                     }
                 }
@@ -862,16 +797,21 @@ export function getAnalysisResults(fileId, analysisId, isPartial = false) {
     
     fetchWithRetry(`/api/analysis/${analysisId}/detailed-results`)
     .then(data => {
+        // ERSIN 404 durumunda null dönebilir
+        if (data === null) {
+            console.log(`ℹ️ Analiz sonuçları alınamadı (404) - analiz muhtemelen temizlendi: ${analysisId}`);
+            return;  // ERSIN Sessizce çık, hata gösterme
+        }
         console.log(`Analiz sonuçları alındı (${analysisId}):`, data);
         
-        // String ise tekrar parse et
+        // ERSIN String ise tekrar parse et
         if (typeof data === 'string') {
             console.log('JSON string detected, parsing again...');
             data = JSON.parse(data);
         }
 
-        // Backend failed/pending/cancelled için artık 200 + error payload dönebiliyor.
-        // Bu durumda UI'ı hata durumuna çek ve sonuç render etmeye çalışma.
+        // ERSIN Backend failed/pending/cancelled için artık 200 + error payload dönebiliyor.
+        // ERSIN Bu durumda UI'ı hata durumuna çek ve sonuç render etmeye çalışma.
         if (data && data.error && data.status && data.status !== 'completed' && !isPartial) {
             console.warn(`Analiz tamamlanmadı (${analysisId}) status=${data.status}:`, data);
             const loadingEl = document.getElementById(`loading-${fileId}`);
@@ -882,7 +822,7 @@ export function getAnalysisResults(fileId, analysisId, isPartial = false) {
             return;
         }
         
-        // Yükleme göstergesini kaldır
+        // ERSIN Yükleme göstergesini kaldır
         const loadingEl = document.getElementById(`loading-${fileId}`);
         if (loadingEl) loadingEl.remove();
         
@@ -890,7 +830,7 @@ export function getAnalysisResults(fileId, analysisId, isPartial = false) {
             throw new Error("Analiz sonuç verisi boş");
         }
         
-        // Sonuçları göster
+        // ERSIN Sonuçları göster
         try {
             displayAnalysisResults(fileId, data);
         } catch (displayError) {
@@ -898,10 +838,10 @@ export function getAnalysisResults(fileId, analysisId, isPartial = false) {
             showToast('Hata', `Sonuçlar alındı fakat gösterilirken hata oluştu: ${displayError.message}`, 'error');
         }
         
-        // Sonuçlar bölümünü görünür yap
+        // ERSIN Sonuçlar bölümünü görünür yap
         document.getElementById('resultsSection').style.display = 'block';
         
-        // Buton durumunu reset et
+        // ERSIN Buton durumunu reset et
         resetAnalyzeButton();
     })
     .catch(error => {
@@ -915,19 +855,17 @@ export function getAnalysisResults(fileId, analysisId, isPartial = false) {
     });
 }
 
-/**
- * Analiz sonuçlarını UI'da gösterir (Yedek main.js'ten - sadeleştirilmiş)
- */
+/* ERSIN Aciklama. */
 function displayAnalysisResults(fileId, results) {
     console.log(`Analiz sonuçları gösteriliyor: fileId=${fileId}`, results);
     
-    // Video filename'i global olarak sakla (kategori bazlı timestamp'lar için)
+    // ERSIN Video filename'i global olarak sakla (kategori bazlı timestamp'lar için)
     window.currentVideoFilename = results.file_filename || null;
     
-    // Sonuçlar bölümünü görünür yap
+    // ERSIN Sonuçlar bölümünü görünür yap
     document.getElementById('resultsSection').style.display = 'block';
     
-    // Dosya bilgisini al
+    // ERSIN Dosya bilgisini al
     const file = uploadedFiles.find(f => f.id === fileId);
     
     if (!file) {
@@ -935,7 +873,7 @@ function displayAnalysisResults(fileId, results) {
         return;
     }
     
-    // Sonuç kartı template'ini klonla
+    // ERSIN Sonuç kartı template'ini klonla
     const template = document.getElementById('resultCardTemplate');
     if (!template) {
         console.error('resultCardTemplate bulunamadı!');
@@ -944,10 +882,10 @@ function displayAnalysisResults(fileId, results) {
     
     const resultCard = template.content.cloneNode(true);
     
-    // Benzersiz ID'ler için rastgele suffix
+    // ERSIN Benzersiz ID'ler için rastgele suffix
     const uniqueSuffix = Math.random().toString(36).substr(2, 9);
     
-    // Tab ID'lerini benzersiz yap
+    // ERSIN Tab ID'lerini benzersiz yap
     const tabs = resultCard.querySelectorAll('[id$="-tab"]');
     tabs.forEach(tab => {
         const originalId = tab.id;
@@ -966,7 +904,7 @@ function displayAnalysisResults(fileId, results) {
         }
     });
     
-    // 18 yaş altı kontrolü
+    // ERSIN 18 yaş altı kontrolü
     let hasUnder18 = false;
     if (results.age_estimations && Array.isArray(results.age_estimations) && results.age_estimations.length > 0) {
         hasUnder18 = results.age_estimations.some(item => {
@@ -975,12 +913,12 @@ function displayAnalysisResults(fileId, results) {
         });
     }
     
-    // Dosya adını ayarla
+    // ERSIN Dosya adını ayarla
     const fileNameElement = resultCard.querySelector('.result-filename');
     if (fileNameElement) {
         fileNameElement.textContent = file.name;
         
-        // 18 yaş altı uyarısı
+        // ERSIN 18 yaş altı uyarısı
         if (hasUnder18) {
             const warningBadge = document.createElement('span');
             warningBadge.className = 'badge bg-danger ms-2';
@@ -989,7 +927,7 @@ function displayAnalysisResults(fileId, results) {
         }
     }
     
-    // 18 yaş altı genel uyarısı
+    // ERSIN 18 yaş altı genel uyarısı
     if (hasUnder18) {
         const cardHeader = resultCard.querySelector('.card-header');
         if (cardHeader) {
@@ -1005,7 +943,7 @@ function displayAnalysisResults(fileId, results) {
         }
     }
     
-    // Risk skorlarını göster
+    // ERSIN Risk skorlarını göster
     const riskScoresContainer = resultCard.querySelector('.risk-scores-container');
     if (riskScoresContainer && results.overall_scores && typeof results.overall_scores === 'object' && Object.keys(results.overall_scores).length > 0) {
         console.log(`Risk skorları gösteriliyor (${file.name}):`, results.overall_scores);
@@ -1015,12 +953,22 @@ function displayAnalysisResults(fileId, results) {
         infoText.innerHTML = '<small><i class="fas fa-info-circle me-1"></i> Bu skorlar içeriğin tamamı için hesaplanan ortalama risk değerlerini gösterir.</small>';
         riskScoresContainer.appendChild(infoText);
         
-        // Risk skorları için progress barlar
+        // ERSIN Risk skorları için progress barlar
         Object.entries(results.overall_scores).forEach(([category, score]) => {
             const scorePercentage = Math.round(score * 100);
             let badgeClass = 'bg-success';
-            if (scorePercentage > 70) badgeClass = 'bg-danger';
-            else if (scorePercentage > 40) badgeClass = 'bg-warning';
+            
+            // ERSIN Safe kategorisi için ters mantık: yüksek değer = iyi (mavi), düşük değer = kötü (kırmızı)
+            if (category === 'safe') {
+                if (scorePercentage < 30) badgeClass = 'bg-danger';  // ERSIN Çok düşük güvenlik = Kırmızı
+                else if (scorePercentage < 60) badgeClass = 'bg-warning';  // ERSIN Orta güvenlik = Sarı
+                else badgeClass = 'bg-info';  // ERSIN Yüksek güvenlik = Mavi
+            } else {
+                // ERSIN Diğer kategoriler için normal mantık: yüksek değer = kötü (kırmızı)
+                if (scorePercentage > 70) badgeClass = 'bg-danger';
+                else if (scorePercentage > 40) badgeClass = 'bg-warning';
+                else badgeClass = 'bg-success';
+            }
             
             const scoreElement = document.createElement('div');
             scoreElement.className = 'mb-2';
@@ -1037,27 +985,34 @@ function displayAnalysisResults(fileId, results) {
         });
     }
     
-    // 🎯 EN YÜKSEK RİSKLİ KARE'yi main card'da göster
+    // ERSIN 🎯 EN YÜKSEK RİSKLİ KARE'yi main card'da göster
     displayMainHighestRiskFrame(resultCard, results, file);
     
-    // === CONSOLE DEBUG === 
+    // ERSIN === CONSOLE DEBUG ===
     console.log('🔍 AGE ESTIMATIONS DEBUG:');
     console.log('results.age_estimations:', results.age_estimations);
     console.log('results.age_analysis:', results.age_analysis);
     console.log('results.include_age_analysis:', results.include_age_analysis);
     console.log('Full results object keys:', Object.keys(results));
     
-    // Yaş tahminlerini göster (yedek main.js'ten - detaylı versiyon)
-    if ((results.age_estimations && results.age_estimations.length > 0) || 
+    // ERSIN Yaş tahminlerini göster (yedek main.js'ten - detaylı versiyon)
+    // ERSIN include_age_analysis true ise ama age_estimations boşsa, bilgilendirme mesajı göster
+    if (results.include_age_analysis && (!results.age_estimations || results.age_estimations.length === 0) && (!results.age_analysis || results.age_analysis.length === 0)) {
+        console.warn('⚠️ Yaş tahmini istenmişti ama sonuç bulunamadı - muhtemelen yüz tespit edilmedi');
+        const detailsTab = resultCard.querySelector('.tab-content .tab-pane:nth-child(2)') || resultCard.querySelector('#details');
+        if (detailsTab) {
+            detailsTab.innerHTML += '<div class="alert alert-warning mt-3"><i class="fas fa-exclamation-triangle me-2"></i>Yaş tahmini istenmişti ancak bu dosyada tespit edilen yüz bulunamadı.</div>';
+        }
+    } else if ((results.age_estimations && results.age_estimations.length > 0) || 
         (results.age_analysis && results.age_analysis.length > 0)) {
         const detailsTab = resultCard.querySelector('.tab-content .tab-pane:nth-child(2)') || resultCard.querySelector('#details');
         if (detailsTab) {
             try {
-                // Backend'in döndüğü veri yapısına göre uygun değişkeni seç
+                // ERSIN Backend'in döndüğü veri yapısına göre uygun değişkeni seç
                 const ageData = results.age_estimations || results.age_analysis || [];
                 console.log('Yaş tahmini işlenen veriler:', ageData.length, 'kayıt bulundu');
 
-                // En yüksek confidence'lı kaydı seç
+                // ERSIN En yüksek confidence'lı kaydı seç
                 const faces = {};
                 ageData.forEach(item => {
                     const faceId = item.person_id || item.face_id || 'unknown';
@@ -1094,7 +1049,7 @@ function displayAnalysisResults(fileId, results) {
                         const col = document.createElement('div');
                         col.className = 'col-md-6 mb-4';
                         
-                        // 18 yaş altı kontrolü
+                        // ERSIN 18 yaş altı kontrolü
                         const isUnderAge = face.age < 18;
                         const ageClass = isUnderAge ? 'border-danger bg-danger-subtle' : '';
                         const ageWarning = isUnderAge ? 
@@ -1102,16 +1057,12 @@ function displayAnalysisResults(fileId, results) {
                                 <small><i class="fas fa-exclamation-triangle me-1"></i> <strong>Dikkat:</strong> 18 yaş altında birey tespit edildi!</small>
                             </div>` : '';
                         
-                        // Görsel URL'sini oluştur
+                        // ERSIN Görsel URL'sini oluştur (F5: getApiFilesUrl)
                         let frameUrl = '';
                         if (face.processed_image_path) {
                             const path = face.processed_image_path;
-                            if (path.startsWith('uploads/')) {
-                                frameUrl = `/api/files/${path}`;
-                            } else {
-                                const cleanPath = path.startsWith('storage/processed/') ? path.substring('storage/'.length) : path;
-                                frameUrl = `/api/files/${cleanPath}`;
-                            }
+                            const cleanPath = path.startsWith('storage/processed/') ? path.substring('storage/'.length) : path;
+                            frameUrl = getApiFilesUrl(path.startsWith('uploads/') ? path : cleanPath);
                             console.log("[DEBUG] İşlenmiş görsel URL'si:", frameUrl);
                             
                             col.innerHTML = `
@@ -1122,7 +1073,7 @@ function displayAnalysisResults(fileId, results) {
                                                  alt="Kişi ${index + 1}"
                                                  style="width: 100%; height: 100%; object-fit: contain; cursor: pointer;"
                                                  class="age-estimation-image"
-                                                 onerror="this.onerror=null;this.src='/static/img/image-not-found.svg';"
+                                                 onerror="this.onerror=null;this.src=(window.API_BASE||'')+'/static/img/image-not-found.svg';"
                                                  onload="console.log('[DEBUG] Görsel başarıyla yüklendi:', this.src)"
                                                  onclick="window.zoomImage && window.zoomImage(this.src, 'Yaş Tahmini - Kişi ${index + 1}')"
                                                  title="Büyütmek için tıklayın">
@@ -1202,7 +1153,7 @@ function displayAnalysisResults(fileId, results) {
             }
         }
         
-        // 🎯 FEEDBACK TAB'ında yaş ve içerik geri bildirimi göster
+        // ERSIN 🎯 FEEDBACK TAB'ında yaş ve içerik geri bildirimi göster
         const feedbackTab = resultCard.querySelector('.tab-content .tab-pane:nth-child(3)') || resultCard.querySelector('#feedback');
         if (feedbackTab) {
             displayUnifiedFeedbackForm(feedbackTab, results);
@@ -1214,13 +1165,13 @@ function displayAnalysisResults(fileId, results) {
         }
     }
     
-    // 🔧 FEEDBACK FORM HER DURUMDA GÖSTERİLMELİ
+    // ERSIN 🔧 FEEDBACK FORM HER DURUMDA GÖSTERİLMELİ
     const feedbackTab = resultCard.querySelector('.tab-content .tab-pane:nth-child(3)') || resultCard.querySelector('#feedback');
     if (feedbackTab && !feedbackTab.querySelector('.unified-feedback-form')) {
         displayUnifiedFeedbackForm(feedbackTab, results);
     }
     
-    // Detaylar tabını doldur (yedek main.js'ten)
+    // ERSIN Detaylar tabını doldur (yedek main.js'ten)
     const detailsTab = resultCard.querySelector('.tab-content .tab-pane:nth-child(2)') || resultCard.querySelector('#details');
     if (detailsTab && results.highest_risk) {
         try {
@@ -1231,21 +1182,21 @@ function displayAnalysisResults(fileId, results) {
         }
     }
 
-    // Sonuç kartını DOM'a ekle (DUPLICATE PREVENTION)
+    // ERSIN Sonuç kartını DOM'a ekle (DUPLICATE ÖNLEMEKION)
     const resultsList = document.getElementById('resultsList');
     if (!resultsList) {
         console.error('resultsList bulunamadı!');
         return;
     }
     
-    // 🚨 ÖNEMLİ: Eğer bu fileId için sonuç kartı zaten varsa, yenisini ekleme
+    // ERSIN 🚨 ÖNEMLİ: Eğer bu fileId için sonuç kartı zaten varsa, yenisini ekleme
     const existingCard = document.querySelector(`.result-card[data-file-id="${fileId}"]`);
     if (existingCard) {
         console.log(`${file.name} için sonuç kartı zaten var, güncelleniyor...`);
-        existingCard.remove(); // Varolan kartı kaldır
+        existingCard.remove();  // ERSIN Varolan kartı kaldır
     }
     
-    // data-file-id attribute ekle
+    // ERSIN data-file-id attribute ekle
     const resultCardEl = resultCard.querySelector('.result-card') || resultCard.querySelector('.card');
     if (resultCardEl) {
         resultCardEl.setAttribute('data-file-id', fileId);
@@ -1256,19 +1207,17 @@ function displayAnalysisResults(fileId, results) {
     
     console.log('✅ Analiz sonuçları başarıyla gösterildi:', file.name);
     
-    // 🎯 Overall progress bar'ı güncelle (bir analiz daha tamamlandı)
+    // ERSIN 🎯 Overall progress bar'ı güncelle (bir analiz daha tamamlandı)
     setTimeout(() => {
         updateOverallProgress({ queue_size: 0, is_processing: false });
     }, 100);
 }
 
-/**
- * 🎯 MAIN CARD'da en yüksek riskli kareyi gösterir
- */
+/* ERSIN Aciklama. */
 function displayMainHighestRiskFrame(resultCard, results, file) {
     const highestRiskContainer = resultCard.querySelector('.highest-risk-frame');
     
-    // 🔍 DEBUG: Detaylı kontrol
+    // ERSIN 🔍 DEBUG: Detaylı kontrol
     console.log('🔍 DEBUG - displayMainHighestRiskFrame:');
     console.log('  highestRiskContainer:', highestRiskContainer);
     console.log('  results.highest_risk:', results.highest_risk);
@@ -1297,19 +1246,10 @@ function displayMainHighestRiskFrame(resultCard, results, file) {
     const badgeElement = highestRiskContainer.querySelector('.risk-category-badge');
     
     if (imgElement) {
-        // Resim yolu - processed_image_path'e göre doğru API endpoint belirle
-        let imageSrc;
+        // ERSIN Resim yolu - F5: getApiFilesUrl
         const path = results.highest_risk.processed_image_path;
-        
-        if (path.startsWith('uploads/')) {
-            // Resim analizi - uploads klasöründen serve et
-            imageSrc = `/api/files/${path}`;
-        } else {
-            // Video analizi - processed klasöründen serve et
-            // Path'te zaten storage/processed/ varsa sadece processed/ kısmını al
-            const cleanPath = path.startsWith('storage/processed/') ? path.substring('storage/'.length) : path;
-            imageSrc = `/api/files/${cleanPath}`;
-        }
+        const cleanPath = path.startsWith('storage/processed/') ? path.substring('storage/'.length) : path;
+        const imageSrc = getApiFilesUrl(path.startsWith('uploads/') ? path : cleanPath);
         console.log('Main card highest risk image URL:', imageSrc);
         
         imgElement.src = imageSrc;
@@ -1322,12 +1262,12 @@ function displayMainHighestRiskFrame(resultCard, results, file) {
         };
         imgElement.onerror = () => {
             console.error('En yüksek riskli kare yüklenemedi:', imageSrc);
-            imgElement.src = '/static/img/image-not-found.svg';
+            imgElement.src = (window.API_BASE || '') + '/static/img/image-not-found.svg';
         };
     }
     
     if (badgeElement) {
-        // Kategori badge'i
+        // ERSIN Kategori badge'i
         const category = results.highest_risk.category;
         let categoryName = getCategoryDisplayName(category);
         let badgeClass = 'bg-warning';
@@ -1341,7 +1281,7 @@ function displayMainHighestRiskFrame(resultCard, results, file) {
             case 'safe': badgeClass = 'bg-success'; break;
         }
         
-        // Güç dönüşümü uygula (backend ile tutarlılık için)
+        // ERSIN Güç dönüşümü uygula (backend ile tutarlılık için)
         const powerValue = 1.5;
         const transformedScore = Math.pow(results.highest_risk.score, powerValue);
         badgeElement.textContent = `${categoryName}: ${(transformedScore * 100).toFixed(0)}%`;
@@ -1349,9 +1289,7 @@ function displayMainHighestRiskFrame(resultCard, results, file) {
     }
 }
 
-/**
- * En yüksek riskli kareyi gösterir (basit versiyon)
- */
+/* ERSIN Aciklama. */
 function displayHighestRiskFrame(detailsTab, results, file) {
     if (!results.highest_risk || !results.highest_risk.processed_image_path) return;
     
@@ -1374,20 +1312,15 @@ function displayHighestRiskFrame(detailsTab, results, file) {
             }
         </div>
         <div class="position-relative">
-            <img src="${(() => {
+            <img src="${getApiFilesUrl((() => {
                 const path = results.highest_risk.processed_image_path;
-                if (path.startsWith('uploads/')) {
-                    return `/api/files/${path}`;
-                } else {
-                    const cleanPath = path.startsWith('storage/processed/') ? path.substring('storage/'.length) : path;
-                    return `/api/files/${cleanPath}`;
-                }
-            })()}" 
+                return path.startsWith('uploads/') ? path : (path.startsWith('storage/processed/') ? path.substring('storage/'.length) : path);
+            })())}" 
                  class="img-fluid rounded border" 
                  alt="En yüksek riskli kare"
                  style="max-height: 300px; cursor: pointer;"
                  onclick="window.zoomImage && window.zoomImage(this.src, 'En Yüksek Riskli Kare')"
-                 onerror="this.onerror=null;this.src='/static/img/image-not-found.svg';">
+                 onerror="this.onerror=null;this.src=(window.API_BASE||'')+'/static/img/image-not-found.svg';">
             ${results.highest_risk.category ? `
                 <span class="position-absolute top-0 end-0 m-2 badge bg-danger">
                     ${getCategoryDisplayName(results.highest_risk.category)}: ${Math.round(Math.pow(results.highest_risk.score, 1.5) * 100)}%
@@ -1398,9 +1331,7 @@ function displayHighestRiskFrame(detailsTab, results, file) {
     detailsTab.appendChild(container);
 }
 
-/**
- * Kategori bazlı yüksek riskli kareleri gösterir (basit versiyon)
- */
+/* ERSIN Aciklama. */
 function displayHighRiskFramesByCategory(detailsTab, results, file) {
     if (!results.category_specific_highest_risks_data) return;
     
@@ -1430,12 +1361,12 @@ function displayHighRiskFramesByCategory(detailsTab, results, file) {
         col.className = 'col-md-6 col-lg-4 mb-3';
         col.innerHTML = `
             <div class="card">
-                <img src="/api/files/${getRelativeStoragePath(data.frame_path)}" 
+                <img src="${getApiFilesUrl(getRelativeStoragePath(data.frame_path))}" 
                      class="card-img-top" 
                      alt="${getCategoryDisplayName(category)}"
                      style="height: 200px; object-fit: cover; cursor: pointer;"
                      onclick="window.zoomImage && window.zoomImage(this.src, '${getCategoryDisplayName(category)}')"
-                     onerror="this.onerror=null;this.src='/static/img/image-not-found.svg';">
+                     onerror="this.onerror=null;this.src=(window.API_BASE||'')+'/static/img/image-not-found.svg';">
                 <div class="card-body p-2">
                     <h6 class="card-title mb-1">${getCategoryDisplayName(category)}</h6>
                     <small class="text-muted d-block">Risk: ${Math.round(Math.pow(data.score, 1.5) * 100)}%</small>
@@ -1459,9 +1390,7 @@ function displayHighRiskFramesByCategory(detailsTab, results, file) {
     }
 }
 
-/**
- * Kategori isimlerini Türkçe'ye çevirir
- */
+/* ERSIN Aciklama. */
 function getCategoryDisplayName(category) {
     const names = {
         'violence': 'Şiddet',
@@ -1474,18 +1403,21 @@ function getCategoryDisplayName(category) {
     return names[category] || category;
 }
 
-/**
- * Path normalize eder (yedek main.js'ten)
- */
+/* ERSIN Aciklama. */
 function normalizePath(path) {
     if (!path) return '';
     return path.replace(/\\/g, '/').replace(/\/+/g, '/');
 }
 
-/**
- * Full path'i storage'a relative path'e çevirir
- * C:/Users/ersin/Desktop/WSANALIZ/storage/uploads/file.jpg -> uploads/file.jpg
- */
+/* ERSIN F5 path prefix: /api/files/ URL'leri için ortak base */
+function getApiFilesUrl(pathSegment) {
+    if (!pathSegment) return '';
+    const base = (typeof window !== 'undefined' && window.API_BASE) ? window.API_BASE : '';
+    const path = String(pathSegment).replace(/^\/+/, '');
+    return `${base}/api/files/${path}`;
+}
+
+/* ERSIN Aciklama. */
 function getRelativeStoragePath(fullPath) {
     if (!fullPath) return '';
     const normalizedPath = fullPath.replace(/\\/g, '/');
@@ -1494,53 +1426,49 @@ function getRelativeStoragePath(fullPath) {
         return normalizedPath.substring(storageIndex + '/storage/'.length);
     }
     
-    // Eğer /storage/ bulunamazsa path analizi yap
+    // ERSIN Eğer /storage/ bulunamazsa path analizi yap
     const filename = normalizedPath.split('/').pop() || '';
     
-    // Overlay dosyası ise processed/ prefix kullan
+    // ERSIN Overlay dosyası ise processed/ prefix kullan
     if (filename.includes('_person_') || normalizedPath.includes('overlay')) {
-        // Overlay dosyaları için processed/ endpoint'i kullan
+        // ERSIN Overlay dosyaları için processed/ endpoint'i kullan
         return `processed/${filename}`;
     }
     
-    // Normal dosyalar için uploads/ prefix ekle
+    // ERSIN Normal dosyalar için uploads/ prefix ekle
     if (filename && !filename.includes('/')) {
         return `uploads/${filename}`;
     }
     return filename;
 }
 
-/**
- * 🎯 Frame dosya isminden timestamp'ı çıkarır
- * @param {string} framePath - Frame dosya yolu (örn: frame_000072_2.89.jpg)
- * @returns {string} - Formatlanmış timestamp (örn: "2.89s")
- */
+/* ERSIN Aciklama. */
 function extractFrameTimestamp(framePath) {
     if (!framePath) return '';
     
     try {
-        // Path'i normalize et - eksik backslash'leri düzelt
-        let normalizedPath = framePath.replace(/([A-Z]):/g, '$1:\\'); // C: -> C:\
-        normalizedPath = normalizedPath.replace(/([^\\])([A-Za-z]+)/g, '$1\\$2'); // Eksik backslash'leri ekle
+        // ERSIN Path'i normalize et - eksik backslash'leri düzelt
+        let normalizedPath = framePath.replace(/([A-Z]):/g, '$1:\\'); // ERSIN Aciklama.
+        normalizedPath = normalizedPath.replace(/([^\\])([A-Za-z]+)/g, '$1\\$2');  // ERSIN Eksik backslash'leri ekle
         
-        // Windows ve Unix path'lerinden dosya adını çıkar
+        // ERSIN Windows ve Unix path'lerinden dosya adını çıkar
         const fileName = normalizedPath.split(/[\/\\]/).pop();
         
-        // frame_000072_2.89.jpg formatından 2.89 kısmını çıkar
+        // ERSIN frame_000072_2.89.jpg formatından 2.89 kısmını çıkar
         const match = fileName.match(/frame_\d+_(\d+\.\d+)\.jpg$/);
         if (match && match[1]) {
             const seconds = parseFloat(match[1]);
             return `${seconds.toFixed(2)}s`;
         }
         
-        // Alternatif format için ikinci deneme (frame_000072_2-89.jpg gibi)
+        // ERSIN Alternatif format için ikinci deneme (frame_000072_2-89.jpg gibi)
         const matchAlt = fileName.match(/frame_\d+_(\d+)-(\d+)\.jpg$/);
         if (matchAlt && matchAlt[1] && matchAlt[2]) {
             const seconds = parseFloat(`${matchAlt[1]}.${matchAlt[2]}`);
             return `${seconds.toFixed(2)}s`;
         }
         
-        // Son çare - raw path'te timestamp arama
+        // ERSIN Son çare - raw path'te timestamp arama
         const rawMatch = framePath.match(/(\d+\.\d+)\.jpg$/);
         if (rawMatch && rawMatch[1]) {
             const seconds = parseFloat(rawMatch[1]);
@@ -1554,20 +1482,16 @@ function extractFrameTimestamp(framePath) {
     }
 }
 
-/**
- * 🎯 Video analizi için frame bilgisini formatlar
- * @param {string} framePath - Frame dosya yolu
- * @returns {string} - Frame numarası ve timestamp (örn: "Kare #72 (2.89s)")
- */
+/* ERSIN Aciklama. */
 function formatVideoFrameInfo(framePath) {
     if (!framePath) return '';
     
     try {
-        // Frame numarasını çıkar
+        // ERSIN Frame numarasını çıkar
         const frameMatch = framePath.match(/frame_(\d+)_/);
         const frameNumber = frameMatch ? parseInt(frameMatch[1]) : null;
         
-        // Timestamp'ı çıkar
+        // ERSIN Timestamp'ı çıkar
         const timestamp = extractFrameTimestamp(framePath);
         
         if (frameNumber && timestamp) {
@@ -1585,12 +1509,10 @@ function formatVideoFrameInfo(framePath) {
     }
 }
 
-/**
- * 🎯 Yaş geri bildirimi görüntüleme fonksiyonu (main.js.backup'tan)
- */
+/* ERSIN Aciklama. */
 function displayAgeFeedback(feedbackTab, results) {
     if (!feedbackTab || !results.age_estimations || !results.age_estimations.length) {
-        // Eğer yaş tahmini yoksa mesaj göster
+        // ERSIN Eğer yaş tahmini yoksa mesaj göster
         const ageFeedbackContainer = feedbackTab.querySelector('.age-feedback-container');
         if (ageFeedbackContainer) {
             ageFeedbackContainer.innerHTML = '<div class="alert alert-secondary">Bu analiz için yaş tahmini geri bildirim alanı bulunmamaktadır.</div>';
@@ -1603,7 +1525,7 @@ function displayAgeFeedback(feedbackTab, results) {
         console.error("'.age-feedback-container' bulunamadı.");
         return;
     }
-    ageFeedbackContainer.innerHTML = ''; // Mevcut içeriği temizle
+    ageFeedbackContainer.innerHTML = '';  // ERSIN Mevcut içeriği temizle
 
     const analysisId = results.analysis_id; 
     if (!analysisId) {
@@ -1640,10 +1562,10 @@ function displayAgeFeedback(feedbackTab, results) {
         
         const faceImageElement = feedbackItem.querySelector('.face-image');
         if (faceImageElement) {
-            // Görsel yolunu /api/files/ ile başlatacak şekilde düzelt
+            // ERSIN Görsel yolunu /api/files/ ile başlatacak şekilde düzelt (F5: getApiFilesUrl)
             let imgSrc = face.face_image_src;
             if (imgSrc && !imgSrc.startsWith('/api/files/') && !imgSrc.startsWith('http') && !imgSrc.startsWith('/static/')) {
-                imgSrc = '/api/files/' + getRelativeStoragePath(imgSrc);
+                imgSrc = getApiFilesUrl(getRelativeStoragePath(imgSrc));
             }
             faceImageElement.src = imgSrc;
             faceImageElement.alt = `Kişi ${personCounter}`;
@@ -1668,19 +1590,19 @@ function displayAgeFeedback(feedbackTab, results) {
         
         const correctedAgeInput = feedbackItem.querySelector('.corrected-age');
         if (correctedAgeInput) {
-            // Set data attributes on the input field
+            // ERSIN Set data attributes on the input field
             correctedAgeInput.dataset.personId = personId;
             correctedAgeInput.dataset.analysisId = analysisId;
             correctedAgeInput.dataset.framePath = face.frame_path || '';
         }
         
-        // Individual submit button event (basit versiyon)
+        // ERSIN Individual submit button event (basit versiyon)
         const submitButton = feedbackItem.querySelector('.age-feedback-submit');
         if (submitButton) {
             submitButton.onclick = () => {
                 const correctedAge = parseInt(correctedAgeInput.value);
                 if (correctedAge && correctedAge > 0 && correctedAge <= 100) {
-                    // API'ye yaş feedback gönder
+                    // ERSIN API'ye yaş feedback gönder
                     const payload = {
                         person_id: personId,
                         corrected_age: correctedAge,
@@ -1724,32 +1646,30 @@ function displayAgeFeedback(feedbackTab, results) {
     });
 }
 
-/**
- * 🛑 Tüm açık video player'ları kapat
- */
+/* ERSIN Aciklama. */
 function closeAllVideoPlayers() {
     const modal = document.getElementById('videoPlayerModal');
     const video = document.getElementById('timelineVideo');
     const videoSource = video?.querySelector('source');
     
     if (modal && video) {
-        // Video'yu durdur
+        // ERSIN Video'yu durdur
         video.pause();
         video.currentTime = 0;
         
-        // Event listener'ları temizle
+        // ERSIN Event listener'ları temizle
         if (video._currentTimeUpdateHandler) {
             video.removeEventListener('timeupdate', video._currentTimeUpdateHandler);
             video._currentTimeUpdateHandler = null;
         }
         
-        // Video source'u temizle
+        // ERSIN Video source'u temizle
         if (videoSource) {
             videoSource.src = '';
         }
         video.load();
         
-        // Modal'ı kapat (eğer açıksa)
+        // ERSIN Modal'ı kapat (eğer açıksa)
         const bsModal = bootstrap.Modal.getInstance(modal);
         if (bsModal) {
             bsModal.hide();
@@ -1757,18 +1677,18 @@ function closeAllVideoPlayers() {
         
         console.log('🛑 Tüm video player\'ları kapatıldı');
         
-        // Navbar'daki close button'u gizle
+        // ERSIN Navbar'daki close button'u gizle
         const navCloseBtn = document.getElementById('closeVideoNavItem');
         if (navCloseBtn) {
             navCloseBtn.style.display = 'none';
         }
     }
     
-    // Gelecekte başka video player'lar da eklenirse burada kapatılabilir
-    // Örn: Picture-in-picture, fullscreen video'lar vs.
+    // ERSIN Gelecekte başka video player'lar da eklenirse burada kapatılabilir
+    // ERSIN Örn: Picture-in-picture, fullscreen video'lar vs.
 }
 
-// ESC tuşu ile tüm video player'ları kapat
+// ERSIN ESC tuşu ile tüm video player'ları kapat
 document.addEventListener('keydown', function(event) {
     if (event.key === 'Escape') {
         const modal = document.getElementById('videoPlayerModal');
@@ -1780,12 +1700,7 @@ document.addEventListener('keydown', function(event) {
     }
 });
 
-/**
- * 🎯 Video Timeline Player - Timestamp'a tıklandığında video player açar
- * @param {string} framePath - Frame dosya yolu (örn: frame_000552_22.17.jpg)
- * @param {string} videoFilename - Video dosya adı (örn: uuid_video.mp4)
- * @param {string} frameInfo - Frame bilgisi (örn: "Kare #552 (22.17s)")
- */
+/* ERSIN Aciklama. */
 function openVideoTimeline(framePath, videoFilename, frameInfo) {
     if (!framePath || !videoFilename) {
         console.warn('Video timeline: Eksik parametreler', { framePath, videoFilename });
@@ -1798,12 +1713,12 @@ function openVideoTimeline(framePath, videoFilename, frameInfo) {
         return;
     }
     
-    // Saniye değerini float olarak al
+    // ERSIN Saniye değerini float olarak al
     const targetSeconds = parseFloat(timestamp.replace('s', ''));
-    const startSeconds = Math.max(0, targetSeconds - 1); // 1 saniye öncesi (minimum 0)
-    const endSeconds = targetSeconds + 1; // 1 saniye sonrası
+    const startSeconds = Math.max(0, targetSeconds - 1);  // ERSIN 1 saniye öncesi (minimum 0)
+    const endSeconds = targetSeconds + 1;  // ERSIN 1 saniye sonrası
     
-    // Modal elementlerini al
+    // ERSIN Modal elementlerini al
     const modal = document.getElementById('videoPlayerModal');
     const video = document.getElementById('timelineVideo');
     const videoSource = video.querySelector('source');
@@ -1817,38 +1732,39 @@ function openVideoTimeline(framePath, videoFilename, frameInfo) {
         return;
     }
     
-    // Video URL'sini ayarla
-    const videoUrl = `/api/files/uploads/${videoFilename}`;
+    // ERSIN Video URL: F5 path prefix ile (window.API_BASE = request.script_root)
+    const apiBase = (typeof window !== 'undefined' && window.API_BASE) ? window.API_BASE : '';
+    const videoUrl = `${apiBase}/api/files/uploads/${encodeURIComponent(videoFilename)}`;
     videoSource.src = videoUrl;
-    video.load(); // Video'yu yeniden yükle
+    video.load();  // ERSIN Video'yu yeniden yükle
     
-    // UI elementlerini güncelle
+    // ERSIN UI elementlerini güncelle
     frameInfoElement.textContent = frameInfo || `Video: ${timestamp}`;
     startTimeElement.textContent = `${startSeconds.toFixed(2)}s`;
     targetTimeElement.textContent = `${targetSeconds.toFixed(2)}s`;
     endTimeElement.textContent = `${endSeconds.toFixed(2)}s`;
     
-    // Önceki event listener'ları temizle
+    // ERSIN Önceki event listener'ları temizle
     video.onloadedmetadata = null;
     video.ontimeupdate = null;
     
-    // Video yüklendiğinde timeline'ı ayarla
+    // ERSIN Video yüklendiğinde timeline'ı ayarla
     video.addEventListener('loadedmetadata', function onVideoLoaded() {
         try {
-            // Video süresini kontrol et
+            // ERSIN Video süresini kontrol et
             if (targetSeconds > video.duration) {
                 console.warn(`Video timeline: Target time (${targetSeconds}s) video süresinden büyük (${video.duration}s)`);
                 return;
             }
             
-            // Başlangıç zamanına atla
+            // ERSIN Başlangıç zamanına atla
             video.currentTime = startSeconds;
             
-            // 3 saniyelik loop için event listener (öncekini temizle)
+            // ERSIN 3 saniyelik loop için event listener (öncekini temizle)
             video.removeEventListener('timeupdate', video._currentTimeUpdateHandler);
             video._currentTimeUpdateHandler = function onTimeUpdate() {
                 if (video.currentTime >= endSeconds) {
-                    video.currentTime = startSeconds; // Loop başa dön
+                    video.currentTime = startSeconds;  // ERSIN Loop başa dön
                 }
             };
             video.addEventListener('timeupdate', video._currentTimeUpdateHandler);
@@ -1859,46 +1775,46 @@ function openVideoTimeline(framePath, videoFilename, frameInfo) {
             console.error('Video timeline setup hatası:', error);
         }
         
-        // Event listener'ı temizle
+        // ERSIN Event listener'ı temizle
         video.removeEventListener('loadedmetadata', onVideoLoaded);
     }, { once: true });
     
-    // Modal'ı göster
+    // ERSIN Modal'ı göster
     const bsModal = new bootstrap.Modal(modal);
     
-    // Accessibility: Modal açıldığında aria-hidden kaldır
+    // ERSIN Accessibility: Modal açıldığında aria-hidden kaldır
     modal.addEventListener('shown.bs.modal', () => {
         modal.removeAttribute('aria-hidden');
         
-        // Focus'u video player'a taşı (accessibility uyarısını önler)
+        // ERSIN Focus'u video player'a taşı (accessibility uyarısını önler)
         if (video) {
             video.focus();
         }
         
-        // Navbar'daki close button'u göster
+        // ERSIN Navbar'daki close button'u göster
         const navCloseBtn = document.getElementById('closeVideoNavItem');
         if (navCloseBtn) {
             navCloseBtn.style.display = 'block';
         }
     });
     
-    // Accessibility: Modal kapandığında aria-hidden ekle
+    // ERSIN Accessibility: Modal kapandığında aria-hidden ekle
     modal.addEventListener('hidden.bs.modal', () => {
         modal.setAttribute('aria-hidden', 'true');
         
-        // Video'yu durdur ve temizle
+        // ERSIN Video'yu durdur ve temizle
         video.pause();
         video.currentTime = 0;
         
-        // Event listener'ları temizle
+        // ERSIN Event listener'ları temizle
         if (video._currentTimeUpdateHandler) {
             video.removeEventListener('timeupdate', video._currentTimeUpdateHandler);
             video._currentTimeUpdateHandler = null;
         }
         
-        // Video source'u temizle
+        // ERSIN Video source'u temizle
         videoSource.src = '';
-        video.load(); // Video elementini temizle
+        video.load();  // ERSIN Video elementini temizle
         
         console.log('📺 Video timeline kapatıldı - video durduruldu ve temizlendi');
     });
@@ -1906,9 +1822,7 @@ function openVideoTimeline(framePath, videoFilename, frameInfo) {
     bsModal.show();
 }
 
-/**
- * 🎯 Video playback toggle fonksiyonu
- */
+/* ERSIN Aciklama. */
 function toggleVideoPlayback() {
     const video = document.getElementById('timelineVideo');
     const playIcon = document.getElementById('playPauseIcon');
@@ -1927,13 +1841,7 @@ function toggleVideoPlayback() {
     }
 }
 
-/**
- * 🎯 Timestamp click handler - Frame timestamp'ına tıklandığında video player açar
- * @param {Event} event - Click event
- * @param {string} framePath - Frame dosya yolu
- * @param {string} videoFilename - Video dosya adı  
- * @param {string} frameInfo - Frame bilgisi
- */
+/* ERSIN Aciklama. */
 function handleTimestampClick(event, framePath, videoFilename, frameInfo) {
     event.preventDefault();
     event.stopPropagation();
@@ -1947,14 +1855,12 @@ function handleTimestampClick(event, framePath, videoFilename, frameInfo) {
     openVideoTimeline(framePath, videoFilename, frameInfo);
 }
 
-// Global olarak erişilebilir yap
+// ERSIN Global olarak erişilebilir yap
 window.toggleVideoPlayback = toggleVideoPlayback;
 window.openVideoTimeline = openVideoTimeline;
 window.handleTimestampClick = handleTimestampClick;
 
-/**
- * Analysis manager fonksiyonlarını window'a expose et
- */
+/* ERSIN Aciklama. */
 export function exposeAnalysisManagerToWindow() {
     window.analysisManager = {
         startAnalysisForAllFiles,
@@ -1965,31 +1871,31 @@ export function exposeAnalysisManagerToWindow() {
         handleAnalysisProgress,
         handleAnalysisCompleted,
         checkAllAnalysesCompleted: checkAllAnalysesCompleted,
-        getAnalysisResults,  // Yeni eklenen
-        updateOverallProgress,  // Overall progress fonksiyonu
-        updateQueueDisplay,  // Queue display fonksiyonu
-        updateButtonStateBasedOnQueue  // BUG FIX: Buton state güncelleme fonksiyonu
+        getAnalysisResults,  // ERSIN Yeni eklenen
+        updateOverallProgress,  // ERSIN Overall progress fonksiyonu
+        updateQueueDisplay,  // ERSIN Queue display fonksiyonu
+        updateButtonStateBasedOnQueue  // ERSIN BUG FIX: Buton state güncelleme fonksiyonu
     };
     
-    // Global window fonksiyonları (backward compatibility)
+    // ERSIN Global window fonksiyonları (backward compatibility)
     window.getAnalysisResults = getAnalysisResults;
     window.updateOverallProgress = updateOverallProgress;
     window.updateQueueDisplay = updateQueueDisplay;
 }
 
-// Initialize window exposure
+// ERSIN Initialize window exposure
 exposeAnalysisManagerToWindow(); 
 
-// 🎯 FEEDBACK TAB'ında yaş ve içerik geri bildirimi göster
+// ERSIN 🎯 FEEDBACK TAB'ında yaş ve içerik geri bildirimi göster
 function displayUnifiedFeedbackForm(feedbackTab, results) {
     if (!feedbackTab) return;
     feedbackTab.innerHTML = '';
 
-    // Formu oluştur
+    // ERSIN Formu oluştur
     const form = document.createElement('form');
     form.className = 'unified-feedback-form';
 
-    // İçerik feedback alanları (örnek: kategori feedback)
+    // ERSIN İçerik feedback alanları (örnek: kategori feedback)
     const categories = [
         { key: 'violence', label: 'Şiddet' },
         { key: 'adult_content', label: 'Yetişkin İçeriği' },
@@ -2000,7 +1906,7 @@ function displayUnifiedFeedbackForm(feedbackTab, results) {
     const contentFeedbackSection = document.createElement('div');
     contentFeedbackSection.innerHTML = `<h5>İçerik Geri Bildirimi</h5>`;
     categories.forEach(cat => {
-        // Model skorunu ve tahminini al
+        // ERSIN Model skorunu ve tahminini al
         let score = null;
         let scoreText = '';
         let badgeClass = 'bg-secondary';
@@ -2011,14 +1917,14 @@ function displayUnifiedFeedbackForm(feedbackTab, results) {
             else if (score >= 40) badgeClass = 'bg-warning';
             else badgeClass = 'bg-info';
         }
-        // Model tahmini (var/yok) - 50 eşik örneği
+        // ERSIN Model tahmini (var/yok) - 50 eşik örneği
         let prediction = '';
         let predictionClass = 'bg-info';
         if (score !== null) {
             if (score >= 50) { prediction = 'Var'; predictionClass = 'bg-success'; }
             else { prediction = 'Yok'; predictionClass = 'bg-info'; }
         }
-        // Flex row ile select ve rozetleri yan yana hizala
+        // ERSIN Flex row ile select ve rozetleri yan yana hizala
         contentFeedbackSection.innerHTML += `
             <div class="mb-3 d-flex align-items-center">
                 <div class="flex-grow-1">
@@ -2041,17 +1947,17 @@ function displayUnifiedFeedbackForm(feedbackTab, results) {
     });
     form.appendChild(contentFeedbackSection);
 
-    // === YAN YANA GRID BAŞLANGIÇ ===
+    // ERSIN === YAN YANA GRID BAŞLANGIÇ ===
     const feedbackGrid = document.createElement('div');
     feedbackGrid.className = 'row g-4';
 
-    // İçerik geri bildirimi sol sütun
+    // ERSIN İçerik geri bildirimi sol sütun
     const contentCol = document.createElement('div');
     contentCol.className = 'col-md-6';
     contentCol.appendChild(contentFeedbackSection);
     feedbackGrid.appendChild(contentCol);
 
-    // Yaş geri bildirimi sağ sütun
+    // ERSIN Yaş geri bildirimi sağ sütun
     if (results.age_estimations && results.age_estimations.length > 0) {
         const ageCol = document.createElement('div');
         ageCol.className = 'col-md-6';
@@ -2067,7 +1973,7 @@ function displayUnifiedFeedbackForm(feedbackTab, results) {
             card.innerHTML = `
                 <div class="card h-100 shadow-sm p-2">
                     <div class="d-flex align-items-center">
-                        <img src="/api/files/${faceImg.startsWith('storage/') ? faceImg : 'processed/' + faceImg}" alt="Kişi ${idx + 1}" class="rounded me-3" style="width: 80px; height: 80px; object-fit: cover; border: 1px solid #ccc; cursor: pointer;" onclick="window.zoomImage && window.zoomImage(this.src, 'Kişi ${idx + 1}')">
+                        <img src="${getApiFilesUrl(faceImg.startsWith('storage/') ? faceImg : 'processed/' + faceImg)}" alt="Kişi ${idx + 1}" class="rounded me-3" style="width: 80px; height: 80px; object-fit: cover; border: 1px solid #ccc; cursor: pointer;" onclick="window.zoomImage && window.zoomImage(this.src, 'Kişi ${idx + 1}')">
                         <div class="flex-grow-1">
                             <div class="mb-1"><strong>Kişi ${idx + 1}</strong></div>
                             <div class="mb-2 text-muted">Tahmini Yaş: <strong>${Math.round(item.estimated_age)}</strong></div>
@@ -2082,17 +1988,17 @@ function displayUnifiedFeedbackForm(feedbackTab, results) {
         ageCol.appendChild(ageFeedbackSection);
         feedbackGrid.appendChild(ageCol);
     }
-    // === YAN YANA GRID SONU ===
+    // ERSIN === YAN YANA GRID SONU ===
     form.appendChild(feedbackGrid);
 
-    // Tek bir gönderim butonu
+    // ERSIN Tek bir gönderim butonu
     const submitBtn = document.createElement('button');
     submitBtn.type = 'submit';
     submitBtn.className = 'btn btn-primary mt-3';
     submitBtn.textContent = 'Geri Bildirim Gönder';
     form.appendChild(submitBtn);
 
-    // Submit event
+    // ERSIN Submit event
     form.onsubmit = function(e) {
         e.preventDefault();
         const categoryFeedback = {
@@ -2102,13 +2008,13 @@ function displayUnifiedFeedbackForm(feedbackTab, results) {
             weapon: form.querySelector('#weapon-feedback') ? form.querySelector('#weapon-feedback').value : '',
             drug: form.querySelector('#drug-feedback') ? form.querySelector('#drug-feedback').value : ''
         };
-        // Analizden kategoriye göre frame_path'leri al
+        // ERSIN Analizden kategoriye göre frame_path'leri al
         let categoryFrames = {};
         try {
             categoryFrames = JSON.parse(results.category_specific_highest_risks_data || '{}');
         } catch (e) { categoryFrames = {}; }
 
-        // Her kategori için ayrı feedback kaydı gönder
+        // ERSIN Her kategori için ayrı feedback kaydı gönder
         let feedbackPromises = [];
         Object.keys(categoryFeedback).forEach(cat => {
             const feedbackValue = categoryFeedback[cat];
@@ -2131,7 +2037,7 @@ function displayUnifiedFeedbackForm(feedbackTab, results) {
                 );
             }
         });
-        // Yaş feedback'lerini topla ve gönder (değiştirilmedi)
+        // ERSIN Yaş feedback'lerini topla ve gönder (değiştirilmedi)
         const ageInputs = form.querySelectorAll('.age-feedback-input');
         const ageFeedbacks = [];
         ageInputs.forEach(input => {
@@ -2155,12 +2061,12 @@ function displayUnifiedFeedbackForm(feedbackTab, results) {
             .then(res => res.json())
             );
         });
-        // Tüm feedbackler gönderildikten sonra kullanıcıya bilgi ver
+        // ERSIN Tüm feedbackler gönderildikten sonra kullanıcıya bilgi ver
         Promise.all(feedbackPromises).then(results => {
             if (window.showToast) window.showToast('Başarılı', 'Geri bildirim kaydedildi!', 'success');
             submitBtn.disabled = true;
             submitBtn.textContent = 'Gönderildi ✓';
-            // Otomatik yönlendirme kaldırıldı
+            // ERSIN Otomatik yönlendirme kaldırıldı
         }).catch(err => {
             if (window.showToast) window.showToast('Hata', 'Sunucuya bağlanırken hata oluştu: ' + err.message, 'error');
         });
@@ -2169,26 +2075,24 @@ function displayUnifiedFeedbackForm(feedbackTab, results) {
     feedbackTab.appendChild(form);
 }
 
-/**
- * 🎯 Otomatik yönlendirme: Bir sonraki bekleyen analiz sonucuna yönlendir
- */
+/* ERSIN Aciklama. */
 function redirectToNextPendingAnalysis() {
     fetch('/api/analysis/pending-feedback')
         .then(response => response.json())
         .then(data => {
             if (data.success && data.pending_analyses && data.pending_analyses.length > 0) {
-                // Bir sonraki bekleyen analiz var
+                // ERSIN Bir sonraki bekleyen analiz var
                 const nextAnalysis = data.pending_analyses[0];
                 if (window.showToast) {
                     window.showToast('Bilgi', `${data.count} analiz daha feedback bekliyor. Bir sonrakine yönlendiriliyorsunuz...`, 'info');
                 }
                 
                 setTimeout(() => {
-                    // Bir sonraki analiz sonucuna git
+                    // ERSIN Bir sonraki analiz sonucuna git
                     window.location.href = `/analysis-results?fileId=${nextAnalysis.file_id}&analysisId=${nextAnalysis.analysis_id}`;
                 }, 1000);
             } else {
-                // Artık bekleyen analiz yok, anasayfaya dön
+                // ERSIN Artık bekleyen analiz yok, anasayfaya dön
                 if (window.showToast) {
                     window.showToast('Tamamlandı', 'Tüm analizler için feedback verildi! Anasayfaya yönlendiriliyorsunuz.', 'success');
                 }
@@ -2200,7 +2104,7 @@ function redirectToNextPendingAnalysis() {
         })
         .catch(error => {
             console.error('Bekleyen analizler alınırken hata:', error);
-            // Hata durumunda anasayfaya dön
+            // ERSIN Hata durumunda anasayfaya dön
             setTimeout(() => {
                 window.location.href = '/';
             }, 1000);

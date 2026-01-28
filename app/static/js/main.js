@@ -1,15 +1,10 @@
-/**
- * WSANALIZ - Main Application Entry Point
- * 
- * Bu dosya tüm modülleri import eder ve uygulamayı başlatır.
- * Refactored from 6,766-line monolith to clean modular architecture.
- */
+/* ERSIN Aciklama. */
 
-// =====================================
-// MODULE IMPORTS
-// =====================================
+// ERSIN =====================================
+// ERSIN MODULE IMPORTS
+// ERSIN =====================================
 
-// Core modules
+// ERSIN Core modules
 import { 
     API_URL,
     exposeGlobalState,
@@ -44,20 +39,18 @@ import {
     updateAnalysisParamsButtonStateWithQueue
 } from './ui-manager.js';
 
-// =====================================
-// CORE APPLICATION INITIALIZATION
-// =====================================
+// ERSIN =====================================
+// ERSIN CORE APPLICATION INITIALIZATION
+// ERSIN =====================================
 
-/**
- * Ana uygulama başlatıcı fonksiyonu
- */
+/* ERSIN Aciklama. */
 function initializeApplication() {
     console.log('🚀 WSANALIZ Uygulaması başlatılıyor...');
 
-    // 🔁 Restart sonrası UI restore bug fix:
-    // Analiz parametreleri değişince backend restart oluyor ve sayfa reload oluyor.
-    // Bu reload sonrası localStorage'dan recent analyses restore edilirse uploadedFiles doluyor
-    // ve overall progress 0/N gibi takılı kalabiliyor.
+    // ERSIN 🔁 Restart sonrası UI restore bug fix:
+    // ERSIN Analiz parametreleri değişince backend restart oluyor ve sayfa reload oluyor.
+    // ERSIN Bu reload sonrası localStorage'dan recent analyses restore edilirse uploadedFiles doluyor
+    // ERSIN ve overall progress 0/N gibi takılı kalabiliyor.
     let skipRestore = false;
     try {
         const url = new URL(window.location.href);
@@ -72,41 +65,41 @@ function initializeApplication() {
     }
     console.log('📦 Modüler mimari yüklendi - 5 modül aktif');
     
-    // 1. Global state'i expose et
+    // ERSIN 1. Global state'i expose et
     exposeGlobalState();
     
-    // 2. Window'a modül fonksiyonlarını expose et
+    // ERSIN 2. Window'a modül fonksiyonlarını expose et
     exposeFileManagerToWindow();
     exposeAnalysisManagerToWindow();
     exposeUIManagerToWindow();
     
-    // 3. Settings save loader elementini al
+    // ERSIN 3. Settings save loader elementini al
     const settingsSaveLoader = document.getElementById('settingsSaveLoader');
     
-    // 4. WebSocket sistemi başlat
+    // ERSIN 4. WebSocket sistemi başlat
     initializeSocket(settingsSaveLoader);
     
-    // 5. Event listener'ları başlat
+    // ERSIN 5. Event listener'ları başlat
     initializeEventListeners();
     
-    // 6. Button state'lerini initialize et
+    // ERSIN 6. Button state'lerini initialize et
     updateAnalysisParamsButtonState();
     
-    // 7. Queue status checker'ı başlat
+    // ERSIN 7. Queue status checker'ı başlat
     startQueueStatusChecker();
     
-    // 8. İlk yüklemede buton durumunu kontrol et
+    // ERSIN 8. İlk yüklemede buton durumunu kontrol et
     checkInitialButtonState();
     
-    // 9. Overall progress bar'ı initialize et
+    // ERSIN 9. Overall progress bar'ı initialize et
     initializeOverallProgress();
     
-    // 10. 🔄 Recent analysis sonuçlarını restore et (page refresh için)
+    // ERSIN 10. 🔄 Recent analysis sonuçlarını restore et (page refresh için)
     if (!skipRestore) {
         loadRecentAnalyses();
     }
     
-    // 11. 🔄 localStorage'dan offline recent analyses restore et
+    // ERSIN 11. 🔄 localStorage'dan offline recent analyses restore et
     if (!skipRestore) {
         loadStoredAnalyses();
     }
@@ -114,8 +107,8 @@ function initializeApplication() {
     console.log('✅ WSANALIZ Uygulaması başarıyla başlatıldı');
     console.log('🎯 Modüler mimari aktif - Bakım ve debugging kolaylaştırıldı');
     
-    // 🔧 LOADING OVERLAY AUTO-HIDE FIX
-    // Loading spinner'ı modüller yüklenince otomatik gizle
+    // ERSIN 🔧 LOADING OVERLAY AUTO-HIDE FIX
+    // ERSIN Loading spinner'ı modüller yüklenince otomatik gizle
     setTimeout(() => {
         const loader = document.getElementById('settingsSaveLoader');
         if (loader) {
@@ -124,52 +117,49 @@ function initializeApplication() {
             console.log('🔧 Loading overlay otomatik gizlendi');
         }
         
-        // Body scroll'u restore et
+        // ERSIN Body scroll'u restore et
         document.body.style.overflow = '';
         document.body.classList.remove('modal-open');
         console.log('🔧 UI blocking temizlendi');
-    }, 500); // 500ms delay - modüller yüklensin diye
+    }, 500);  // ERSIN 500ms delay - modüller yüklensin diye
 }
 
-// =====================================
-// LEGACY FUNCTION COMPATIBILITY
-// =====================================
+// ERSIN =====================================
+// ERSIN LEGACY FUNCTION COMPATIBILITY
+// ERSIN =====================================
 
-/**
- * Legacy compatibility için gerekli global fonksiyonlar
- * Eski kodların çalışmaya devam etmesi için
- */
+/* ERSIN Aciklama. */
 
-// File status update (WebSocket events için)
+// ERSIN File status update (WebSocket events için)
 window.updateFileStatus = updateFileStatus;
 
-// File management (UI events için)
+// ERSIN File management (UI events için)
 window.removeFile = removeFile;
 
-// Analysis event handlers (WebSocket events için)
+// ERSIN Analysis event handlers (WebSocket events için)
 window.handleAnalysisProgress = handleAnalysisProgress;
 window.handleAnalysisCompleted = handleAnalysisCompleted;
 window.getAnalysisResults = getAnalysisResults;
 
-// Analysis control (Stop/Force-stop için)
+// ERSIN Analysis control (Stop/Force-stop için)
 window.stopAnalysis = stopAnalysis;
 window.forceStopAnalysis = forceStopAnalysis;
 
-// Button management (UI events için)
+// ERSIN Button management (UI events için)
 window.resetAnalyzeButton = resetAnalyzeButton;
 window.updateAnalysisParamsButtonStateWithQueue = updateAnalysisParamsButtonStateWithQueue;
 
-// 🎯 IMAGE ZOOM FUNCTIONALITY (from main.js.backup)
+// ERSIN 🎯 IMAGE ZOOM FUNCTIONALITY (from main.js.backup)
 function zoomImage(imageSrc, imageTitle = 'Resim Görüntüleyici') {
     console.log('[DEBUG] zoomImage çağrıldı:', imageSrc, imageTitle);
     
-    // Mevcut modal'ı kapat
+    // ERSIN Mevcut modal'ı kapat
     const existingModal = document.getElementById('imageZoomModal');
     if (existingModal) {
         existingModal.remove();
     }
     
-    // Yeni modal oluştur
+    // ERSIN Yeni modal oluştur
     const modalHTML = `
         <div class="modal fade show" id="imageZoomModal" tabindex="-1" style="display: block; background: rgba(0,0,0,0.5); position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 1050;">
             <div class="modal-dialog modal-lg" style="margin: 50px auto; max-width: 90%; width: 800px; position: relative;">
@@ -189,10 +179,10 @@ function zoomImage(imageSrc, imageTitle = 'Resim Görüntüleyici') {
         </div>
     `;
     
-    // Modal'ı sayfaya ekle
+    // ERSIN Modal'ı sayfaya ekle
     document.body.insertAdjacentHTML('beforeend', modalHTML);
     
-            // Body scroll'unu engelle
+            // ERSIN Body scroll'unu engelle
             document.body.style.overflow = 'hidden';
 }
 
@@ -201,19 +191,19 @@ function closeZoomModal() {
     if (modal) {
         modal.remove();
     }
-    // Body scroll'unu geri getir
+    // ERSIN Body scroll'unu geri getir
             document.body.style.overflow = '';
 }
 
-// Global access
+// ERSIN Global access
 window.zoomImage = zoomImage;
 window.closeZoomModal = closeZoomModal;
 
-// 🎯 MODEL METRICS FUNCTIONALITY (use working updateModalModelStats + manual spinner removal)
+// ERSIN 🎯 MODEL METRICS FUNCTIONALITY (use working updateModalModelStats + manual spinner removal)
 function loadModelMetrics() {
     console.log('🔧 Model metrikleri yükleniyor...');
     
-    // 🎯 MANUAL SPINNER REMOVAL - önce spinnerları kaldır
+    // ERSIN 🎯 MANUAL SPINNER REMOVAL - önce spinnerları kaldır
     const contentSpinner = document.getElementById('contentLoadingSpinner');
     if (contentSpinner) {
         contentSpinner.remove();
@@ -226,12 +216,12 @@ function loadModelMetrics() {
         console.log('✅ Age model loading spinner kaldırıldı');
     }
     
-    // Content model metrics
+    // ERSIN Content model metrics
     fetch('/api/models/metrics/content')
         .then(r => r.json())
         .then(data => {
             console.log('Content model metrics:', data);
-            // 🎯 USE WORKING FUNCTION
+            // ERSIN 🎯 USE WORKING FUNCTION
             updateModalModelStats('content', data);
             updateTrainingDataCounts('content', data);
         })
@@ -240,12 +230,12 @@ function loadModelMetrics() {
             updateModalModelStats('content', {});
         });
         
-    // Age model metrics
+    // ERSIN Age model metrics
     fetch('/api/models/metrics/age')
         .then(r => r.json())
         .then(data => {
             console.log('Age model metrics:', data);
-            // 🎯 USE WORKING FUNCTION
+            // ERSIN 🎯 USE WORKING FUNCTION
             updateModalModelStats('age', data);
             updateTrainingDataCounts('age', data);
         })
@@ -257,18 +247,18 @@ function loadModelMetrics() {
 
 }
 
-// 🎯 EĞİTİM VERİSİ SAYAÇLARI GÜNCELLEME FONKSİYONU
+// ERSIN 🎯 EĞİTİM VERİSİ SAYAÇLARI GÜNCELLEME FONKSİYONU
 function updateTrainingDataCounts(modelType, data) {
     console.log(`🔢 ${modelType} eğitim verisi sayaçları güncelleniyor:`, data);
     
     if (modelType === 'content') {
-        // Content model için sayaçları güncelle - SPAN.BADGE ELEMENT'LERİNİ TARGETLEYELİM
+        // ERSIN Content model için sayaçları güncelle - SPAN.BADGE ELEMENT'LERİNİ TARGETLEYELİM
         const modal = document.getElementById('modelMetricsModal');
         const manualEl = modal ? modal.querySelector('span#content-manual-count.badge') : document.querySelector('span#content-manual-count.badge');
         const pseudoEl = modal ? modal.querySelector('span#content-pseudo-count.badge') : document.querySelector('span#content-pseudo-count.badge');
         const totalEl = modal ? modal.querySelector('span#content-total-count.badge') : document.querySelector('span#content-total-count.badge');
         
-        // 🔍 DOĞRU ELEMENT'LERİ BULDUĞUMUZDAN EMİN OLALIM
+        // ERSIN 🔍 DOĞRU ELEMENT'LERİ BULDUĞUMUZDAN EMİN OLALIM
         console.log('🔍 Content Badge Elements Check:');
         const allContentManual = document.querySelectorAll('[id*="content-manual"]');
         const allContentPseudo = document.querySelectorAll('[id*="content-pseudo"]');
@@ -310,13 +300,13 @@ function updateTrainingDataCounts(modelType, data) {
         }
         
     } else if (modelType === 'age') {
-        // Age model için sayaçları güncelle - SPAN.BADGE ELEMENT'LERİNİ TARGETLEYELİM
+        // ERSIN Age model için sayaçları güncelle - SPAN.BADGE ELEMENT'LERİNİ TARGETLEYELİM
         const modal = document.getElementById('modelMetricsModal');
         const manualEl = modal ? modal.querySelector('span#age-manual-count.badge') : document.querySelector('span#age-manual-count.badge');
         const pseudoEl = modal ? modal.querySelector('span#age-pseudo-count.badge') : document.querySelector('span#age-pseudo-count.badge');
         const totalEl = modal ? modal.querySelector('span#age-total-count.badge') : document.querySelector('span#age-total-count.badge');
         
-        // 🔍 DOĞRU ELEMENT'LERİ BULDUĞUMUZDAN EMİN OLALIM
+        // ERSIN 🔍 DOĞRU ELEMENT'LERİ BULDUĞUMUZDAN EMİN OLALIM
         console.log('🔍 Age Badge Elements Check:');
         const allAgeManual = document.querySelectorAll('[id*="age-manual"]');
         const allAgePseudo = document.querySelectorAll('[id*="age-pseudo"]');
@@ -359,31 +349,31 @@ function updateTrainingDataCounts(modelType, data) {
     }
 }
 
-// 🎯 TAM FONKSİYON - main.js.backup'tan alındı
+// ERSIN 🎯 TAM FONKSİYON - main.js.backup'tan alındı
 function displayContentModelMetrics(data) {
     console.log('displayContentModelMetrics called with data:', data);
     
-    // Veri kontrolü
+    // ERSIN Veri kontrolü
         if (!data) {
         console.warn('displayContentModelMetrics: No data provided');
         data = {};
     }
     
-    // Container check - fallback gracefully
+    // ERSIN Container check - fallback gracefully
     const container = document.getElementById('contentModelMetricsContainer');
     if (!container) {
         console.warn('contentModelMetricsContainer not found');
         return;
     }
     
-    // Loading spinner'ı kaldır - ID ile hedefle ve tamamen kaldır
+    // ERSIN Loading spinner'ı kaldır - ID ile hedefle ve tamamen kaldır
     const loadingSpinner = document.getElementById('contentLoadingSpinner');
     if (loadingSpinner) {
         loadingSpinner.remove();
         console.log('✅ Content model loading spinner kaldırıldı');
     }
     
-    // Basic info display with graceful fallbacks
+    // ERSIN Basic info display ile graceful fallbacks
     const feedbackSources = data.feedback_sources || {};
     const manualCount = feedbackSources.manual || 0;
     const pseudoCount = feedbackSources.pseudo || 0;
@@ -391,7 +381,7 @@ function displayContentModelMetrics(data) {
     const modelName = data.model_name || 'Content Analysis Model';
     const ensembleMetrics = data.ensemble_metrics || {};
     
-    // Enhanced display with ensemble info
+    // ERSIN Enhanced display ile ensemble info
     const hasEnsembleCorrections = ensembleMetrics.content_corrections > 0 || ensembleMetrics.confidence_adjustments > 0;
     
     container.innerHTML = `
@@ -482,7 +472,7 @@ function displayContentModelMetrics(data) {
                         `;
 }
 
-// Kategori satırları oluştur
+// ERSIN Kategori satırları oluştur
 function generateCategoryRows(hasEnsembleCorrections) {
     const categories = [
         { key: 'violence', name: 'Şiddet' },
@@ -518,31 +508,31 @@ function generateCategoryRows(hasEnsembleCorrections) {
     }).join('');
 }
 
-// 🎯 ESKİ AGE METRICS FONKSİYONU - ARTIK KULLANILMIYOR
+// ERSIN 🎯 ESKİ AGE METRICS FONKSİYONU - ARTIK KULLANILMIYOR
 function displayAgeModelMetrics(data) {
     console.log('displayAgeModelMetrics called with data:', data);
     
-    // Veri kontrolü
+    // ERSIN Veri kontrolü
     if (!data) {
         console.warn('displayAgeModelMetrics: No data provided');
         data = {};
     }
     
-    // Container check - fallback gracefully
+    // ERSIN Container check - fallback gracefully
     const container = document.getElementById('ageModelMetricsContainer');
     if (!container) {
         console.warn('ageModelMetricsContainer not found');
         return;
     }
     
-    // Loading spinner'ı kaldır - ID ile hedefle ve tamamen kaldır
+    // ERSIN Loading spinner'ı kaldır - ID ile hedefle ve tamamen kaldır
     const loadingSpinner = document.getElementById('ageLoadingSpinner');
     if (loadingSpinner) {
         loadingSpinner.remove();
         console.log('✅ Age model loading spinner kaldırıldı');
     }
     
-    // Basic info display with graceful fallbacks
+    // ERSIN Basic info display ile graceful fallbacks
     const feedbackSources = data.feedback_sources || {};
     const manualCount = feedbackSources.manual || 0;
     const pseudoCount = feedbackSources.pseudo || 0;
@@ -552,19 +542,19 @@ function displayAgeModelMetrics(data) {
     const baseModel = data.base_model || {};
     const activeVersion = data.active_version || 'v1.0';
     
-    // Aktif versiyon göstergesini güncelle
+    // ERSIN Aktif versiyon göstergesini güncelle
     const activeVersionElement = document.getElementById('modal-age-active-version');
     if (activeVersionElement) {
         activeVersionElement.textContent = data.active_version || 'v1.0';
     }
     
-    // Age distribution
+    // ERSIN Age distribution
     const ageDistribution = data.age_distribution || {};
     const totalAges = Object.values(ageDistribution).reduce((a, b) => a + b, 0);
     const avgAge = totalAges > 0 ? 
         Object.entries(ageDistribution).reduce((sum, [age, count]) => sum + (parseInt(age) * count), 0) / totalAges : 0;
     
-    // Ensemble check
+    // ERSIN Ensemble check
     const hasEnsembleCorrections = ensembleMetrics.people_corrections > 0;
     const totalCorrections = ensembleMetrics.people_corrections || 0;
     
@@ -659,59 +649,59 @@ function displayAgeModelMetrics(data) {
                 `;
             }
             
-// Global access
+// ERSIN Global access
 window.loadModelMetrics = loadModelMetrics;
 window.loadModalModelVersions = loadModalModelVersions;
 
-// 🎯 MODEL METRICS BUTTON EVENT LISTENER (from main.js.backup)
+// ERSIN 🎯 MODEL METRICS BUTTON EVENT LISTENER (from main.js.backup)
 const modelMetricsBtn = document.getElementById('modelMetricsBtn');
 const modelMetricsModal = document.getElementById('modelMetricsModal');
 if (modelMetricsBtn && modelMetricsModal) {
-    // Global modal instance'ını sakla
+    // ERSIN Global modal instance'ını sakla
     let modalInstance = null;
     
     modelMetricsBtn.addEventListener('click', () => {
         loadModelMetrics();
-        // 🎯 MODEL VERSIONS DE YÜKLE
+        // ERSIN 🎯 MODEL VERSIONS DE YÜKLE
         loadModalModelVersions();
-        // Eğer modal instance yoksa oluştur
+        // ERSIN Eğer modal instance yoksa oluştur
         if (!modalInstance) {
             modalInstance = new bootstrap.Modal(modelMetricsModal);
         }
         modalInstance.show();
     });
     
-    // Modal kapatıldığında backdrop'u temizle
+    // ERSIN Modal kapatıldığında backdrop'u temizle
     modelMetricsModal.addEventListener('hidden.bs.modal', () => {
         console.log('🔧 Model Metrics modal kapatıldı, backdrop temizleniyor...');
-        // Backdrop'u manuel olarak temizle
+        // ERSIN Backdrop'u manuel olarak temizle
         const backdrop = document.querySelector('.modal-backdrop');
         if (backdrop) {
             backdrop.remove();
         }
-        // Body sınıflarını temizle
+        // ERSIN Body sınıflarını temizle
         document.body.classList.remove('modal-open');
         document.body.style.overflow = '';
         document.body.style.paddingRight = '';
     });
 }
 
-// 🎯 EĞİTİM VERİSİ SAYAÇLARI TAB EVENT LISTENER
+// ERSIN 🎯 EĞİTİM VERİSİ SAYAÇLARI TAB EVENT LISTENER
 const trainingDataTab = document.getElementById('training-data-tab');
 if (trainingDataTab) {
     trainingDataTab.addEventListener('click', () => {
         console.log('🎯 Eğitim Verisi Sayaçları tab\'ına tıklandı - veri yükleniyor...');
-        // Model metrics'i yeniden yükle (eğitim verisi sayaçları için)
+        // ERSIN Model metrics'i yeniden yükle (eğitim verisi sayaçları için)
         setTimeout(() => {
             loadModelMetrics();
-            // 🎯 MODEL VERSİYONLARI YÜKLENİYOR!
+            // ERSIN 🎯 MODEL VERSİYONLARI YÜKLENİYOR!
             console.log('📦 Model Versiyonları da yükleniyor...');
             loadModelVersionsForTrainingTab();
-        }, 100); // Tab geçişi için kısa gecikme
+        }, 100);  // ERSIN Tab geçişi için kısa gecikme
     });
 }
 
-// 🎯 TRAINING TAB MODEL VERSIONS LOADER
+// ERSIN 🎯 TRAINING TAB MODEL VERSIONS LOADER
 async function loadModelVersionsForTrainingTab() {
     console.log('📦 Training tab model versions yükleniyor...');
     
@@ -722,13 +712,13 @@ async function loadModelVersionsForTrainingTab() {
     }
     
     try {
-        // Content model versions
+        // ERSIN Content model versions
         const contentResponse = await fetch('/api/models/versions/content');
         if (contentResponse.ok) {
             const contentData = await contentResponse.json();
             console.log('✅ Content model versions (training tab):', contentData);
             
-            // Remove loading spinner
+            // ERSIN Remove loading spinner
             const loadingSpinner = container.querySelector('.spinner-border');
             if (loadingSpinner && loadingSpinner.parentElement) {
                 loadingSpinner.parentElement.remove();
@@ -763,7 +753,7 @@ async function loadModelVersionsForTrainingTab() {
     }
 }
 
-// 🎯 MODEL MANAGEMENT BUTTON EVENT LISTENER (from main.js.backup)
+// ERSIN 🎯 MODEL MANAGEMENT BUTTON EVENT LISTENER (from main.js.backup)
 const modelManagementBtn = document.getElementById('modelManagementBtn');
 const modelManagementModal = document.getElementById('modelManagementModal');
 
@@ -773,28 +763,28 @@ if (modelManagementBtn && modelManagementModal) {
         const modal = new bootstrap.Modal(modelManagementModal);
         modal.show();
         
-        // 🎯 MODEL DATA YÜKLEME - DOM ready olmadı, hemen çağır + modal event ile de çağır
+        // ERSIN 🎯 MODEL DATA YÜKLEME - DOM ready olmadı, hemen çağır + modal event ile de çağır
         console.log('🔄 Hemen initializeModelManagementModal çağrılıyor...');
         initializeModelManagementModal();
         
-        // 🎯 BACKUP: Modal tamamen açıldığında da çağır
+        // ERSIN 🎯 BACKUP: Modal tamamen açıldığında da çağır
         modelManagementModal.addEventListener('shown.bs.modal', () => {
             console.log('🔄 Modal shown event - initializeModelManagementModal tekrar çağrılıyor...');
             initializeModelManagementModal();
         }, { once: true });
     });
     
-    // 🔧 MODAL CLEANUP EVENT - Gri ekran sorunu için
+    // ERSIN 🔧 MODAL CLEANUP EVENT - Gri ekran sorunu için
     modelManagementModal.addEventListener('hidden.bs.modal', () => {
         console.log('🔄 Model Management Modal kapatıldı - cleanup yapılıyor');
-        // Gri backdrop'u temizle
+        // ERSIN Gri backdrop'u temizle
         document.body.classList.remove('modal-open');
         const backdrops = document.querySelectorAll('.modal-backdrop');
         backdrops.forEach(backdrop => backdrop.remove());
     });
 }
 
-// 🎯 MODEL MANAGEMENT FUNCTIONS (from main.js.backup)
+// ERSIN 🎯 MODEL MANAGEMENT FUNCTIONS (from main.js.backup)
 function initializeModelManagementModal() {
     console.log('🔧 Model Management Modal initialize ediliyor...');
     
@@ -805,15 +795,15 @@ function initializeModelManagementModal() {
 async function loadModalModelStats() {
     console.log('📊 Modal model stats yükleniyor...');
     try {
-        // Yaş modeli istatistikleri
+        // ERSIN Yaş modeli istatistikleri
         const ageResponse = await fetch('/api/models/metrics/age');
         if (ageResponse.ok) {
             const ageStats = await ageResponse.json();
-            // Global state'e kaydet
+            // ERSIN Global state'e kaydet
             window.ageStats = ageStats;
             console.log('✅ Age model stats yüklendi:', ageStats);
             console.log('🔍 DEBUG - Age API Response Full Structure:', JSON.stringify(ageStats, null, 2));
-            // Aktif versiyon bilgisini güncelle (düzeltildi)
+            // ERSIN Aktif versiyon bilgisini güncelle (düzeltildi)
             if (ageStats.active_version) {
                 window.activeAgeVersion = ageStats.active_version;
                 console.log('✅ window.activeAgeVersion güncellendi:', window.activeAgeVersion);
@@ -823,7 +813,7 @@ async function loadModalModelStats() {
             console.error('❌ Age model stats API hatası:', ageResponse.status);
         }
 
-        // İçerik modeli istatistikleri
+        // ERSIN İçerik modeli istatistikleri
         const contentResponse = await fetch('/api/models/metrics/content');
         if (contentResponse.ok) {
             const contentStats = await contentResponse.json();
@@ -841,15 +831,15 @@ async function loadModalModelStats() {
 async function loadModalModelVersions() {
     console.log('📦 Modal model versions yükleniyor...');
     try {
-        // Yaş modeli versiyonları
+        // ERSIN Yaş modeli versiyonları
         const ageResponse = await fetch('/api/models/versions/age');
         if (ageResponse.ok) {
             const ageData = await ageResponse.json();
             console.log('✅ Age model versions yüklendi:', ageData);
             if (ageData.success) {
-                // Global variable'a kaydet
+                // ERSIN Global variable'a kaydet
                 window.ageVersionData = ageData;
-                // UI'ı güncelle
+                // ERSIN UI'ı güncelle
                 displayAgeModelVersions(ageData);
             } else {
                 console.error('❌ Age model versions API error:', ageData.error);
@@ -857,23 +847,23 @@ async function loadModalModelVersions() {
             }
         } else {
             console.log('⚠️ Age model versions API error:', ageResponse.status);
-            // Default görünüm
+            // ERSIN Default görünüm
             displayAgeModelVersions(null);
         }
 
-        // İçerik modeli versiyonları  
+        // ERSIN İçerik modeli versiyonları
         const contentResponse = await fetch('/api/models/versions/content');
         if (contentResponse.ok) {
             const contentData = await contentResponse.json();
             console.log('✅ Content model versions yüklendi:', contentData);
             console.log('🔍 DEBUG - Content versions count:', contentData.versions?.length || 0);
             
-            // Global variable'a kaydet
+            // ERSIN Global variable'a kaydet
             window.contentVersionData = contentData;
-            // UI'ı güncelle - Model Yönetimi modalı için interactive versiyon
+            // ERSIN UI'ı güncelle - Model Yönetimi modalı için interactive versiyon
             displayContentModelVersionsManagement(contentData);
             
-            // Versiyon listesi debug log
+            // ERSIN Versiyon listesi debug log
             if (contentData.versions) {
                 contentData.versions.forEach((v, index) => {
                     console.log(`   📦 Version ${index + 1}: ${v.version_name} (active: ${v.is_active})`);
@@ -881,7 +871,7 @@ async function loadModalModelVersions() {
             }
         } else {
             console.log('⚠️ Content model versions API 404 - normal (henüz eğitim yapılmamış)');
-            // Default görünüm
+            // ERSIN Default görünüm
             displayContentModelVersions(null);
         }
     } catch (error) {
@@ -893,25 +883,25 @@ function updateModalModelStats(modelType, stats) {
     console.log(`📊 ${modelType} model stats güncelleniyor:`, stats);
     
     if (modelType === 'age') {
-        // 🎯 AGE MODEL UI GÜNCELLEMESI  
+        // ERSIN 🎯 AGE MODEL UI GÜNCELLEMESI
         const activeVersionEl = document.getElementById('modal-age-active-version');
         const statusEl = document.getElementById('modal-age-status');
         const trainingDataEl = document.getElementById('modal-age-training-data');
         const maeEl = document.getElementById('modal-age-mae');
         
-        // 🔍 DEBUG: Element'lerin varlığını kontrol et
+        // ERSIN 🔍 DEBUG: Element'lerin varlığını kontrol et
         console.log('🔍 DEBUG - Age UI Elements:');
         console.log('age-active-version element:', activeVersionEl);
         console.log('age-status element:', statusEl);
         console.log('age-training-data element:', trainingDataEl);
         console.log('age-mae element:', maeEl);
         
-        // 🔍 DEBUG: API data structure'ını kontrol et (API direkt obje gönderiyor, nested değil)
+        // ERSIN 🔍 DEBUG: API data structure'ını kontrol et (API direkt obje gönderiyor, nested değil)
         console.log('🔍 DEBUG - Age API Data Structure:', stats);
         
         const ageData = stats.age || stats;
         if (activeVersionEl) {
-            // Sadece window.activeAgeVersion kullan
+            // ERSIN Sadece window.activeAgeVersion kullan
             let version = window.activeAgeVersion;
             if (!version || version === 'base_model') {
                 version = 'v1.0';
@@ -921,7 +911,7 @@ function updateModalModelStats(modelType, stats) {
         }
         
         if (statusEl) {
-            // 🎯 Age model durumu - Her zaman aktif göster çünkü en azından base model var
+            // ERSIN 🎯 Age model durumu - Her zaman aktif göster çünkü en azından base model var
             statusEl.innerHTML = '<i class="fas fa-check-circle text-success"></i> Aktif';
             console.log('✅ Age durum güncellendi: Aktif');
         }
@@ -936,44 +926,44 @@ function updateModalModelStats(modelType, stats) {
             console.log('✅ Age MAE güncellendi:', ageData.metrics.mae);
         }
         
-        // Age model tabloları güncelle
+        // ERSIN Age model tabloları güncelle
         updateAgeModelTables(ageData);
         
     } else if (modelType === 'content') {
-        // 🎯 CONTENT MODEL UI GÜNCELLEMESI
+        // ERSIN 🎯 CONTENT MODEL UI GÜNCELLEMESI
         const activeVersionEl = document.getElementById('modal-content-active-version');
         const statusEl = document.getElementById('modal-content-status');
         const trainingDataEl = document.getElementById('modal-content-training-data');
         
-        // 🔍 DEBUG: Element'lerin varlığını kontrol et
+        // ERSIN 🔍 DEBUG: Element'lerin varlığını kontrol et
         console.log('🔍 DEBUG - Content UI Elements:');
         console.log('modal-content-active-version element:', activeVersionEl);
         console.log('modal-content-status element:', statusEl);
         console.log('modal-content-training-data element:', trainingDataEl);
         
-        // 🔍 DEBUG: API data structure'ını kontrol et (API content wrapper içinde döndürüyor)
+        // ERSIN 🔍 DEBUG: API data structure'ını kontrol et (API content wrapper içinde döndürüyor)
         console.log('🔍 DEBUG - Content API Data Structure:', stats);
         
-        // API response'ından content data'yı al
+        // ERSIN API response'ından content data'yı al
         const contentData = stats.content || stats;
         
         if (activeVersionEl) {
-            // 🎯 Versions array'den gerçek aktif versiyonu bul
-            let version = 'CLIP-v1.0'; // Default
+            // ERSIN 🎯 Versions array'den gerçek aktif versiyonu bul
+            let version = 'CLIP-v1.0';  // ERSIN Default
             const versionData = window.contentVersionData;
             
             if (versionData && versionData.versions) {
-                // Database'den aktif versiyonu bul
+                // ERSIN Database'den aktif versiyonu bul
                 const activeVersion = versionData.versions.find(v => v.is_active);
                 if (activeVersion) {
-                    // ensemble_clip_v1_... -> CLIP-v1 formatına çevir
+                    // ERSIN ensemble_clip_v1_... -> CLIP-v1 formatına çevir
                     if (activeVersion.version_name.includes('ensemble_clip')) {
                         version = `CLIP-v${activeVersion.version}`;
                     } else {
                         version = activeVersion.version_name;
                     }
                 } else if (versionData.base_model_exists) {
-                    version = 'CLIP-v1.0'; // Base model
+                    version = 'CLIP-v1.0';  // ERSIN Base model
                 }
             }
             
@@ -982,7 +972,7 @@ function updateModalModelStats(modelType, stats) {
         }
         
         if (statusEl) {
-            // 🎯 Content model durumu
+            // ERSIN 🎯 Content model durumu
             const hasMetrics = contentData.metrics && Object.keys(contentData.metrics).length > 0;
             const hasModelName = contentData.model_name !== undefined;
             const hasFeedbackCount = contentData.feedback_count !== undefined;
@@ -1000,66 +990,66 @@ function updateModalModelStats(modelType, stats) {
             console.log('✅ Content feedback count güncellendi:', contentData.feedback_count);
         }
         
-        // Content model tabloları güncelle
+        // ERSIN Content model tabloları güncelle
         updateContentModelTables(contentData);
     }
 }
 
-// 📊 YAŞ MODELİ DETAY TABLOLARI GÜNCELLEMESİ
+// ERSIN 📊 YAŞ MODELİ DETAY TABLOLARI GÜNCELLEMESİ
 function updateAgeModelTables(ageData) {
     console.log('📊 Yaş modeli tabloları güncelleniyor:', ageData);
     
-    // 1. Genel Metrikler Tablosu
+    // ERSIN 1. Genel Metrikler Tablosu
     updateAgeGeneralMetrics(ageData);
     
-    // 2. Yaş Dağılımı Tablosu  
+    // ERSIN 2. Yaş Dağılımı Tablosu
     updateAgeDistribution(ageData);
     
-    // 3. Hata Dağılımı Tablosu
+    // ERSIN 3. Hata Dağılımı Tablosu
     updateAgeErrorDistribution(ageData);
     
-    // 4. Ensemble Düzeltmeleri
+    // ERSIN 4. Ensemble Düzeltmeleri
     updateAgeEnsembleCorrections(ageData);
 }
 
-// 📈 Yaş Modeli Genel Metrikler
+// ERSIN 📈 Yaş Modeli Genel Metrikler
 function updateAgeGeneralMetrics(ageData) {
     const metrics = ageData.metrics || {};
     
-    // MAE (Mean Absolute Error) - BOTH modal and table elements
+    // ERSIN MAE (Mean Absolute Error) - BOTH modal ve table elements
     const maeEl = document.querySelector('.age-mae');
     const maeModalEl = document.getElementById('modal-age-mae');
     if (metrics.mae !== undefined) {
         const maeText = `${metrics.mae.toFixed(2)} yıl`;
         if (maeEl) maeEl.textContent = maeText;
-        if (maeModalEl) maeModalEl.textContent = metrics.mae.toFixed(2); // Sadece sayı
+        if (maeModalEl) maeModalEl.textContent = metrics.mae.toFixed(2);  // ERSIN Sadece sayı
     }
     
-    // RMSE (Root Mean Square Error)  
+    // ERSIN RMSE (Root Mean Square Error)
     const rmseEl = document.querySelector('.age-rmse');
     if (rmseEl && metrics.rmse !== undefined) {
         rmseEl.textContent = `${metrics.rmse.toFixed(2)} yıl`;
     }
     
-    // MSE (Mean Square Error)
+    // ERSIN MSE (Mean Square Error)
     const mseEl = document.querySelector('.age-mse');
     if (mseEl && metrics.mse !== undefined) {
         mseEl.textContent = `${metrics.mse.toFixed(2)}`;
     }
     
-    // Within 3 Years Accuracy
+    // ERSIN Within 3 Years Accuracy
     const acc3El = document.querySelector('.age-within-3-years');
     if (acc3El && metrics.within_3_years !== undefined) {
         acc3El.textContent = `${(metrics.within_3_years * 100).toFixed(1)}%`;
     }
     
-    // Within 5 Years Accuracy
+    // ERSIN Within 5 Years Accuracy
     const acc5El = document.querySelector('.age-within-5-years');
     if (acc5El && metrics.within_5_years !== undefined) {
         acc5El.textContent = `${(metrics.within_5_years * 100).toFixed(1)}%`;
     }
     
-    // Within 10 Years Accuracy
+    // ERSIN Within 10 Years Accuracy
     const acc10El = document.querySelector('.age-within-10-years');
     if (acc10El && metrics.within_10_years !== undefined) {
         acc10El.textContent = `${(metrics.within_10_years * 100).toFixed(1)}%`;
@@ -1072,7 +1062,7 @@ function updateAgeGeneralMetrics(ageData) {
     });
 }
 
-// 📊 Yaş Dağılımı Tablosu
+// ERSIN 📊 Yaş Dağılımı Tablosu
 function updateAgeDistribution(ageData) {
     const distribution = ageData.age_distribution || {};
     const distributionContainer = document.querySelector('.age-distribution-table tbody');
@@ -1082,7 +1072,7 @@ function updateAgeDistribution(ageData) {
         return;
     }
     
-    // Yaş gruplarını sırala (0s, 10s, 20s, ...)
+    // ERSIN Yaş gruplarını sırala (0s, 10s, 20s, ...)
     const sortedGroups = Object.keys(distribution).sort((a, b) => {
         const numA = parseInt(a.replace('s', ''));
         const numB = parseInt(b.replace('s', ''));
@@ -1127,7 +1117,7 @@ function updateAgeDistribution(ageData) {
     console.log('✅ Yaş dağılımı tablosu güncellendi:', distribution);
 }
 
-// 📉 Yaş Tahmin Hata Dağılımı
+// ERSIN 📉 Yaş Tahmin Hata Dağılımı
 function updateAgeErrorDistribution(ageData) {
     const metrics = ageData.metrics || {};
     const errorContainer = document.querySelector('.age-error-distribution tbody');
@@ -1165,23 +1155,23 @@ function updateAgeErrorDistribution(ageData) {
     console.log('✅ Yaş hata dağılımı tablosu güncellendi');
 }
 
-// 📊 İÇERİK MODELİ DETAY TABLOLARI GÜNCELLEMESİ
+// ERSIN 📊 İÇERİK MODELİ DETAY TABLOLARI GÜNCELLEMESİ
 function updateContentModelTables(contentData) {
     console.log('📊 İçerik modeli tabloları güncelleniyor:', contentData);
     
-    // 1. Kategori Performansı Tablosu
+    // ERSIN 1. Kategori Performansı Tablosu
     updateContentCategoryPerformance(contentData);
     
-    // 2. Genel Metrikler
+    // ERSIN 2. Genel Metrikler
     updateContentGeneralMetrics(contentData);
     
-    // 3. Ensemble Düzeltmeleri
+    // ERSIN 3. Ensemble Düzeltmeleri
     updateContentEnsembleCorrections(contentData);
 }
 
-// 🏷️ İçerik Modeli Kategori Performansı
+// ERSIN 🏷️ İçerik Modeli Kategori Performansı
 function updateContentCategoryPerformance(contentData) {
-    // Tab'ın aktif olmasını bekle
+    // ERSIN Tab'ın aktif olmasını bekle
     setTimeout(() => {
         const categoryContainer = document.querySelector('.content-category-performance');
         
@@ -1191,7 +1181,7 @@ function updateContentCategoryPerformance(contentData) {
             return;
         }
     
-    // Örnek kategoriler (gerçek veriler API'den gelecek)
+    // ERSIN Örnek kategoriler (gerçek veriler API'den gelecek)
     const categories = [
         { name: 'Şiddet', accuracy: '92.5%', precision: '89.2%', recall: '94.1%', f1: '91.6%' },
         { name: 'Yetişkin İçeriği', accuracy: '94.8%', precision: '91.7%', recall: '96.2%', f1: '93.9%' },
@@ -1216,36 +1206,36 @@ function updateContentCategoryPerformance(contentData) {
     });
     
     console.log('✅ İçerik kategori performansı tablosu güncellendi');
-    }, 100); // setTimeout kapanışı
+    }, 100);  // ERSIN setTimeout kapanışı
 }
 
-// 📈 İçerik Modeli Genel Metrikler  
+// ERSIN 📈 İçerik Modeli Genel Metrikler
 function updateContentGeneralMetrics(contentData) {
     const metrics = contentData.metrics || {};
     const hasData = Object.keys(metrics).length > 0 && metrics.accuracy !== undefined;
     
-    // Doğruluk - backend'den gelen gerçek veri
+    // ERSIN Doğruluk - backend'den gelen gerçek veri
     const accuracyEl = document.querySelector('.content-accuracy');
     if (accuracyEl) {
         const accuracy = hasData ? `${(metrics.accuracy * 100).toFixed(1)}%` : 'Veri yok';
         accuracyEl.textContent = accuracy;
     }
     
-    // Kesinlik (Precision) - backend'den gelen gerçek veri
+    // ERSIN Kesinlik (Precision) - backend'den gelen gerçek veri
     const precisionEl = document.querySelector('.content-precision');
     if (precisionEl) {
         const precision = hasData ? `${(metrics.precision * 100).toFixed(1)}%` : 'Veri yok';
         precisionEl.textContent = precision;
     }
     
-    // Duyarlılık (Recall) - backend'den gelen gerçek veri
+    // ERSIN Duyarlılık (Recall) - backend'den gelen gerçek veri
     const recallEl = document.querySelector('.content-recall');
     if (recallEl) {
         const recall = hasData ? `${(metrics.recall * 100).toFixed(1)}%` : 'Veri yok';
         recallEl.textContent = recall;
     }
     
-    // F1 Skoru - backend'den gelen gerçek veri
+    // ERSIN F1 Skoru - backend'den gelen gerçek veri
     const f1El = document.querySelector('.content-f1-score');
     if (f1El) {
         const f1 = hasData ? `${(metrics.f1_score * 100).toFixed(1)}%` : 'Veri yok';
@@ -1262,7 +1252,7 @@ function updateContentGeneralMetrics(contentData) {
     });
 }
 
-// ⚙️ İçerik Modeli Ensemble Düzeltmeleri
+// ERSIN ⚙️ İçerik Modeli Ensemble Düzeltmeleri
 function updateContentEnsembleCorrections(contentData) {
     setTimeout(() => {
         const ensembleContainer = document.querySelector('.content-ensemble-corrections');
@@ -1288,7 +1278,7 @@ function updateContentEnsembleCorrections(contentData) {
         `;
         ensembleContainer.appendChild(emptyRow);
     } else {
-        // Örnek düzeltme verileri (gerçek API'den gelecek)
+        // ERSIN Örnek düzeltme verileri (gerçek API'den gelecek)
         const sampleCorrections = [
             { category: 'Şiddet', original: 'Güvenli', corrected: 'Şiddetli', confidence: '94.2%' },
             { category: 'Taciz', original: 'Güvenli', corrected: 'Taciz', confidence: '87.5%' },
@@ -1308,10 +1298,10 @@ function updateContentEnsembleCorrections(contentData) {
     }
     
     console.log('✅ İçerik ensemble düzeltmeleri tablosu güncellendi');
-    }, 100); // setTimeout kapanışı
+    }, 100);  // ERSIN setTimeout kapanışı
 }
 
-// ⚙️ Yaş Modeli Ensemble Düzeltmeleri
+// ERSIN ⚙️ Yaş Modeli Ensemble Düzeltmeleri
 function updateAgeEnsembleCorrections(ageData) {
     const ensembleContainer = document.querySelector('.age-ensemble-corrections');
     
@@ -1320,7 +1310,7 @@ function updateAgeEnsembleCorrections(ageData) {
         return;
     }
     
-    ensembleContainer.innerHTML = ''; // Önceki verileri temizle
+    ensembleContainer.innerHTML = '';  // ERSIN Önceki verileri temizle
     
     const corrections = ageData.ensemble_corrections || [];
     if (corrections.length === 0) {
@@ -1343,7 +1333,7 @@ function updateAgeEnsembleCorrections(ageData) {
     console.log('✅ Yaş ensemble düzeltmeleri tablosu güncellendi');
 }
 
-// 🎯 AGE MODEL VERSIONS DISPLAY FUNCTION
+// ERSIN 🎯 AGE MODEL VERSIONS DISPLAY FUNCTION
 function displayAgeModelVersions(versionData) {
     console.log('🎯 displayAgeModelVersions çağrıldı:', versionData);
     const versionsContainer = document.getElementById('modal-age-versions');
@@ -1353,15 +1343,15 @@ function displayAgeModelVersions(versionData) {
         return;
     }
     console.log('✅ modal-age-versions container bulundu:', versionsContainer);
-    // Aktif versiyon adı backend'den gelen window.activeAgeVersion (case-sensitive, birebir karşılaştır)
+    // ERSIN Aktif versiyon adı backend'den gelen window
     let activeVersionName = window.activeAgeVersion;
     if (!activeVersionName) activeVersionName = 'v1.0';
     console.log('DEBUG: window.activeAgeVersion =', window.activeAgeVersion, 'activeVersionName =', activeVersionName);
 
-    // Base model açıklamasını API'den al
+    // ERSIN Base model açıklamasını API'den al
     let baseModelDescription = 'Buffalo-L + Custom Age Head (UTKFace eğitimli)';
     
-    // Versions listesinde base_model'i bul
+    // ERSIN Versions listesinde base_model'i bul
     if (versionData?.versions?.length > 0) {
         const baseModelVersion = versionData.versions.find(v => v.version_name === 'base_model');
         if (baseModelVersion?.metrics?.description) {
@@ -1384,12 +1374,12 @@ function displayAgeModelVersions(versionData) {
             const isActive = String(versionName) === String(activeVersionName);
             console.log('DEBUG: versionName =', versionName, 'isActive =', isActive);
             
-            // Base model'i atla çünkü zaten üstte gösteriliyor
+            // ERSIN Base model'i atla çünkü zaten üstte gösteriliyor
             if (version.version_name === 'base_model') {
                 return;
             }
             
-            // Custom model için açıklama
+            // ERSIN Custom model için açıklama
             let versionDescription = `ID: ${versionKey}`;
             if (version.metrics?.description) {
                 versionDescription = version.metrics.description;
@@ -1420,10 +1410,10 @@ function displayAgeModelVersions(versionData) {
 window.switchAgeModelVersion = switchAgeModelVersion;
 window.deleteSpecificAgeVersion = deleteSpecificAgeVersion;
 
-// 🎯 MODEL MANAGEMENT BUTTON FUNCTIONS
+// ERSIN 🎯 MODEL MANAGEMENT BUTTON FUNCTIONS
 function trainModelFromModal(modelType) {
     if (modelType === 'age') {
-        // Yaş correction için parametre inputu arama, direkt istek at
+        // ERSIN Yaş correction için parametre inputu arama, direkt istek at
         const payload = { model_type: 'age' };
         if (confirm('Yaş tahmin modeli için düzeltmeleri yenilemek istediğinizden emin misiniz?')) {
             fetch('/api/model/train-web', {
@@ -1446,7 +1436,7 @@ function trainModelFromModal(modelType) {
         }
         return;
     }
-    // Sadece content için inputlar kontrol edilsin
+    // ERSIN Sadece content için inputlar kontrol edilsin
     let epochsInput = document.getElementById('clip-epochs');
     let batchSizeInput = document.getElementById('clip-batch-size');
     let learningRateInput = document.getElementById('clip-learning-rate');
@@ -1498,7 +1488,7 @@ function resetModelFromModal(modelType) {
                 .then(data => {
                     console.log('✅ Age model reset tamamlandı:', data);
                     alert('Yaş model başarıyla sıfırlandı!');
-                    // Modal'ı yenile
+                    // ERSIN Modal'ı yenile
                     initializeModelManagementModal();
                 })
                 .catch(error => {
@@ -1513,7 +1503,7 @@ function resetModelFromModal(modelType) {
                 .then(data => {
                     console.log('✅ Content model reset tamamlandı:', data);
                     alert('İçerik model başarıyla sıfırlandı!');
-                    // Modal'ı yenile
+                    // ERSIN Modal'ı yenile
                     initializeModelManagementModal();
                 })
                 .catch(error => {
@@ -1529,7 +1519,7 @@ function deleteLatestModelVersion(modelType) {
     
     if (modelType === 'age') {
         if (confirm('Son yaş model versiyonunu silmek istediğinizden emin misiniz?')) {
-            // Önce base model'i aktif yap
+            // ERSIN Önce base model'i aktif yap
             fetch('/api/model/age/activate/base', { 
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' }
@@ -1537,9 +1527,9 @@ function deleteLatestModelVersion(modelType) {
             .then(response => response.json())
             .then(data => {
                 if (data.success) {
-                    // Base model aktifleştirildi, modal'ı yenile
+                    // ERSIN Base model aktifleştirildi, modal'ı yenile
                     initializeModelManagementModal();
-                    // Şimdi son versiyonu sil
+                    // ERSIN Şimdi son versiyonu sil
                     return fetch('/api/models/delete-latest/age', { method: 'DELETE' });
                 } else {
                     throw new Error('Base model aktifleştirilemedi: ' + data.error);
@@ -1549,7 +1539,7 @@ function deleteLatestModelVersion(modelType) {
             .then(data => {
                 console.log('✅ Age model son versiyon silindi:', data);
                 alert('Son versiyon başarıyla silindi!');
-                // Modal'ı tekrar yenile
+                // ERSIN Modal'ı tekrar yenile
                 initializeModelManagementModal();
             })
             .catch(error => {
@@ -1564,7 +1554,7 @@ function deleteLatestModelVersion(modelType) {
                 .then(data => {
                     console.log('✅ Content model son versiyon silindi:', data);
                     alert('Son versiyon başarıyla silindi!');
-                    // Modal'ı yenile
+                    // ERSIN Modal'ı yenile
                     initializeModelManagementModal();
                 })
                 .catch(error => {
@@ -1576,10 +1566,10 @@ function deleteLatestModelVersion(modelType) {
 }
 window.deleteLatestModelVersion = deleteLatestModelVersion;
 
-// 🎯 CONTENT MODEL VERSIONS DISPLAY FUNCTION
+// ERSIN 🎯 CONTENT MODEL VERSIONS DISPLAY FUNCTION
 function displayContentModelVersions(versionData) {
     const versionsContainer = document.getElementById('contentVersionsContainer');
-    // Spinner'ı kaldır
+    // ERSIN Spinner'ı kaldır
     const spinners = versionsContainer.querySelectorAll('.spinner-border, .fa-spinner, .fa-spin');
     spinners.forEach(spinner => {
         if (spinner.parentElement) spinner.parentElement.remove();
@@ -1601,13 +1591,13 @@ function displayContentModelVersions(versionData) {
     console.log('✅ Content model versions sade liste olarak güncellendi');
 }
 
-// Model Yönetimi modalı için eski badge/butonlu kod (tamamen geri getirildi)
+// ERSIN Model Yönetimi modalı için eski badge/butonlu kod (tamamen geri getirildi)
 function displayContentModelVersionsManagement(versionData) {
     const versionsContainer = document.getElementById('management-content-versions');
     let versionsHtml = '';
     if (versionData && versionData.versions && versionData.versions.length > 0) {
         const activeVersion = versionData.active_version || 'base_openclip';
-        // Base model
+        // ERSIN Base model
         if (versionData.base_model_exists) {
             versionsHtml += `
             <div class="d-flex align-items-center gap-2 mb-2">
@@ -1618,7 +1608,7 @@ function displayContentModelVersionsManagement(versionData) {
             </div>
         `;
         }
-        // Diğer versiyonlar
+        // ERSIN Diğer versiyonlar
         versionData.versions.forEach((versionInfo) => {
             if (versionInfo.version_name === 'base_openclip') return;
             const isActive = versionInfo.is_active;
@@ -1646,7 +1636,7 @@ function displayContentModelVersionsManagement(versionData) {
     console.log('✅ Model Yönetimi için versiyonlar badge ve butonlarla güncellendi');
 }
 
-// 🎯 MODEL VERSION SWITCHING FUNCTIONS
+// ERSIN 🎯 MODEL VERSION SWITCHING FUNCTIONS
 function switchAgeModelVersion(version) {
     console.log(`🔄 Age model versiyon değiştiriliyor: ${version}`);
     
@@ -1661,11 +1651,11 @@ function switchAgeModelVersion(version) {
         .then(data => {
             console.log('✅ Age model versiyon değiştirildi:', data);
             
-            // Önce metrikleri yükle
+            // ERSIN Önce metrikleri yükle
             loadModalModelStats().then(() => {
-                // Sonra versiyonları yükle
+                // ERSIN Sonra versiyonları yükle
                 loadModalModelVersions().then(() => {
-                    // En son başarı mesajını göster
+                    // ERSIN En son başarı mesajını göster
                     alert(`Yaş model "${version}" versiyonuna başarıyla geçirildi!`);
                 });
             });
@@ -1688,7 +1678,7 @@ function deleteSpecificAgeVersion(version) {
         .then(data => {
             console.log('✅ Age model specific versiyon silindi:', data);
             alert(`"${version}" versiyonu başarıyla silindi!`);
-            // Modal'ı yenile
+            // ERSIN Modal'ı yenile
             initializeModelManagementModal();
         })
         .catch(error => {
@@ -1712,11 +1702,11 @@ function switchContentModelVersion(version) {
     .then(data => {
             console.log('✅ Content model versiyon değiştirildi:', data);
             
-            // Önce metrikleri yükle
+            // ERSIN Önce metrikleri yükle
             loadModalModelStats().then(() => {
-                // Sonra versiyonları yükle
+                // ERSIN Sonra versiyonları yükle
                 loadModalModelVersions().then(() => {
-                    // En son başarı mesajını göster
+                    // ERSIN En son başarı mesajını göster
             alert(`İçerik model "${version}" versiyonuna başarıyla geçirildi!`);
                 });
             });
@@ -1728,7 +1718,7 @@ function switchContentModelVersion(version) {
     }
 }
 
-// Global scope'a ekle (HTML onclick için)
+// ERSIN Global scope'a ekle (HTML onclick için)
 window.switchContentModelVersion = switchContentModelVersion;
 
 function deleteSpecificContentVersion(version) {
@@ -1742,7 +1732,7 @@ function deleteSpecificContentVersion(version) {
         .then(data => {
             console.log('✅ Content model specific versiyon silindi:', data);
             alert(`"${version}" versiyonu başarıyla silindi!`);
-            // Modal'ı yenile
+            // ERSIN Modal'ı yenile
             initializeModelManagementModal();
     })
     .catch(error => {
@@ -1752,13 +1742,13 @@ function deleteSpecificContentVersion(version) {
     }
 }
 
-// Global scope'a ekle (HTML onclick için)
+// ERSIN Global scope'a ekle (HTML onclick için)
 window.deleteSpecificContentVersion = deleteSpecificContentVersion;
 
-// Age model fonksiyonlarını da global scope'a ekle
+// ERSIN Age model fonksiyonlarını da global scope'a ekle
 window.switchAgeModelVersion = switchAgeModelVersion;
 
-// Reset fonksiyonunu da global scope'a ekle
+// ERSIN Reset fonksiyonunu da global scope'a ekle
 window.resetModelFromModal = resetModelFromModal;
 
 function resetAgeEnsemble() {
@@ -1780,38 +1770,36 @@ function resetAgeEnsemble() {
 }
 window.resetAgeEnsemble = resetAgeEnsemble;
 
-// Queue management
+// ERSIN Queue management
 window.startQueueStatusChecker = startQueueStatusChecker;
 window.stopQueueStatusChecker = stopQueueStatusChecker;
 
-// Training state setters (modals için)
+// ERSIN Training state setters (modals için)
 window.setCurrentTrainingSessionId = setCurrentTrainingSessionId;
 window.setIsModalTraining = setIsModalTraining;
 
-// Model Management Modal
+// ERSIN Model Management Modal
 window.initializeModelManagementModal = initializeModelManagementModal;
 
-// =====================================
-// OVERALL PROGRESS BAR SYSTEM
-// =====================================
+// ERSIN =====================================
+// ERSIN OVERALL PROGRESS BAR SYSTEM
+// ERSIN =====================================
 
-/**
- * 🎯 Overall progress bar sistemini initialize eder
- */
+/* ERSIN Aciklama. */
 function initializeOverallProgress() {
     const overallProgressBar = document.getElementById('overall-progress-bar');
     const overallProgressText = document.getElementById('overall-progress-text');
     const overallProgressContainer = document.getElementById('overall-progress-container');
     
     if (overallProgressBar && overallProgressText) {
-        // Initial state
+        // ERSIN Initial state
         overallProgressBar.style.width = '0%';
         overallProgressBar.setAttribute('aria-valuenow', 0);
         overallProgressText.textContent = '0/0 dosya';
         overallProgressBar.className = 'progress-bar bg-info progress-bar-striped progress-bar-animated';
         
         if (overallProgressContainer) {
-            overallProgressContainer.style.display = 'none'; // Başlangıçta gizli
+            overallProgressContainer.style.display = 'none';  // ERSIN Başlangıçta gizli
         }
         
         console.log('✅ Overall progress bar initialized (overall-progress-* elements)');
@@ -1824,17 +1812,15 @@ function initializeOverallProgress() {
     }
 }
 
-// =====================================
-// APPLICATION ENTRY POINT
-// =====================================
+// ERSIN =====================================
+// ERSIN APPLICATION ENTRY POINT
+// ERSIN =====================================
 
-/**
- * DOM yüklendiğinde uygulamayı başlat
- */
+/* ERSIN Aciklama. */
 document.addEventListener('DOMContentLoaded', function() {
     console.log('🌟 DOM yüklendi, modüler WSANALIZ başlatılıyor...');
     
-    // Ana başlatma fonksiyonunu çağır
+    // ERSIN Ana başlatma fonksiyonunu çağır
     initializeApplication();
     
     console.log('🎉 Modüler WSANALIZ hazır!');
@@ -1842,15 +1828,13 @@ document.addEventListener('DOMContentLoaded', function() {
     console.log('🔧 Bakım kolaylığı, debugging ve geliştirme hızı artırıldı');
 });
 
-// =====================================
-// DEVELOPMENT & DEBUG HELPERS
-// =====================================
+// ERSIN =====================================
+// ERSIN DEVELOPMENT & DEBUG HELPERS
+// ERSIN =====================================
 
-/**
- * Development ve debugging için yardımcı fonksiyonlar
- */
+/* ERSIN Aciklama. */
 if (typeof window !== 'undefined') {
-    // Debug modunda modül bilgilerini göster
+    // ERSIN Debug modunda modül bilgilerini göster
     window.showModuleInfo = function() {
         console.log('📦 WSANALIZ Modül Bilgileri:');
         console.log('├── globals.js (144 satır) - Global değişkenler & utilities');
@@ -1863,7 +1847,7 @@ if (typeof window !== 'undefined') {
         console.log('📈 Verimlilik artışı: %71 kod azalması, %300 bakım kolaylığı');
     };
     
-    // Modül durumunu kontrol et
+    // ERSIN Modül durumunu kontrol et
     window.checkModuleHealth = function() {
         const modules = [
             'fileManager',
@@ -1877,7 +1861,7 @@ if (typeof window !== 'undefined') {
             console.log(`${isLoaded ? '✅' : '❌'} ${module}: ${isLoaded ? 'Yüklü' : 'Yüklenmedi'}`);
         });
         
-        // WebSocket durum kontrolü
+        // ERSIN WebSocket durum kontrolü
         console.log('🌐 WebSocket Durumu:');
         if (window.socketioClient) {
             console.log(`✅ Socket Client: Mevcut`);
@@ -1890,7 +1874,7 @@ if (typeof window !== 'undefined') {
         }
     };
     
-    // Performans metrikleri
+    // ERSIN Performans metrikleri
     window.getPerformanceMetrics = function() {
         const navigation = performance.getEntriesByType('navigation')[0];
         console.log('⚡ Performans Metrikleri:');
@@ -1900,23 +1884,21 @@ if (typeof window !== 'undefined') {
     };
 }
 
-/**
- * 🎯 İlk yüklemede buton durumunu kontrol eder
- */
+/* ERSIN Aciklama. */
 function checkInitialButtonState() {
-    // Queue status'ını bir kez kontrol et
+    // ERSIN Queue status'ını bir kez kontrol et
     fetch(`${API_URL}/queue/status`)
     .then(response => response.json())
     .then(data => {
         console.log('🔄 İlk yükleme - Queue status:', data);
         
-        // Buton durumunu güncelle
+        // ERSIN Buton durumunu güncelle
         const hasActiveQueue = data.queue_size > 0 || data.is_processing;
         const analyzeBtn = document.getElementById('analyzeBtn');
         
         if (hasActiveQueue && analyzeBtn) {
             console.log('📍 Sayfa yüklendi - Queue aktif, buton "Durdur" moduna geçiriliyor');
-            // analysis-manager'dan fonksiyonu çağır
+            // ERSIN analysis-manager'dan fonksiyonu çağır
             if (window.analysisManager && window.analysisManager.changeButtonsToStopMode) {
                 window.analysisManager.changeButtonsToStopMode();
             }
@@ -1929,18 +1911,18 @@ function checkInitialButtonState() {
     });
 }
 
-// =====================================
-// MODULE HEALTH CHECK
-// =====================================
+// ERSIN =====================================
+// ERSIN MODULE HEALTH CHECK
+// ERSIN =====================================
 
-// Sayfa yüklendikten 2 saniye sonra otomatik sağlık kontrolü
+// ERSIN Sayfa yüklendikten 2 saniye sonra otomatik sağlık kontrolü
 setTimeout(() => {
     if (typeof window.checkModuleHealth === 'function') {
         window.checkModuleHealth();
     }
 }, 2000); 
 
-// 🔄 Recent analysis sonuçlarını restore et (page refresh için + persistent storage)
+// ERSIN 🔄 Recent analysis sonuçlarını restore et (page refresh için + persistent storage)
 function loadRecentAnalyses() {
     console.log('🔄 Recent analyses yükleniyor...');
     
@@ -1952,8 +1934,8 @@ function loadRecentAnalyses() {
             return response.json();
         })
         .then(data => {
-            // Eğer backend tarafında hiç recent analiz yoksa (ör: DB silindi/temiz başlangıç),
-            // localStorage'daki eski cache'i temizle ki "Genel ilerleme" ve restore listesi şişmesin.
+            // ERSIN Eğer backend tarafında hiç recent analiz yoksa (ör: DB silindi/temiz başlangıç),
+            // ERSIN localStorage'daki eski cache'i temizle ki "Genel ilerleme" ve restore listesi şişmesin.
             if (data && data.success && Array.isArray(data.recent_analyses) && data.recent_analyses.length === 0) {
                 console.log('🧹 Backend recent analyses boş; localStorage cache temizleniyor.');
                 localStorage.removeItem('wsanaliz_recent_analyses');
@@ -1963,13 +1945,13 @@ function loadRecentAnalyses() {
             if (data.success && data.recent_analyses && data.recent_analyses.length > 0) {
                 console.log(`📊 ${data.count} recent analysis bulundu, restore ediliyor...`);
                 
-                // localStorage'dan mevcut analysis IDs'leri al
+                // ERSIN localStorage'dan mevcut analysis IDs'leri al
                 const storedAnalyses = JSON.parse(localStorage.getItem('wsanaliz_recent_analyses') || '[]');
                 const newAnalysesToStore = [];
                 
-                // Her analiz için fake uploadedFiles entry oluştur ve sonuçları göster
+                // ERSIN Her analiz için fake uploadedFiles entry oluştur ve sonuçları göster
                 data.recent_analyses.forEach((analysis, index) => {
-                    // Fake file entry (uploadedFiles array'i için)
+                    // ERSIN Fake file entry (uploadedFiles array'i için)
                     const fakeFile = {
                         id: analysis.file_id,
                         name: analysis.file_name,
@@ -1978,12 +1960,12 @@ function loadRecentAnalyses() {
                         include_age_analysis: analysis.include_age_analysis
                     };
                     
-                    // uploadedFiles array'e ekle (duplicate check ile)
+                    // ERSIN uploadedFiles array'e ekle (duplicate check ile)
                     if (!window.uploadedFiles.find(f => f.id === analysis.file_id)) {
                         window.uploadedFiles.push(fakeFile);
                     }
                     
-                    // localStorage için kaydet
+                    // ERSIN localStorage için kaydet
                     newAnalysesToStore.push({
                         file_id: analysis.file_id,
                         analysis_id: analysis.analysis_id,
@@ -1991,17 +1973,17 @@ function loadRecentAnalyses() {
                         completed_at: analysis.completed_at
                     });
                     
-                    // Detailed results'ı çek ve göster
+                    // ERSIN Detailed results'ı çek ve göster
                     setTimeout(() => {
                         window.analysisManager.getAnalysisResults(
                             analysis.file_id, 
                             analysis.analysis_id, 
-                            false // isPartial = false
+                            false  // ERSIN isPartial = false
                         );
-                    }, index * 200); // Her analiz 200ms arayla yüklensin
+                    }, index * 200);  // ERSIN Her analiz 200ms arayla yüklensin
                 });
                 
-                // localStorage'a kaydet: server'ın döndürdüğü listeyi baz al (eski cache ile şişirme yapma)
+                // ERSIN localStorage'a kaydet: server'ın döndürdüğü listeyi baz al (eski cache ile şişirme yapma)
                 let allAnalyses = [...newAnalysesToStore];
                 if (allAnalyses.length > 20) {
                     allAnalyses.sort((a, b) => new Date(b.completed_at) - new Date(a.completed_at));
@@ -2010,7 +1992,7 @@ function loadRecentAnalyses() {
                 localStorage.setItem('wsanaliz_recent_analyses', JSON.stringify(allAnalyses));
                 console.log(`💾 ${allAnalyses.length} analiz localStorage'a kaydedildi (server bazlı)`);
                 
-                // Results section'ı görünür yap
+                // ERSIN Results section'ı görünür yap
                 const resultsSection = document.getElementById('resultsSection');
                 if (resultsSection) {
                     resultsSection.style.display = 'block';
@@ -2023,11 +2005,11 @@ function loadRecentAnalyses() {
         })
         .catch(error => {
             console.error('❌ Recent analyses yüklenirken hata:', error);
-            // Sessizce devam et, page load engellenmemeli
+            // ERSIN Sessizce devam et, page load engellenmemeli
         });
 }
 
-// 🔄 Yeni analiz tamamlandığında localStorage'a ekleme fonksiyonu
+// ERSIN 🔄 Yeni analiz tamamlandığında localStorage'a ekleme fonksiyonu
 window.addAnalysisToLocalStorage = function(fileId, analysisId, fileName) {
     const storedAnalyses = JSON.parse(localStorage.getItem('wsanaliz_recent_analyses') || '[]');
     const newAnalysis = {
@@ -2037,11 +2019,11 @@ window.addAnalysisToLocalStorage = function(fileId, analysisId, fileName) {
         completed_at: new Date().toISOString()
     };
     
-    // Duplicate check
+    // ERSIN Duplicate check
     if (!storedAnalyses.find(stored => stored.analysis_id === analysisId)) {
-        storedAnalyses.unshift(newAnalysis); // En başa ekle
+        storedAnalyses.unshift(newAnalysis);  // ERSIN En başa ekle
         
-        // En fazla 20 analizi sakla
+        // ERSIN En fazla 20 analizi sakla
         if (storedAnalyses.length > 20) {
             storedAnalyses.splice(20);
         }
@@ -2051,7 +2033,7 @@ window.addAnalysisToLocalStorage = function(fileId, analysisId, fileName) {
     }
 };
 
-// 🔄 localStorage'dan stored analyses restore et (offline support)
+// ERSIN 🔄 localStorage'dan stored analyses restore et (offline support)
 function loadStoredAnalyses() {
     console.log('💾 localStorage analyses restore ediliyor...');
     
@@ -2062,33 +2044,33 @@ function loadStoredAnalyses() {
             console.log(`💾 ${storedAnalyses.length} stored analysis bulundu, restore ediliyor...`);
             
             storedAnalyses.forEach((analysis, index) => {
-                // Fake file entry (uploadedFiles array'i için)
+                // ERSIN Fake file entry (uploadedFiles array'i için)
                 const fakeFile = {
                     id: analysis.file_id,
                     name: analysis.file_name,
                     status: 'completed',
                     analysis_id: analysis.analysis_id,
-                    include_age_analysis: true // Default olarak true (güvenli taraf)
+                    include_age_analysis: true  // ERSIN Default olarak true (güvenli taraf)
                 };
                 
-                // uploadedFiles array'e ekle (duplicate check ile)
+                // ERSIN uploadedFiles array'e ekle (duplicate check ile)
                 if (!window.uploadedFiles.find(f => f.id === analysis.file_id)) {
                     window.uploadedFiles.push(fakeFile);
                     
-                    // Detailed results'ı çek ve göster (delay ile)
+                    // ERSIN Detailed results'ı çek ve göster (delay ile)
                     setTimeout(() => {
                         if (window.analysisManager && window.analysisManager.getAnalysisResults) {
                             window.analysisManager.getAnalysisResults(
                                 analysis.file_id, 
                                 analysis.analysis_id, 
-                                false // isPartial = false
+                                false  // ERSIN isPartial = false
                             );
                         }
-                    }, 3000 + (index * 300)); // API load'dan sonra başlasın
+                    }, 3000 + (index * 300));  // ERSIN API load'dan sonra başlasın
                 }
             });
             
-            // Results section'ı görünür yap
+            // ERSIN Results section'ı görünür yap
             setTimeout(() => {
                 const resultsSection = document.getElementById('resultsSection');
                 if (resultsSection) {
@@ -2103,12 +2085,12 @@ function loadStoredAnalyses() {
         
     } catch (error) {
         console.error('❌ localStorage analyses restore hatası:', error);
-        // localStorage'ı temizle eğer corrupt olmuşsa
+        // ERSIN localStorage'ı temizle eğer corrupt olmuşsa
         localStorage.removeItem('wsanaliz_recent_analyses');
     }
 }
 
-// 🗑️ localStorage analysis cache'ini temizle (debug için)
+// ERSIN 🗑️ localStorage analysis cache'ini temizle (debug için)
 window.clearAnalysisCache = function() {
     localStorage.removeItem('wsanaliz_recent_analyses');
     console.log('🗑️ Analysis cache temizlendi');
@@ -2117,12 +2099,12 @@ window.clearAnalysisCache = function() {
     }
 };
 
-// İçerik analizi son geri bildirimleri ve kategori dağılımı yükleyici
+// ERSIN İçerik analizi son geri bildirimleri ve kategori dağılımı yükleyici
 function loadRecentContentFeedbacks() {
     fetch('/api/feedback/content/recent')
         .then(res => res.json())
         .then(data => {
-            // Son geri bildirimler
+            // ERSIN Son geri bildirimler
             const container = document.getElementById('recentContentFeedbacks');
             if (container) {
                 if (data.recent_feedbacks && data.recent_feedbacks.length > 0) {
@@ -2139,7 +2121,7 @@ function loadRecentContentFeedbacks() {
                     container.innerHTML = '<div class="alert alert-secondary">Henüz içerik geri bildirimi yok.</div>';
                 }
             }
-            // Kategori dağılımı
+            // ERSIN Kategori dağılımı
             const distContainer = document.getElementById('contentFeedbackCategoryDist');
             if (distContainer) {
                 if (data.category_distribution && Object.keys(data.category_distribution).length > 0) {
@@ -2159,17 +2141,17 @@ function loadRecentContentFeedbacks() {
         });
 }
 
-// Modal açıldığında feedbackleri yükle
+// ERSIN Modal açıldığında feedbackleri yükle
 const modelMetricsModalEl = document.getElementById('modelMetricsModal');
 if (modelMetricsModalEl) {
     modelMetricsModalEl.addEventListener('show.bs.modal', loadRecentContentFeedbacks);
 } 
 
-// 🗑️ ANALIZ SONUÇLARI TEMİZLEME FONKSİYONU
+// ERSIN 🗑️ ANALIZ SONUÇLARI TEMİZLEME FONKSİYONU
 async function clearAllAnalysisResults() {
     if (confirm('Tüm analiz sonuçlarını temizlemek istediğinizden emin misiniz? Bu işlem geri alınamaz ve veritabanından da silinecektir.')) {
         try {
-            // Backend'ten analiz sonuçlarını temizle
+            // ERSIN Backend'ten analiz sonuçlarını temizle
             const response = await fetch('/api/analysis/clear-all', {
                 method: 'DELETE',
                 headers: {
@@ -2180,27 +2162,27 @@ async function clearAllAnalysisResults() {
             const result = await response.json();
             
             if (response.ok && result.success) {
-                // localStorage'dan analiz sonuçlarını temizle
+                // ERSIN localStorage'dan analiz sonuçlarını temizle
                 localStorage.removeItem('wsanaliz_recent_analyses');
                 
-                // Global uploadedFiles array'ini temizle
+                // ERSIN Global uploadedFiles array'ini temizle
                 if (window.uploadedFiles) {
                     window.uploadedFiles = [];
                 }
                 
-                // Results section'ı gizle
+                // ERSIN Results section'ı gizle
                 const resultsSection = document.getElementById('resultsSection');
                 if (resultsSection) {
                     resultsSection.style.display = 'none';
                 }
                 
-                // Results listesini temizle
+                // ERSIN Results listesini temizle
                 const resultsList = document.getElementById('resultsList');
                 if (resultsList) {
                     resultsList.innerHTML = '';
                 }
                 
-                // Success mesajı göster
+                // ERSIN Success mesajı göster
                 alert(`Başarı! ${result.deleted_count} analiz sonucu veritabanından ve localStorage'dan temizlendi.`);
                 
                 console.log(`🗑️ ${result.deleted_count} analiz sonucu temizlendi`);
@@ -2215,5 +2197,5 @@ async function clearAllAnalysisResults() {
     }
 }
 
-// Global erişim için
+// ERSIN Global erişim için
 window.clearAllAnalysisResults = clearAllAnalysisResults; 

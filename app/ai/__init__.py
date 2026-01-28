@@ -1,2 +1,2 @@
-# Artificial Intelligence package
-# Yapay zeka modelleri için modüller 
+# ERSIN Artificial Intelligence package
+# ERSIN Yapay zeka modelleri için modüller

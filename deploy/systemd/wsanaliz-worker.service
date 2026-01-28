@@ -16,6 +16,8 @@ Environment="PYTHONUNBUFFERED=1"
 
 Environment="WSANALIZ_QUEUE_BACKEND=redis"
 Environment="WSANALIZ_REDIS_URL=redis://localhost:6379/0"
+# ERSIN Web ile aynı DB dosyası (worker ayrı process, config aynı olsa da açık path)
+Environment="DATABASE_URL=sqlite:////opt/wsanaliz/wsanaliz_dev.db"
 
 # GPU lock path (opsiyonel)
 Environment="WSANALIZ_GPU_LOCK_PATH=/tmp/wsanaliz_gpu_analysis.lock"

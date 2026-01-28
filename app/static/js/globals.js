@@ -1,57 +1,47 @@
-/**
- * WSANALIZ - Global Variables & Utilities Module
- * 
- * Bu modül tüm global değişkenleri ve yardımcı fonksiyonları içerir.
- * main.js'ten extract edilmiştir.
- */
+/* ERSIN Aciklama. */
 
-// =====================================
-// GLOBAL CONSTANTS & VARIABLES
-// =====================================
+// ERSIN =====================================
+// ERSIN GLOBAL CONSTANTS & VARIABLES
+// ERSIN =====================================
 
 export const API_URL = '/api';
 
-// Global state variables
-export let socket = null; // Global socket - tek instance
+// ERSIN Global state variables
+export let socket = null;  // ERSIN Global socket - tek instance
 export let uploadedFiles = [];
 export let analysisResults = {};
 export let currentAnalysisIds = [];
 export let hideLoaderTimeout = null;
 export let globalAnalysisParamsModalElement = null;
 
-// Global flags for training
+// ERSIN Global flags için training
 export const globalTrainingState = {
     currentTrainingSessionId: null,
     isModalTraining: false
 };
 
-// Analysis state tracking
-export const fileStatuses = new Map();  // Maps fileId to status
-export const fileAnalysisMap = new Map();  // Maps analysisId to fileId
-export const cancelledAnalyses = new Set();  // Set of cancelled analysisId values
-export const fileErrorCounts = new Map();  // Maps fileId to error count
+// ERSIN Analysis state tracking
+export const fileStatuses = new Map();  // ERSIN Maps fileId to status
+export const fileAnalysisMap = new Map();  // ERSIN Maps analysisId to fileId
+export const cancelledAnalyses = new Set();  // ERSIN Set of cancelled analysisId values
+export const fileErrorCounts = new Map();  // ERSIN Maps fileId to error count
 export let totalAnalysisCount = 0;
 export let MAX_STATUS_CHECK_RETRIES = 5;
 
-// =====================================
-// UTILITY FUNCTIONS
-// =====================================
+// ERSIN =====================================
+// ERSIN UTILITY FUNCTIONS
+// ERSIN =====================================
 
-/**
- * Dosya yolu normalleştirme fonksiyonu
- * Windows ve Unix yol ayraçlarını normalize eder
- */
+/* ERSIN Aciklama. */
 export function normalizePath(path) {
     if (path) {
-        // Önce tüm backslash'leri slash'e çevir
+        // ERSIN Önce tüm backslash'leri slash'e çevir
         return path.replace(/\\/g, '/');
     }
     return path;
 }
 
-/**
- * Dosya boyutunu human-readable format'a çevirir
- */
+/* ERSIN Aciklama. */
 export function formatFileSize(bytes) {
     if (bytes === 0) return '0 Bytes';
     const k = 1024;
@@ -60,18 +50,14 @@ export function formatFileSize(bytes) {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 }
 
-/**
- * Saniyeyi okunabilir zaman formatına çevirir
- */
+/* ERSIN Aciklama. */
 export function formatTime(seconds) {
     const minutes = Math.floor(seconds / 60);
     const remainingSeconds = Math.floor(seconds % 60);
     return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
 }
 
-/**
- * Süreyi dakika:saniye formatında döndürür
- */
+/* ERSIN Aciklama. */
 export function formatDuration(seconds) {
     const hours = Math.floor(seconds / 3600);
     const minutes = Math.floor((seconds % 3600) / 60);
@@ -83,9 +69,7 @@ export function formatDuration(seconds) {
     return `${minutes}:${secs.toString().padStart(2, '0')}`;
 }
 
-/**
- * Toast bildirimi gösterir
- */
+/* ERSIN Aciklama. */
 export function showToast(title, message, type = 'info') {
     const toast = document.createElement('div');
     toast.className = `toast align-items-center text-white bg-${type === 'error' ? 'danger' : type} border-0`;
@@ -109,31 +93,25 @@ export function showToast(title, message, type = 'info') {
         const bsToast = new bootstrap.Toast(toast);
         bsToast.show();
         
-        // Toast gizlendiğinde DOM'dan kaldır
+        // ERSIN Toast gizlendiğinde DOM'dan kaldır
         toast.addEventListener('hidden.bs.toast', () => {
             toast.remove();
         });
     }
 }
 
-/**
- * Hata mesajı gösterir
- */
+/* ERSIN Aciklama. */
 export function showError(message) {
     showToast('Hata', message, 'error');
 }
 
-/**
- * File ID'den dosya adını döndürür
- */
+/* ERSIN Aciklama. */
 export function fileNameFromId(fileId) {
     const file = uploadedFiles.find(f => f.id === fileId);
     return file ? file.name : 'Bilinmeyen Dosya';
 }
 
-/**
- * Global state'i window objesine paylaş
- */
+/* ERSIN Aciklama. */
 export function exposeGlobalState() {
     window.fileAnalysisMap = fileAnalysisMap;
     window.uploadedFiles = uploadedFiles;
@@ -141,9 +119,7 @@ export function exposeGlobalState() {
     window.isModalTraining = globalTrainingState.isModalTraining;
 }
 
-/**
- * Global değişkenleri setter fonksiyonları
- */
+/* ERSIN Aciklama. */
 export function setSocket(newSocket) {
     socket = newSocket;
 }
@@ -162,5 +138,5 @@ export function setIsModalTraining(isTraining) {
     window.isModalTraining = isTraining;
 }
 
-// Initialize global state exposure
+// ERSIN Initialize global state exposure
 exposeGlobalState(); 

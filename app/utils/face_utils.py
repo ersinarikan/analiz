@@ -1,10 +1,11 @@
-import cv2
-import numpy as np
-import logging
+import cv2 
+import numpy as np 
+import logging 
+from typing import Any 
 
-logger = logging.getLogger(__name__)
+logger =logging .getLogger (__name__ )
 
-def extract_hair_color(face_image: np.ndarray, bbox: tuple[int, int, int, int]) -> tuple[int, int, int] | None:
+def extract_hair_color (face_image :np .ndarray [Any ,Any ],bbox :tuple [int ,int ,int ,int ])->tuple [int ,int ,int ]|None :
     """
     Yüzün üst kısmından saç rengini çıkarır.
     
@@ -15,48 +16,48 @@ def extract_hair_color(face_image: np.ndarray, bbox: tuple[int, int, int, int]) 
     Returns:
         (r, g, b): Ortalama saç rengi veya None
     """
-    try:
-        x, y, w, h = bbox
-        # Yüzün üst kısmını al (saç bölgesi)
-        hair_region_height = int(h * 0.2)
-        hair_region = face_image[max(0, y-hair_region_height):y, max(0, x):min(face_image.shape[1], x+w)]
-        
-        if hair_region.size == 0:
-            return None
-        
-        # Görüntüyü HSV'ye dönüştür
-        hsv = cv2.cvtColor(hair_region, cv2.COLOR_BGR2HSV)
-        
-        # Renk maskeleri (saç renkleri için)
-        # Siyah
-        lower_black = np.array([0, 0, 0])
-        upper_black = np.array([180, 255, 50])
-        # Kahverengi
-        lower_brown = np.array([10, 50, 50])
-        upper_brown = np.array([20, 255, 200])
-        # Sarı/Sarışın
-        lower_blonde = np.array([20, 50, 150])
-        upper_blonde = np.array([30, 255, 255])
-        
-        # Maskeleri uygula
-        mask_black = cv2.inRange(hsv, lower_black, upper_black)
-        mask_brown = cv2.inRange(hsv, lower_brown, upper_brown)
-        mask_blonde = cv2.inRange(hsv, lower_blonde, upper_blonde)
-        
-        # En fazla piksele sahip rengi seç
-        black_count = np.sum(mask_black > 0)
-        brown_count = np.sum(mask_brown > 0)
-        blonde_count = np.sum(mask_blonde > 0)
-        
-        # Basitçe ortalama rengi döndür
-        avg_color = np.mean(hair_region, axis=(0, 1))
-        return tuple(avg_color)
-        
-    except Exception as e:
-        logger.error(f"Saç rengi çıkarma hatası: {str(e)}")
-        return None
+    try :
+        x ,y ,w ,h =bbox 
+        # ERSIN Yüzün üst kısmını al (saç bölgesi)
+        hair_region_height =int (h *0.2 )
+        hair_region =face_image [max (0 ,y -hair_region_height ):y ,max (0 ,x ):min (face_image .shape [1 ],x +w )]
 
-def extract_skin_tone(face_image: np.ndarray, bbox: tuple[int, int, int, int]) -> tuple[int, int, int] | None:
+        if hair_region .size ==0 :
+            return None 
+
+            # ERSIN Görüntüyü HSV'ye dönüştür
+        hsv =cv2 .cvtColor (hair_region ,cv2 .COLOR_BGR2HSV )
+
+        # ERSIN Renk maskeleri (saç renkleri için)
+        # ERSIN Siyah
+        lower_black =np .array ([0 ,0 ,0 ])
+        upper_black =np .array ([180 ,255 ,50 ])
+        # ERSIN Kahverengi
+        lower_brown =np .array ([10 ,50 ,50 ])
+        upper_brown =np .array ([20 ,255 ,200 ])
+        # ERSIN Sarı/Sarışın
+        lower_blonde =np .array ([20 ,50 ,150 ])
+        upper_blonde =np .array ([30 ,255 ,255 ])
+
+        # ERSIN Maskeleri uygula
+        mask_black =cv2 .inRange (hsv ,lower_black ,upper_black )
+        mask_brown =cv2 .inRange (hsv ,lower_brown ,upper_brown )
+        mask_blonde =cv2 .inRange (hsv ,lower_blonde ,upper_blonde )
+
+        # ERSIN En fazla piksele sahip rengi seç
+        black_count =np .sum (mask_black >0 )
+        brown_count =np .sum (mask_brown >0 )
+        blonde_count =np .sum (mask_blonde >0 )
+
+        # ERSIN Basitçe ortalama rengi döndür
+        avg_color =np .mean (hair_region ,axis =(0 ,1 ))
+        return tuple (avg_color )
+
+    except Exception as e :
+        logger .error (f"Saç rengi çıkarma hatası: {str (e )}")
+        return None 
+
+def extract_skin_tone (face_image :np .ndarray [Any ,Any ],bbox :tuple [int ,int ,int ,int ])->tuple [int ,int ,int ]|None :
     """
     Yüz bölgesinden ortalama cilt tonunu çıkarır.
     
@@ -67,29 +68,29 @@ def extract_skin_tone(face_image: np.ndarray, bbox: tuple[int, int, int, int]) -
     Returns:
         (r, g, b): Ortalama cilt tonu veya None
     """
-    try:
-        x, y, w, h = bbox
-        # Yüzün orta kısmını al (burun ve yanaklar)
-        center_x, center_y = x + w//2, y + h//2
-        face_center_size = min(w, h) // 4
-        
-        face_center = face_image[
-            max(0, center_y - face_center_size):min(face_image.shape[0], center_y + face_center_size),
-            max(0, center_x - face_center_size):min(face_image.shape[1], center_x + face_center_size)
-        ]
-        
-        if face_center.size == 0:
-            return None
-            
-        # Ortalama rengi hesapla
-        avg_color = np.mean(face_center, axis=(0, 1))
-        return tuple(avg_color)
-        
-    except Exception as e:
-        logger.error(f"Cilt tonu çıkarma hatası: {str(e)}")
-        return None
+    try :
+        x ,y ,w ,h =bbox 
+        # ERSIN Yüzün orta kısmını al (burun ve yanaklar)
+        center_x ,center_y =x +w //2 ,y +h //2 
+        face_center_size =min (w ,h )//4 
 
-def extract_face_landmarks(face_obj: object) -> np.ndarray | None:
+        face_center =face_image [
+        max (0 ,center_y -face_center_size ):min (face_image .shape [0 ],center_y +face_center_size ),
+        max (0 ,center_x -face_center_size ):min (face_image .shape [1 ],center_x +face_center_size )
+        ]
+
+        if face_center .size ==0 :
+            return None 
+
+            # ERSIN Ortalama rengi hesapla
+        avg_color =np .mean (face_center ,axis =(0 ,1 ))
+        return tuple (avg_color )
+
+    except Exception as e :
+        logger .error (f"Cilt tonu çıkarma hatası: {str (e )}")
+        return None 
+
+def extract_face_landmarks (face_obj :object )->np .ndarray [Any ,Any ]|None :
     """
     InsightFace yüz nesnesinden landmark'ları çıkarır.
     
@@ -99,16 +100,18 @@ def extract_face_landmarks(face_obj: object) -> np.ndarray | None:
     Returns:
         landmarks: Landmark noktaları (array) veya None
     """
-    try:
-        if hasattr(face_obj, 'landmark') and face_obj.landmark is not None:
-            # InsightFace landmark'larını numpy array'e dönüştür
-            return face_obj.landmark.astype(np.float32)
-        return None
-    except Exception as e:
-        logger.error(f"Landmark çıkarma hatası: {str(e)}")
-        return None
+    try :
+    # ERSIN face_obj is object type, use getattr to safely access attributes
+        landmark =getattr (face_obj ,'landmark',None )
+        if landmark is not None :
+        # ERSIN InsightFace landmark'larını numpy array'e dönüştür
+            return landmark .astype (np .float32 )
+        return None 
+    except Exception as e :
+        logger .error (f"Landmark çıkarma hatası: {str (e )}")
+        return None 
 
-def extract_face_features(image: np.ndarray, face_obj: object, bbox: tuple) -> dict:
+def extract_face_features (image :np .ndarray [Any ,Any ],face_obj :object ,bbox :tuple [Any ,...])->dict [str ,Any ]:
     """
     Yüz nesnesinden temel özellikleri çıkarır.
     Args:
@@ -118,11 +121,12 @@ def extract_face_features(image: np.ndarray, face_obj: object, bbox: tuple) -> d
     Returns:
         dict: Özellikler (bbox, kps, age, gender, embedding, vs.).
     """
-    features = {
-        'embedding': face_obj.embedding if hasattr(face_obj, 'embedding') else None,
-        'gender': face_obj.gender if hasattr(face_obj, 'gender') else None,
-        'landmarks': extract_face_landmarks(face_obj),
-        'hair_color': extract_hair_color(image, bbox),
-        'skin_tone': extract_skin_tone(image, bbox)
+    # ERSIN face_obj is object type, use getattr to safely access attributes
+    features ={
+    'embedding':getattr (face_obj ,'embedding',None ),
+    'gender':getattr (face_obj ,'gender',None ),
+    'landmarks':extract_face_landmarks (face_obj ),
+    'hair_color':extract_hair_color (image ,bbox ),
+    'skin_tone':extract_skin_tone (image ,bbox )
     }
     return features 
